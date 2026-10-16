@@ -1,0 +1,40 @@
+services:
+  api:
+    build: .
+    image: openresearch-python:local
+    ports:
+      - "127.0.0.1:${OPENRESEARCH_PORT:-8080}:8080"
+    environment: &runtime
+      OPENRESEARCH_DATA_DIR: /data
+      OPENRESEARCH_API_TOKEN: ${OPENRESEARCH_API_TOKEN:-}
+      OPENRESEARCH_LLM_PROVIDER: ${OPENRESEARCH_LLM_PROVIDER:-openai}
+      OPENRESEARCH_LLM_BASE_URL: ${OPENRESEARCH_LLM_BASE_URL:-https://api.openai.com/v1}
+      OPENRESEARCH_LLM_MODEL: ${OPENRESEARCH_LLM_MODEL:-}
+      OPENRESEARCH_LLM_API_KEY: ${OPENRESEARCH_LLM_API_KEY:-}
+      OPENRESEARCH_LLM_TIMEOUT_SECONDS: ${OPENRESEARCH_LLM_TIMEOUT_SECONDS:-60}
+      OPENRESEARCH_LLM_MAX_OUTPUT_TOKENS: ${OPENRESEARCH_LLM_MAX_OUTPUT_TOKENS:-8192}
+      OPENRESEARCH_LLM_SCHEMA_RETRIES: ${OPENRESEARCH_LLM_SCHEMA_RETRIES:-1}
+      OPENRESEARCH_LLM_THINKING: ${OPENRESEARCH_LLM_THINKING:-default}
+      OPENRESEARCH_LLM_STRUCTURED_OUTPUT: ${OPENRESEARCH_LLM_STRUCTURED_OUTPUT:-prompt}
+      OPENRESEARCH_TASK_TIMEOUT_SECONDS: ${OPENRESEARCH_TASK_TIMEOUT_SECONDS:-120}
+      OPENRESEARCH_PLAN_TIMEOUT_SECONDS: ${OPENRESEARCH_PLAN_TIMEOUT_SECONDS:-600}
+    volumes:
+      - research-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ping', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  worker:
+    image: openresearch-python:local
+    command: ["/app/.venv/bin/openresearch", "worker"]
+    environment: *runtime
+    volumes:
+      - research-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  research-data:

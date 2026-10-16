@@ -1,0 +1,64 @@
+from functools import cache
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openresearch.models.runtime import Plan, Task
+
+
+def artifact_producers(nodes: dict[str, "Task"]) -> dict[str, str]:
+    producers: dict[str, str] = {}
+    for node in nodes.values():
+        if set(node.contract.input_artifacts) != set(node.required_artifacts):
+            raise ValueError("task input contract does not match required artifacts")
+        if set(node.contract.output_artifacts) != set(node.output_artifacts):
+            raise ValueError("task output contract does not match output artifacts")
+        if len(set(node.dependencies)) != len(node.dependencies):
+            raise ValueError("task dependencies must be unique")
+        if any(dependency not in nodes for dependency in node.dependencies):
+            raise ValueError("unknown task dependency")
+        for key in node.output_artifacts:
+            if key in producers:
+                raise ValueError("artifact keys must have one producer per plan")
+            producers[key] = node.id
+    return producers
+
+
+def ancestor_map(nodes: dict[str, "Task"]) -> dict[str, frozenset[str]]:
+    visiting: set[str] = set()
+
+    @cache
+    def ancestors(task_id: str) -> frozenset[str]:
+        if task_id in visiting:
+            raise ValueError("task graph contains a cycle")
+        visiting.add(task_id)
+        upstream: set[str] = set()
+        for dependency in nodes[task_id].dependencies:
+            upstream.add(dependency)
+            upstream.update(ancestors(dependency))
+        visiting.remove(task_id)
+        return frozenset(upstream)
+
+    # 缓存每个节点的祖先集合，菱形依赖图不会重复递归展开。
+    return {task_id: ancestors(task_id) for task_id in nodes}
+
+
+def validate_graph(plan: "Plan") -> None:
+    if not plan.nodes or len(plan.nodes) > 64:
+        raise ValueError("a plan must contain between 1 and 64 tasks")
+    nodes = {node.id: node for node in plan.nodes}
+    if len(nodes) != len(plan.nodes):
+        raise ValueError("task IDs must be unique")
+    if plan.execution_scope is not None and (
+        not plan.execution_scope or set(plan.execution_scope) - set(nodes)
+    ):
+        raise ValueError("execution scope must reference existing tasks")
+    producers = artifact_producers(nodes)
+    ancestors = ancestor_map(nodes)
+    for node in nodes.values():
+        if any(producers.get(key) not in ancestors[node.id] for key in node.required_artifacts):
+            raise ValueError("required artifact must be produced by an ancestor")
+    for edge in plan.edges:
+        if edge.from_ not in nodes or edge.to not in nodes:
+            raise ValueError("edge references an unknown task")
+        if edge.type not in {"control", "data"}:
+            raise ValueError("unknown edge type")

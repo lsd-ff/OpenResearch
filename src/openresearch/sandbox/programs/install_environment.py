@@ -1,0 +1,62 @@
+"""可信安装程序，只在沙箱中运行，严格禁止构建源码分发包和联网安装。"""
+
+import importlib.metadata
+import json
+import pathlib
+import platform
+import subprocess
+import sys
+
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.utils import canonicalize_name
+
+root = pathlib.Path("/tmp/openresearch")
+target = pathlib.Path("/workspace/environment")
+target.mkdir(parents=True, exist_ok=True)
+assert sys.version_info[:2] == (3, 12), "environment lock requires CPython 3.12"
+assert platform.system() == "Linux" and platform.machine() == "x86_64", "unsupported target"
+if (root / "requirements.lock").read_text().strip():
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--isolated",
+            "install",
+            "--disable-pip-version-check",
+            "--no-index",
+            "--no-deps",
+            "--only-binary=:all:",
+            "--require-hashes",
+            "--no-compile",
+            "--find-links",
+            str(root / "wheels"),
+            "--target",
+            str(target),
+            "-r",
+            str(root / "requirements.lock"),
+        ],
+        check=True,
+    )
+distributions = list(importlib.metadata.distributions(path=[str(target)]))
+installed = {canonicalize_name(item.metadata["Name"]): item.version for item in distributions}
+# 以容器实际 Python 补丁版本再次验证 wheel 内元数据，避免服务端目标版本与运行版本的 marker 差异。
+for distribution in distributions:
+    for raw in distribution.requires or []:
+        dependency = Requirement(raw)
+        if dependency.marker and not dependency.marker.evaluate({"extra": ""}):
+            continue
+        name = canonicalize_name(dependency.name)
+        if (
+            dependency.url
+            or dependency.extras
+            or name not in installed
+            or installed[name] not in dependency.specifier
+        ):
+            raise RuntimeError(f"installed environment has an unsatisfied dependency: {dependency}")
+report = {
+    "python": platform.python_version(),
+    "platform": platform.platform(),
+    "installed": installed,
+}
+(root / "environment.json").write_text(json.dumps(report))

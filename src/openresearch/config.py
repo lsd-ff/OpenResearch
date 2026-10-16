@@ -1,0 +1,88 @@
+"""One configuration source shared by the API and worker."""
+
+from pathlib import Path
+from typing import Literal
+from urllib.parse import urlsplit
+
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="OPENRESEARCH_", env_file=".env", extra="ignore")
+
+    data_dir: Path = Path(".data")
+    host: str = "127.0.0.1"
+    port: int = Field(default=8080, ge=1, le=65535)
+    web_dir: Path | None = None
+    sandbox_backend: Literal["docker", "http"] = "docker"
+    sandbox_url: str = "http://127.0.0.1:8082"
+    sandbox_token: SecretStr = SecretStr("")
+    sandbox_image: str = "python:3.12-slim"
+    sandbox_network: Literal["none", "bridge"] = "none"
+    sandbox_memory: str = "256m"
+    api_token: SecretStr = SecretStr("")
+    require_approval: bool = False
+    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    max_concurrent_tasks: int = Field(default=2, ge=1, le=16)
+    task_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    plan_timeout_seconds: int = Field(default=600, ge=1, le=86400)
+    max_task_attempts: int = Field(default=10, ge=1, le=1000)
+    lease_seconds: int = Field(default=30, ge=3, le=300)
+    poll_interval_seconds: float = Field(default=0.25, gt=0, le=10)
+    max_output_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)
+    upload_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
+    document_max_pages: int = Field(default=100, ge=1, le=300)
+    document_max_text_bytes: int = Field(default=512000, ge=1024, le=2 * 1024 * 1024)
+    document_timeout_seconds: int = Field(default=60, ge=1, le=300)
+    source_max_archive_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
+    source_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
+    source_max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
+    source_max_files: int = Field(default=2000, ge=1, le=10000)
+    dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
+    benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
+    llm_provider: Literal["openai", "anthropic"] = "openai"
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = ""
+    llm_api_key: SecretStr = SecretStr("")
+    llm_timeout_seconds: int = Field(default=60, ge=1, le=300)
+    llm_max_output_tokens: int = Field(default=8192, ge=128, le=65536)
+    llm_schema_retries: int = Field(default=1, ge=0, le=2)
+    llm_thinking: Literal["default", "disabled"] = "default"
+    llm_structured_output: Literal["prompt", "tool"] = "prompt"
+    llm_max_input_bytes: int = Field(default=131072, ge=4096, le=1048576)
+    llm_max_response_bytes: int = Field(default=512000, ge=4096, le=2 * 1024 * 1024)
+
+    @field_validator("data_dir")
+    @classmethod
+    def absolute_data_dir(cls, value: Path) -> Path:
+        return value.expanduser().resolve()
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def validate_llm_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"https", "http"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "model base URL must be HTTP(S) without credentials, query or fragment"
+            )
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_lease_polling(self) -> "Settings":
+        if self.poll_interval_seconds >= self.lease_seconds / 3:
+            raise ValueError("poll interval must be less than one third of the lease duration")
+        if self.llm_structured_output == "tool" and self.llm_provider != "anthropic":
+            raise ValueError("structured response tools require the anthropic protocol")
+        return self
+
+    @property
+    def database_url(self) -> str:
+        return f"sqlite:///{(self.data_dir / 'runtime.sqlite3').as_posix()}"

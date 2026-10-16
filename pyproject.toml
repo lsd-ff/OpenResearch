@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openresearch"
+version = "0.1.0"
+description = "Persistent Python runtime for reproducible research tasks"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = "MIT"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "pydantic-settings>=2.7,<3",
+    "sqlalchemy>=2.0.38,<3",
+    "alembic>=1.14,<2",
+    "httpx>=0.28,<1",
+    "docker>=7.1,<8",
+    "pypdf>=6.20,<7",
+    "python-multipart>=0.0.20,<1",
+    "packaging>=25,<27",
+]
+
+[project.scripts]
+openresearch = "openresearch.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11,<1",
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.25,<2",
+    "pytest-cov>=6,<8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openresearch"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "RUF"]
+allowed-confusables = ["，", "。", "；", "：", "（", "）"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["docker", "docker.*", "pip._vendor.packaging.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+markers = [
+    "docker: requires a running Docker engine (explicit opt-in)",
+    "external: requires public network source access (explicit opt-in)",
+]
+
+[tool.coverage.run]
+source = ["openresearch"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true

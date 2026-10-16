@@ -1,0 +1,76 @@
+# 当前 HTTP 契约
+
+启动后在 /docs 查看 OpenAPI。模型拒绝未知字段，使用 snake_case，图边起点保留 from。请求最大体积受服务端限制。
+
+## 身份
+
+可信本地客户端使用 X-User-Id / X-Session-Id；否则生成 sa_uid / sa_sid HttpOnly Cookie。计划、上传、会话保存归属，其他身份访问得到 404。配置 API_TOKEN 时携带 Bearer 或 sa_access Cookie；浏览器在连接设置中调用 /api/auth/session 换取 Cookie，SSE 使用 withCredentials。
+
+共享令牌与客户端声明 ID 面向可信单机使用，不提供独立账号认证。
+
+## 接口
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | /ping、/api/health | 进程探活、沙箱就绪检查 |
+| POST | /api/auth/session | 认证 Cookie |
+| GET | /api/session | 当前持久会话、上传、计划、文档计划和历史 |
+| POST | /api/chat | message；模型答复和校验后的页码引用 |
+| POST | /api/messages | message、attachments；统一返回 chat / clarification / plan，支持持久追问 |
+| POST | /api/uploads | multipart file，201；返回 id、name、sha256、size、content_url |
+| GET | /api/uploads/{id}、/api/uploads/{id}/content | 元数据、原文件与 SHA ETag |
+| POST | /api/sources/search | kind=paper/repository、query、limit；返回来源元数据 |
+| GET | /api/pdf-proxy?url=... | 受限 arXiv PDF；其他来源请上传 |
+| POST | /api/plan | 创建图，不自动执行 |
+| GET | /api/plans/{id} | plan_graph 包含状态、节点和产物索引 |
+| POST | /api/plans/{id}/execute | 202，整图排队 |
+| POST | /api/plans/{id}/approve、cancel | 批准或取消 |
+| POST | /api/plans/{id}/tasks/{task}/execute | 202，只排队所选节点，依赖须已完成 |
+| POST | /api/plans/{id}/tasks/{task}/retry | 重置失败节点及后继，需再次执行 |
+| POST | /api/plans/{id}/tasks/{task}/reassign | assigned_to；仅允许尚未开始节点与兼容角色 |
+| POST | /api/execute | 持久节点的兼容 SSE 执行，task_id 必填，plan_id 可选 |
+| GET | /api/plans/{id}/events?after=0 | 最多 200 个事件、next_cursor |
+| GET | /api/plans/{id}/stream?after=0 | plan_event SSE，支持 Last-Event-ID |
+| GET | /api/plans/{id}/artifacts/{artifact}/content | 完整文本产物与 SHA ETag |
+| GET | /api/plans/{id}/documents | 已解析文档、页状态及内容地址 |
+| GET | /api/plans/{id}/documents/{upload}/pages/{page} | 页码、文本、needs_ocr、来源摘要 |
+
+## 创建工作流
+
+```json
+{"intent":"计算平方和","workflow":"code","code":"print(sum(x*x for x in range(5)))"}
+```
+
+workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已上传文件的 ID，最多 8 个。默认 auto 且无显式 research/code 时使用统一会话规划；显式工作流仍支持高级参数。显式 paper 只解析文档。
+
+工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。生成图后仍由 `/execute` 排队，生成计划本身不执行代码。
+
+自动研究图增加 research_design，输出 research_spec 和 experiment_design；依赖解析成固定版本再锁定 wheel。论文分析图包含 document_extract → paper_analyze。来源检索的多个候选需要选择实际编号；模型推测的 URL 不能直接执行。消息、追问和计划插入同一事务，revision 冲突返回 409。
+
+```json
+{
+  "intent": "运行指定仓库入口",
+  "workflow": "reproduce",
+  "research": {
+    "repository": {"url": "https://github.com/owner/repo", "ref": "main"},
+    "environment": {"requirements": ["blinker==1.9.0"]},
+    "entrypoint": "openresearch_run.py",
+    "allowed_patch_paths": ["openresearch_run.py"],
+    "max_repairs": 1,
+    "ablations": [],
+    "rubric": {"claims": []}
+  }
+}
+```
+
+repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来源，多个候选需要显式选择。ref 在准备时固定为完整提交 SHA。research.benchmark 包含 upload_id、format、input_columns、target_column、id_column、task 和 metrics；其协议见 experiments.md。rubric 支持来源页引用、数值阈值、容差、比较操作和指定运行 variant，规则先于实验冻结。
+
+/api/execute 只选择已保存的节点，客户端提交的类型、角色、输入不能覆盖持久契约。SSE 输出 log、result、error；整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
+
+## 状态与错误
+
+正常计划 pending → ready → in_progress → completed；可有 awaiting_approval、failed、canceled。依赖失败的节点 blocked。单节点完成后，若仍有未执行节点，计划回到 pending。
+
+无效状态操作 409；非法身份或游标 400；未认证 401；未知或外部身份资源 404；体积超限 413；类型不支持 415；字段、图、补丁及来源契约错误 422；模型未配置或调用失败 503。业务错误为 error，字段验证为 detail。外部来源不可用当前返回 422 并说明重试或替换来源。
+
+日志预览有界，完整 stdout/stderr 与预测保存到不可变产物。事件必须与状态同事务提交；历史序号可以断线回放。
