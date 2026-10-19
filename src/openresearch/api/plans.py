@@ -6,6 +6,7 @@ from openresearch.api.dependencies import IdentityDep, RuntimeDep
 from openresearch.api.payloads import message_payload, plan_payload
 from openresearch.api.schemas import CreatePlanRequest
 from openresearch.models.submissions import PlanSubmission
+from openresearch.planner.agent import PlannerAgent
 
 router = APIRouter(prefix="/api", tags=["plans"])
 
@@ -33,7 +34,10 @@ async def create_plan(
             "anon_user_id": identity.user_id,
             "session_id": identity.session_id,
         }
-    plan = runtime.plans.create(submission)
+    plan = runtime.plans.build(submission)
+    if payload.planning_mode == "llm":
+        plan = await PlannerAgent(runtime.settings, runtime.repository).refine(plan)
+    runtime.repository.save_plan(plan)
     return {
         "message": "Plan generated successfully",
         "plan_graph": plan_payload(plan),

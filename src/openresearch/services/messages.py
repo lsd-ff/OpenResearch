@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from openresearch.config import Settings
 from openresearch.errors import ModelError
@@ -7,6 +7,7 @@ from openresearch.models.chat import SourceCitation
 from openresearch.models.context import ConversationTurn
 from openresearch.models.runtime import Plan
 from openresearch.models.submissions import PlanSubmission
+from openresearch.planner.agent import PlannerAgent
 from openresearch.services.auto_planning import AutoPlanner
 from openresearch.services.chat import ChatService
 from openresearch.storage.conversations import ConversationUpdate
@@ -34,6 +35,7 @@ class MessageService:
         self.repository = repository
         self.chat = chat
         self.planner = planner
+        self.graph_planner = PlannerAgent(settings, repository)
 
     async def send(self, submission: PlanSubmission) -> MessageResult:
         """服务端统一路由；浏览器无需猜测追问回复属于哪个工作流。"""
@@ -56,6 +58,8 @@ class MessageService:
         try:
             async with asyncio.timeout(self.settings.llm_timeout_seconds * 3 + 120):
                 outcome = await self.planner.resolve(submission, snapshot)
+                if outcome.plan is not None:
+                    outcome = replace(outcome, plan=await self.graph_planner.refine(outcome.plan))
         except TimeoutError:
             raise ModelError(
                 "automatic planning timed out; retry or provide the source link"

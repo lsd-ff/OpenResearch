@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     source_max_files: int = Field(default=2000, ge=1, le=10000)
     dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
+    planner_mode: Literal["llm", "template"] = "llm"
     llm_provider: Literal["openai", "anthropic"] = "openai"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = ""
