@@ -19,9 +19,14 @@ services:
       OPENRESEARCH_TASK_TIMEOUT_SECONDS: ${OPENRESEARCH_TASK_TIMEOUT_SECONDS:-120}
       OPENRESEARCH_PLAN_TIMEOUT_SECONDS: ${OPENRESEARCH_PLAN_TIMEOUT_SECONDS:-600}
       OPENRESEARCH_PLANNER_MODE: ${OPENRESEARCH_PLANNER_MODE:-llm}
+      OPENRESEARCH_SANDBOX_BACKEND: http
+      OPENRESEARCH_SANDBOX_URL: http://sandbox:8082
+      OPENRESEARCH_SANDBOX_TOKEN: ${OPENRESEARCH_SANDBOX_TOKEN:-}
     volumes:
       - research-data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      sandbox:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ping', timeout=3)"]
       interval: 15s
@@ -33,9 +38,29 @@ services:
     environment: *runtime
     volumes:
       - research-data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       api:
         condition: service_healthy
+  sandbox:
+    image: openresearch-python:local
+    command: ["/app/.venv/bin/openresearch", "sandbox"]
+    environment:
+      OPENRESEARCH_DATA_DIR: /data
+      OPENRESEARCH_SANDBOX_TOKEN: ${OPENRESEARCH_SANDBOX_TOKEN:-}
+      OPENRESEARCH_SANDBOX_SERVICE_PORT: 8082
+      OPENRESEARCH_TASK_TIMEOUT_SECONDS: ${OPENRESEARCH_TASK_TIMEOUT_SECONDS:-120}
+      OPENRESEARCH_SANDBOX_IMAGE: ${OPENRESEARCH_SANDBOX_IMAGE:-python:3.12-slim}
+      OPENRESEARCH_SANDBOX_FALLBACK_ENABLED: ${OPENRESEARCH_SANDBOX_FALLBACK_ENABLED:-false}
+      OPENRESEARCH_OPENSANDBOX_URL: ${OPENRESEARCH_OPENSANDBOX_URL:-http://host.docker.internal:8088}
+      OPENRESEARCH_OPENSANDBOX_API_KEY: ${OPENRESEARCH_OPENSANDBOX_API_KEY:-}
+    volumes:
+      - sandbox-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/ping', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 volumes:
   research-data:
+  sandbox-data:

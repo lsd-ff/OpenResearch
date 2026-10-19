@@ -15,9 +15,13 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
     web_dir: Path | None = None
-    sandbox_backend: Literal["docker", "http"] = "docker"
+    sandbox_backend: Literal["docker", "http", "opensandbox", "auto"] = "docker"
     sandbox_url: str = "http://127.0.0.1:8082"
     sandbox_token: SecretStr = SecretStr("")
+    sandbox_service_port: int = Field(default=8082, ge=1, le=65535)
+    sandbox_fallback_enabled: bool = False
+    opensandbox_url: str = "http://127.0.0.1:8088"
+    opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
     sandbox_network: Literal["none", "bridge"] = "none"
     sandbox_memory: str = "256m"
@@ -59,7 +63,7 @@ class Settings(BaseSettings):
     def absolute_data_dir(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    @field_validator("llm_base_url")
+    @field_validator("llm_base_url", "sandbox_url", "opensandbox_url")
     @classmethod
     def validate_llm_url(cls, value: str) -> str:
         parsed = urlsplit(value)
