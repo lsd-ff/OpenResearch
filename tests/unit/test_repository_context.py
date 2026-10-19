@@ -30,4 +30,21 @@ def test_api_summary_skips_invalid_or_oversized_source_and_keeps_a_byte_budget()
     api = context["python_api"]
     assert len(api) <= 64
     assert not any(item["path"] in {"invalid.py", "oversized.py"} for item in api)
-    assert sum(len(json.dumps(item, ensure_ascii=False).encode()) for item in api) <= 16000
+    assert sum(len(json.dumps(item, ensure_ascii=False).encode()) for item in api) <= 24000
+
+
+def test_actual_return_contract_is_preserved_without_including_nested_helper_returns():
+    context = json.loads(
+        repository_context(
+            {
+                "model.py": b"""
+class Model:
+    def forward(self, src, target, training):
+        def unrelated():
+            return loss
+        return logits, attention
+"""
+            }
+        )
+    )
+    assert context["python_api"][0]["returns"]["Model.forward"] == ["(logits, attention)"]

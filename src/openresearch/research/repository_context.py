@@ -5,7 +5,7 @@ import json
 def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
     """只解析有界源码，不导入仓库；补齐截断正文之外的真实调用签名。"""
     output: list[dict[str, object]] = []
-    remaining = 16000
+    remaining = 24000
     paths = [path for path in sorted(files) if path.endswith(".py")][:64]
     for path in paths:
         if len(files[path]) > 65536:
@@ -15,18 +15,29 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
         except (SyntaxError, ValueError):
             continue
         signatures = []
+        returns: dict[str, list[str]] = {}
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 signatures.append(f"{node.name}({ast.unparse(node.args)[:400]})")
+                returns[node.name] = return_expressions(node)
             elif isinstance(node, ast.ClassDef):
                 signatures.extend(
                     f"{node.name}.{method.name}({ast.unparse(method.args)[:400]})"
                     for method in node.body
                     if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
                 )
+                returns.update(
+                    {
+                        f"{node.name}.{method.name}": return_expressions(method)
+                        for method in node.body
+                        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and not method.name.startswith("_")
+                    }
+                )
         item: dict[str, object] = {
             "path": path,
             "signatures": signatures[:32],
+            "returns": dict(list(returns.items())[:32]),
             "imports": [
                 ast.unparse(node)
                 for node in tree.body
@@ -38,6 +49,20 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
             output.append(item)
             remaining -= size
     return output
+
+
+def return_expressions(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    # 返回表达式来自实际 AST；避免把 (logits, attention) 猜成 (loss, logits)。
+    expressions: list[str] = []
+    pending = list(ast.iter_child_nodes(node))
+    while pending:
+        item = pending.pop()
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(item, ast.Return) and item.value is not None:
+            expressions.append(ast.unparse(item.value)[:160])
+        pending.extend(ast.iter_child_nodes(item))
+    return list(dict.fromkeys(expressions))[:4]
 
 
 def repository_context(files: dict[str, bytes]) -> str:

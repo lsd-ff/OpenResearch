@@ -43,6 +43,9 @@ DESIGN_PROMPT = (
     " Inspect actual core imports; do not blindly copy outdated dependency pins. Select "
     "Python 3.12-compatible versions for the actual CPU modules, excluding optional GPU, "
     "plotting and dataset dependencies that the requested adapter will not import."
+    " Ground API behavior in the actual return expressions; do not guess that forward returns "
+    "a loss. For architecture core tests, prioritize component invariants and the complete "
+    "architecture forward pass; add training or optimizer criteria only when requested."
 )
 
 
