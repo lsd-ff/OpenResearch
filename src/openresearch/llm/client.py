@@ -102,6 +102,10 @@ class LLMClient:
                 raw = await self.request_json(conversation, schema)
                 return contract.model_validate_json(raw)
             except InvalidJSONResponse as exc:
+                logger.warning(
+                    "model contract validation failed",
+                    extra={"contract": contract.__name__, "error_type": "incomplete_json"},
+                )
                 if attempt == self.settings.llm_schema_retries:
                     raise ModelError(
                         f"model provider returned an invalid {contract.__name__} response contract"
@@ -114,6 +118,23 @@ class LLMClient:
                     )
                 )
             except ValidationError as exc:
+                issues = exc.errors(include_input=False, include_url=False)
+                fields = sorted(
+                    {
+                        str(item["loc"][0])
+                        for item in issues
+                        if item["loc"] and item["loc"][0] in contract.model_fields
+                    }
+                )
+                logger.warning(
+                    "model contract validation failed",
+                    extra={
+                        "contract": contract.__name__,
+                        "error_type": ",".join(sorted({item["type"] for item in issues}))
+                        + ":"
+                        + ",".join(fields),
+                    },
+                )
                 if attempt == self.settings.llm_schema_retries:
                     raise ModelError(
                         f"model provider returned an invalid {contract.__name__} response contract"

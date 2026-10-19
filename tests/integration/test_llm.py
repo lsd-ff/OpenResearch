@@ -46,3 +46,35 @@ async def test_provider_failures_are_sanitized(settings: Settings, failure: str)
     with pytest.raises(ModelError) as captured:
         await client.generate_code("intent")
     assert "private-token" not in str(captured.value)
+
+
+async def test_contract_diagnostics_expose_types_and_known_fields_without_response_data(
+    settings, caplog
+):
+    settings.llm_model = "test-model"
+    settings.llm_api_key = SecretStr("private-token")
+    client = LLMClient(
+        settings,
+        httpx.MockTransport(
+            lambda _: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": '{"code":null,"private-token":"secret-body"}'}}
+                    ]
+                },
+            )
+        ),
+    )
+    with pytest.raises(ModelError):
+        await client.generate_code("create a program")
+    errors = [
+        record for record in caplog.records if record.msg == "model contract validation failed"
+    ]
+    assert errors and all(
+        "string_type" in record.error_type and ":code" in record.error_type for record in errors
+    )
+    assert all(
+        "private-token" not in record.error_type and "secret-body" not in record.error_type
+        for record in errors
+    )
