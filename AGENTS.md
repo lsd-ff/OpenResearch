@@ -10,3 +10,5 @@
 - 不改动 Go 工程作为重写的实现捷径；通过兼容接口或适配器复用。
 - 默认质量门禁：`uv run python scripts/check.py`。
 - 真实 Docker 验收：设置 `OPENRESEARCH_TEST_DOCKER=1` 后运行 `uv run pytest -m docker`。
+- 每次完成代码修改并通过对应检查后，创建 Git 提交并推送到已授权的 GitHub 仓库分支。
+- 不提交模型密钥、`.env`、运行数据、虚拟环境或构建产物；推送失败时保留本地提交并说明原因。

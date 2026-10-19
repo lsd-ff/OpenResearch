@@ -6,8 +6,8 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| Windows / Python 3.13.5：Ruff、格式、mypy strict | 通过，111 个源文件 |
-| Windows 离线行为测试 | 132 通过，15 Docker 用例不在默认门禁运行 |
+| Windows / Python 3.13.5：Ruff、格式、mypy strict | 2026-10-19 复核通过，124 个源文件 |
+| Windows 离线行为测试 | 2026-10-19 复核 160 通过，15 Docker 用例不在默认门禁运行 |
 | Windows 驱动 Docker Desktop Linux Engine：真实沙箱验收 | 15 通过，含真实 GitHub/PyPI 和容器实际 Python 条件依赖检查 |
 | Linux 容器 / Python 3.12.13：离线行为测试 | 132 通过 |
 | React ESLint、TypeScript、Vite | 通过 |
@@ -30,6 +30,8 @@
 浏览器验收发现并修复了刷新后 React Flow 尺寸丢失导致节点不可见的问题，并复核了完成状态与证据恢复。截图保存在本地运行目录 .data/browser-acceptance/benchmark-evidence.jpg，不提交运行数据。
 
 ## 真实模型追加验收
+
+2026-10-19：工作台和 Worker 已恢复启动，容器内全部 Python 源文件摘要与本地一致。`scripts/check.py`、前端 ESLint / TypeScript / Vite 已重新通过。聊天自动规划的真实模型验收已通过标签追问和补充后的计划生成，完整自动设计与执行仍在验收中；不能将此前高级表单路径的成功记录视为这条新路径已经通过。后续使用 `scripts/verify_auto_planning.py` 留存独立记录；本地密钥不进入提交。
 
 配置保持用户提供的 Anthropic BASE_URL 和模型别名；预检返回 HTTP 200，供应商响应标记为 DeepSeek-V4-Flash-0731。该字段只记录供应商声明，未独立确认模型权重。运行采用 Anthropic submit_response 的 input_schema、关闭扩展思考、4096 输出 token、180 秒模型总期限、480 秒任务和 1800 秒计划预算。
 
