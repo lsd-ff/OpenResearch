@@ -8,7 +8,7 @@ from openresearch.models.context import Conversation
 from openresearch.models.planning import IntentDraft, PendingPlanning
 from openresearch.models.research import BenchmarkSpec, ResearchSpec
 from openresearch.models.submissions import PlanSubmission
-from openresearch.services.intent import IntentParser
+from openresearch.services.intent import IntentParser, requests_source_reproduction
 from openresearch.services.planning_inputs import (
     benchmark_mapping,
     dataset_profiles,
@@ -68,6 +68,8 @@ class AutoPlanner:
             repository_candidates=pending.repository_candidates if pending else [],
             paper_candidates=pending.paper_candidates if pending else [],
         )
+        if draft.workflow == "code" and requests_source_reproduction(goal):
+            draft.workflow = "reproduce"
         if draft.workflow == "code":
             code = submission.code or self._uploaded_code(state, snapshot.owner_id)
             plan = await asyncio.to_thread(

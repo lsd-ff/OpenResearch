@@ -22,7 +22,7 @@ def build_code_plan(
     lower = intent.lower()
     if code is None and any(word in lower for word in ("论文", "复现", "benchmark", "reproduce")):
         raise ContractError(
-            "论文复现和 Benchmark 需要论文附件或实验配置，请使用“配置实验”指定数据与仓库。"
+            "论文复现和 Benchmark 需要真实材料，请在聊天中描述目标并提供论文、仓库或评测数据。"
         )
     if code is None and any(word in lower for word in ("smoke", "冒烟", "最小验证")):
         code = SMOKE_CODE

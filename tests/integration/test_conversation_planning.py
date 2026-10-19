@@ -27,6 +27,32 @@ def choose(monkeypatch, **values):
     monkeypatch.setattr(IntentParser, "parse", parse)
 
 
+@pytest.mark.parametrize("proposed_workflow", ["reproduce", "code"])
+def test_paper_reproduction_from_chat_defers_repository_discovery(
+    settings, repository, sandbox, monkeypatch, proposed_workflow
+):
+    choose(monkeypatch, workflow=proposed_workflow)
+    with TestClient(create_app(settings, repository, sandbox)) as client:
+        uploaded = client.post(
+            "/api/uploads",
+            files={"file": ("paper.pdf", b"%PDF-1.4\n", "application/pdf")},
+            headers=HEADERS,
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        response = client.post(
+            "/api/messages",
+            json={"message": "复现这篇附件中的协议验收", "attachments": [uploaded.json()["id"]]},
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        graph = response.json()["plan_graph"]
+        assert len(graph["nodes"]) == 7
+        document = next(node for node in graph["nodes"] if node["type"] == "document_extract")
+        source = next(node for node in graph["nodes"] if node["type"] == "repository_fetch")
+        assert source["dependencies"] == [document["id"]]
+        assert "repository" not in source["inputs"]
+
+
 def test_repository_reproduction_from_chat_requires_no_form(
     settings, repository, sandbox, monkeypatch
 ):

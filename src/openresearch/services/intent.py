@@ -37,6 +37,17 @@ def looks_like_task(message: str) -> bool:
     )
 
 
+def requests_source_reproduction(message: str) -> bool:
+    """保留用户明确的来源复现要求，不能被模型降级成无来源代码示例。"""
+    prefix = r"(?:^|[。!?\uFF01\uFF1F\n；;，,：:])\s*(?:(?:请|帮我|帮忙)\s*)?"
+    reproduction = re.search(prefix + r"(?:复现|reproduce\b|replicate\b)", message, re.I)
+    source = re.search(r"论文|附件|原文|这篇|仓库|\bpaper\b|\brepository\b|\brepo\b", message, re.I)
+    repository_run = re.search(
+        prefix + r"(?:使用|调用|运行|执行|测试).{0,12}(?:原|真实)仓库", message, re.I
+    )
+    return bool((reproduction and source) or repository_run)
+
+
 class IntentParser:
     def __init__(self, settings: Settings) -> None:
         self.llm = LLMClient(settings)
