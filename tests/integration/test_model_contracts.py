@@ -55,7 +55,9 @@ async def test_typed_requests_share_schema_and_correct_only_invalid_contract(
     assert calls == 2 and messages == [{"role": "user", "content": "extract claims"}]
 
 
-async def test_invalid_contract_retry_is_bounded_and_sanitized(settings: Settings) -> None:
+@pytest.mark.parametrize("retries", [0, 1, 2])
+async def test_invalid_contract_retry_is_bounded_and_sanitized(settings: Settings, retries) -> None:
+    settings.llm_schema_retries = retries
     settings.llm_model = "test-model"
     settings.llm_api_key = SecretStr("private-token")
     calls = 0
@@ -67,7 +69,7 @@ async def test_invalid_contract_retry_is_bounded_and_sanitized(settings: Setting
 
     with pytest.raises(ModelError, match="response contract") as captured:
         await LLMClient(settings, httpx.MockTransport(provider)).generate_code("print seven")
-    assert calls == 2 and "private-token" not in str(captured.value)
+    assert calls == retries + 1 and "private-token" not in str(captured.value)
 
 
 async def test_http_error_is_not_retried_as_a_contract_error(settings: Settings) -> None:
@@ -146,9 +148,12 @@ async def test_ignored_response_tool_plain_text_is_corrected_without_parsing_pro
     assert reply.response == "模型已连接，可以开始使用。" and calls == 2
 
 
+@pytest.mark.parametrize("retries", [0, 1, 2])
 async def test_invalid_json_correction_is_bounded_and_does_not_expose_output(
     settings: Settings,
+    retries,
 ) -> None:
+    settings.llm_schema_retries = retries
     settings.llm_model = "test-model"
     settings.llm_api_key = SecretStr("private-token")
     calls = 0
@@ -162,4 +167,15 @@ async def test_invalid_json_correction_is_bounded_and_does_not_expose_output(
 
     with pytest.raises(ModelError, match="response contract") as captured:
         await LLMClient(settings, httpx.MockTransport(provider)).generate_code("print seven")
-    assert calls == 2 and "private-token" not in str(captured.value)
+    assert calls == retries + 1 and "private-token" not in str(captured.value)
+
+
+async def test_two_contract_corrections_can_recover_before_the_shared_deadline(settings):
+    settings.llm_model = "test-model"
+    settings.llm_api_key = SecretStr("private-token")
+    settings.llm_schema_retries = 2
+    replies = iter([{"code": None}, {"code": ""}, {"code": "print(3)"}])
+    client = LLMClient(
+        settings, httpx.MockTransport(lambda _: provider_response("openai", next(replies)))
+    )
+    assert await client.generate_code("print three") == "print(3)"

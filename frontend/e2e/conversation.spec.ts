@@ -87,6 +87,32 @@ async function send(page: Page, message: string) {
   return received;
 }
 
+test('状态夹具：失败计划恢复完成后自动返回聊天报告，刷新不重复', async ({ page }) => {
+  await page.goto('/');
+  const created = await send(page, 'smoke');
+  const payload = await created.json();
+  const identifier = payload.plan_graph.id;
+  let recovered = false;
+  await page.route(`**/api/plans/${identifier}`, async route => {
+    const graph = structuredClone(payload.plan_graph);
+    graph.status = recovered ? 'completed' : 'failed';
+    graph.nodes.forEach((node: { status: string; error: string }) => {
+      node.status = recovered ? 'completed' : 'failed';
+      node.error = recovered ? '' : '状态夹具：首次执行失败';
+    });
+    const answer = graph.nodes[graph.nodes.length - 1];
+    answer.type = 'chat_answer';
+    answer.result = recovered ? '状态夹具：恢复后测试报告' : '';
+    await route.fulfill({ json: { ...payload, plan_graph: graph } });
+  });
+  await page.reload();
+  await expect(page.getByText('状态夹具：首次执行失败', { exact: true })).toBeVisible();
+  recovered = true;
+  await expect(page.getByText('状态夹具：恢复后测试报告', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('状态夹具：恢复后测试报告', { exact: true })).toHaveCount(1);
+});
+
 test('上传数据并在聊天补充列映射，刷新后无需重传或高级表单', async ({ page }, testInfo) => {
   let uploads = 0;
   page.on('request', request => {

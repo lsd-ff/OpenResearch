@@ -18,6 +18,7 @@ interface ChatSessionRecord {
   intentContext: IntentContext | null;
   planGraph: PlanGraph | null;
   reportedPlanId?: string;
+  reportedPlanStatus?: string;
 }
 
 interface PersistedChatState {
@@ -189,7 +190,9 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
           session => {
             const graph = response.plan_graph;
             const terminal = ['completed', 'failed', 'canceled'].includes(graph.status ?? '');
-            if (!terminal || session.reportedPlanId === graph.id) return { ...session, planGraph: graph };
+            const alreadyReported = session.reportedPlanId === graph.id &&
+              (session.reportedPlanStatus ?? session.planGraph?.status) === graph.status;
+            if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
             const analysis = graph.nodes.find(node => node.type === 'chat_answer')
               ?? graph.nodes.find(node => node.type === 'paper_analyze');
@@ -197,11 +200,13 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
               ? analysis?.result || '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
               : graph.status === 'canceled' ? '当前计划已取消。'
               : failure?.error || '执行失败，运行记录已保留，可查看失败节点后继续处理。';
-            return { ...session, planGraph: graph, reportedPlanId: graph.id,
+            return { ...session, planGraph: graph, reportedPlanId: graph.id, reportedPlanStatus: graph.status,
               chatHistory: [...session.chatHistory, { role: 'system', text }] };
           }) }));
-        if (!['completed', 'failed', 'canceled'].includes(response.plan_graph.status ?? ''))
-          timer = setTimeout(refreshPlan, 5000);
+        // 失败后仍有低频同步：同一计划重试成功时，必须把新的实际报告写回聊天。
+        if (response.plan_graph.status !== 'completed')
+          timer = setTimeout(refreshPlan,
+            ['failed', 'canceled'].includes(response.plan_graph.status ?? '') ? 15000 : 5000);
       } catch {
         if (!canceled) timer = setTimeout(refreshPlan, 5000);
       }

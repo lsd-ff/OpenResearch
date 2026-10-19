@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_timeout_seconds: int = Field(default=60, ge=1, le=300)
     llm_max_output_tokens: int = Field(default=8192, ge=128, le=65536)
-    llm_schema_retries: int = Field(default=1, ge=0, le=2)
+    llm_schema_retries: int = Field(default=2, ge=0, le=2)
     llm_thinking: Literal["default", "disabled"] = "default"
     llm_structured_output: Literal["prompt", "tool"] = "prompt"
     llm_max_input_bytes: int = Field(default=131072, ge=4096, le=1048576)

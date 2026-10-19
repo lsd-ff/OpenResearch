@@ -35,6 +35,8 @@ SELECTION_PROMPT = (
     " Match the COMPLETE architecture of the named paper, not a derivative subset. "
     "Original Transformer requires encoder, decoder and cross-attention; decoder-only GPT "
     "does not satisfy that request. Preserve explicitly requested GPT/BERT variants."
+    " When tests are requested, prefer an implementation with a documented runnable "
+    "pytest/unittest suite over one whose test scripts are marked unsupported."
 )
 FIT_PROMPT = (
     "Check ONLY whether the ACTUAL Python sources contain the complete requested architecture. "

@@ -80,7 +80,7 @@ async def assess_semantic(
         }
 
 
-def semantic_evidence(evidence: dict[str, str]) -> dict[str, str]:
+def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False) -> dict[str, str]:
     report = ResearchReport.model_validate_json(evidence["research_report"])
     sections = [f"success={report.success}"]
     for run in report.runs:
@@ -104,6 +104,26 @@ def semantic_evidence(evidence: dict[str, str]) -> dict[str, str]:
     # 保留真实换行和引号；源码补丁及旧失败尝试不进入可引用的证据。
     execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
+    if include_history:
+        # 汇总需要真实重试过程；历史错误单列，避免被误引为最终运行证据。
+        output["execution_history"] = json.dumps(
+            [
+                {
+                    "variant": run.variant,
+                    "attempts": [
+                        {
+                            "number": item.number,
+                            "exit_code": item.exit_code,
+                            "error": item.error,
+                            "stderr_tail": item.stderr[-1200:],
+                        }
+                        for item in run.attempts
+                    ],
+                }
+                for run in report.runs
+            ],
+            ensure_ascii=False,
+        )
     if "parsed_paper" in evidence:
         output["parsed_paper"] = evidence["parsed_paper"][:16000]
     return output
