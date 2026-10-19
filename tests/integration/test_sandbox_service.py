@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import httpx
@@ -103,3 +104,13 @@ async def test_execution_failure_is_not_retried_in_another_backend():
     with pytest.raises(SandboxError, match="execution failed"):
         await adapter.execute(identifier, "print(1)", on_log)
     assert secondary.created == []
+
+
+async def test_healthy_native_backend_does_not_wait_for_unavailable_optional_service():
+    class UnresponsiveFallback(InventorySandbox):
+        async def health(self):
+            await asyncio.Future()
+
+    adapter = FallbackSandbox(InventorySandbox(), UnresponsiveFallback())
+    async with asyncio.timeout(0.2):
+        assert await adapter.health()

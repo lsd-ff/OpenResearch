@@ -63,7 +63,8 @@ class FallbackSandbox:
             if adapter is None:
                 continue
             try:
-                items = await adapter.inventory()
+                async with asyncio.timeout(3):
+                    items = await adapter.inventory()
             except Exception:
                 logger.warning("sandbox backend inventory unavailable", extra={"backend": prefix})
                 continue
@@ -77,10 +78,17 @@ class FallbackSandbox:
         return results
 
     async def health(self) -> bool:
-        checks = [self.primary.health()]
-        if self.fallback:
-            checks.append(self.fallback.health())
-        return any(value is True for value in await asyncio.gather(*checks, return_exceptions=True))
+        # 可选后端不可达时，健康的原生 Docker 仍须及时报告可用。
+        for adapter in (self.primary, self.fallback):
+            if adapter is None:
+                continue
+            try:
+                async with asyncio.timeout(3):
+                    if await adapter.health():
+                        return True
+            except Exception:
+                continue
+        return False
 
     async def shutdown(self) -> None:
         await self.primary.shutdown()
