@@ -39,7 +39,7 @@ function ScholarAppShell(props: ScholarAppShellProps) {
 
   return (
     <div
-      className="scholar-app-shell flex h-screen overflow-hidden bg-gray-100 font-sans"
+      className="scholar-app-shell flex min-h-0 flex-1 overflow-hidden bg-gray-100 font-sans"
       data-mobile-pane={mobilePane}
     >
       <div className="scholar-mobile-tabbar">
@@ -283,46 +283,50 @@ export default function ScholarApp() {
 
   return (
     <ScholarRuntimeProvider value={runtimeContextValue}>
-      <ApiConnection />
-      <button className="research-launch" onClick={() => setResearchOpen(true)}>高级实验设置</button>
-      {researchOpen && <ResearchWorkspace identity={chatFlow.requestIdentity} attachments={chatFlow.pendingAttachments}
-        onReadPaper={attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`)}
-        onPlanCreated={chatFlow.acceptResearchPlan} onClose={() => setResearchOpen(false)} />}
-      <ScholarWorkspaceContent
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        logsEndRef={logsEndRef}
-        layout={layout}
-        chatFlow={{
-          chatHistory: chatFlow.chatHistory,
-          loading: chatFlow.loading,
-          prompt: chatFlow.prompt,
-          setPrompt: chatFlow.setPrompt,
-          handleSendMessage: chatFlow.handleSendMessage,
-		  pendingAttachments: chatFlow.pendingAttachments,
-		  uploadingAttachments: chatFlow.uploadingAttachments,
-		  attachmentError: chatFlow.attachmentError,
-		  handleAttachFiles: chatFlow.handleAttachFiles,
-		  handleRemoveAttachment: chatFlow.handleRemoveAttachment,
-          intentContext: chatFlow.intentContext,
-          activePlanId: chatFlow.activePlanId,
-		  activePlanStatus: chatFlow.activePlanStatus,
-          isLoggedIn: chatFlow.isLoggedIn,
-          userId: chatFlow.userId,
-          loginInput: chatFlow.loginInput,
-          setLoginInput: chatFlow.setLoginInput,
-          activeSessionId: chatFlow.activeSessionId,
-          sessionSummaries: chatFlow.sessionSummaries,
-          handleLogin: chatFlow.handleLogin,
-          handleCreateSession: chatFlow.handleCreateSession,
-          handleSwitchSession: chatFlow.handleSwitchSession,
-        }}
-        pdfFlow={pdfFlow}
-        mobilePane={mobilePane}
-        onMobilePaneChange={setMobilePane}
-      />
+      <div className="scholar-workbench">
+        <div className="workbench-tools" role="toolbar" aria-label="工作台设置">
+          <ApiConnection />
+          <button className="research-launch" onClick={() => setResearchOpen(true)}>高级实验设置</button>
+        </div>
+        {researchOpen && <ResearchWorkspace identity={chatFlow.requestIdentity} attachments={chatFlow.pendingAttachments}
+          onReadPaper={attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`)}
+          onPlanCreated={chatFlow.acceptResearchPlan} onClose={() => setResearchOpen(false)} />}
+        <ScholarWorkspaceContent
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          logsEndRef={logsEndRef}
+          layout={layout}
+          chatFlow={{
+            chatHistory: chatFlow.chatHistory,
+            loading: chatFlow.loading,
+            prompt: chatFlow.prompt,
+            setPrompt: chatFlow.setPrompt,
+            handleSendMessage: chatFlow.handleSendMessage,
+            pendingAttachments: chatFlow.pendingAttachments,
+            uploadingAttachments: chatFlow.uploadingAttachments,
+            attachmentError: chatFlow.attachmentError,
+            handleAttachFiles: chatFlow.handleAttachFiles,
+            handleRemoveAttachment: chatFlow.handleRemoveAttachment,
+            intentContext: chatFlow.intentContext,
+            activePlanId: chatFlow.activePlanId,
+            activePlanStatus: chatFlow.activePlanStatus,
+            isLoggedIn: chatFlow.isLoggedIn,
+            userId: chatFlow.userId,
+            loginInput: chatFlow.loginInput,
+            setLoginInput: chatFlow.setLoginInput,
+            activeSessionId: chatFlow.activeSessionId,
+            sessionSummaries: chatFlow.sessionSummaries,
+            handleLogin: chatFlow.handleLogin,
+            handleCreateSession: chatFlow.handleCreateSession,
+            handleSwitchSession: chatFlow.handleSwitchSession,
+          }}
+          pdfFlow={pdfFlow}
+          mobilePane={mobilePane}
+          onMobilePaneChange={setMobilePane}
+        />
+      </div>
     </ScholarRuntimeProvider>
   );
 }

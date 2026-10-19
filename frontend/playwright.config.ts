@@ -17,6 +17,7 @@ export default defineConfig({
     viewport: { width: 1600, height: 1000 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    actionTimeout: 15_000,
   },
   webServer: {
     command: 'uv run --locked openresearch serve',

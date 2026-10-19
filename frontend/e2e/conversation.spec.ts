@@ -47,11 +47,13 @@ test('聊天创建 smoke 计划，经真实 Docker 执行并在刷新后保留�
   expect(payload.type).toBe('plan');
   expect(payload.plan_graph.nodes).toHaveLength(2);
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
-  const executed = page.waitForResponse(response =>
-    response.url().endsWith(`/api/plans/${payload.plan_graph.id}/execute`) &&
-    response.request().method() === 'POST');
-  await page.getByRole('button', { name: '运行计划', exact: true }).click();
-  expect((await executed).status()).toBe(202);
+  const [executed] = await Promise.all([
+    page.waitForResponse(response =>
+      response.url().endsWith(`/api/plans/${payload.plan_graph.id}/execute`) &&
+      response.request().method() === 'POST', { timeout: 15_000 }),
+    page.getByRole('button', { name: '运行计划', exact: true }).click(),
+  ]);
+  expect(executed.status()).toBe(202);
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible({ timeout: 90_000 });
   await page.reload();
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
@@ -59,4 +61,15 @@ test('聊天创建 smoke 计划，经真实 Docker 执行并在刷新后保留�
   await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
   await expect(page.getByText(/"sum":\s*15/)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('docker-smoke-result.png'), fullPage: true });
+});
+
+test('窄屏设置工具栏与运行按钮均可点击', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await send(page, 'smoke');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click({ trial: true });
+  await page.getByRole('button', { name: '连接设置', exact: true }).click({ trial: true });
+  await page.getByRole('button', { name: '高级实验设置', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '配置复现实验' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('mobile-settings.png'), fullPage: true });
 });

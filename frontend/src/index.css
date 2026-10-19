@@ -95,7 +95,7 @@ code {
 
   .scholar-left-workspace {
     width: 100% !important;
-    height: calc(100vh - 48px);
+    height: calc(100% - 48px);
     min-height: 0;
     border-right: 0;
     box-shadow: none;
@@ -107,7 +107,7 @@ code {
 
   .scholar-graph-workspace {
     width: 100%;
-    height: calc(100vh - 48px);
+    height: calc(100% - 48px);
     min-height: 0;
   }
 

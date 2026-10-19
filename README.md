@@ -77,6 +77,8 @@ uv run --locked pytest -m docker
 
 默认门禁包含 Ruff、严格 mypy、离线行为测试及 sdist/wheel 构建；前端运行 npm run lint 和 npm run build。CI 已配置 Windows/Linux 与 Python 3.12/3.13，远程结果以 GitHub Actions 实际运行记录为准。
 
+CI 的 browser 作业在独立 Linux 环境运行 Chromium、真实 API 和 Docker Worker，覆盖上传数据、聊天追问、刷新后短答继续规划，以及 smoke 执行与结果恢复。意图分类使用仅支持 IntentDraft 的测试夹具，smoke 输出来自真实 Docker；真实供应商的自动设计、源码复现和 Benchmark 另由 `scripts/verify_auto_planning.py` 显式验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
+
 SQLite 使用 WAL、外键与写事务锁。状态、事件和产物索引同事务提交；上传、会话、来源页和历史尝试持久化，迁移包含 0001_runtime 与 0002_documents_context。产物读取验证 SHA-256。租约过期恢复会拒绝旧结果；实验允许重复执行，不承诺 exactly-once。
 
 Worker 按数据卷的持久 namespace 对账孤立容器，并清理超宽限期的未引用产物；有效尝试和历史索引仍引用的文件保留。源码及 wheel 缓存按内容摘要复用，目前保留至管理员清理数据目录。
