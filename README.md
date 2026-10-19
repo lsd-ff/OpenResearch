@@ -53,6 +53,8 @@ uv run --locked python scripts/verify_deployment.py
 
 示例数据为四行协议验收数据，其结果不代表论文复现效果。
 
+Transformer 核心复现已实际跑通：解析原论文 15 页，固定 NumPy 实现源码，执行数值/因果/梯度测试及 copy/reverse 各 200 步训练，最终完整图 7/7 成功。实际损失、上游梯度修正、环境预算、边界和复跑命令见 [Transformer 实测报告](docs/transformer-reproduction.md)，可运行 `uv run --locked python scripts/verify_transformer.py`。这是小规模 CPU 核心验收，未完成 WMT/BLEU 原始效果复现。
+
 ## 配置与边界
 
 唯一配置入口是 src/openresearch/config.py，环境变量统一使用 OPENRESEARCH_。API 与 Worker 必须使用相同数据目录和沙箱配置。

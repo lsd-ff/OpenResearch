@@ -1,6 +1,6 @@
 # 验证记录
 
-最新的完整架构验收见 [2026-10-19 架构补齐验证记录](framework-verification.md)：231 项工程测试、19 项真实执行/外部验收、7 项网页回归。下文保留此前阶段的计数与回执，供追溯。
+最新的论文实际执行见 [Transformer 核心复现实测](transformer-reproduction.md)：完整图 7/7、程序退出码 0、257 项工程测试、22 项真实执行/外部验收、8 项网页回归。此前 [架构补齐验证](framework-verification.md) 和下文保留原阶段计数与回执，供追溯。
 
 日期：2026-10-10。开发遵循项目 code_skill。初次基础验收使用 MockTransport；用户提供配置后，追加 AutoDL / DeepSeek-V4-Flash 的真实模型验收。密钥保存在忽略的本地 .env，报告不记录密钥。外部来源验收实际访问 GitHub/PyPI。
 

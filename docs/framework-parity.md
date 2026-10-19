@@ -23,4 +23,4 @@
 | 可选独立 Python AI 意图服务 | 独立 intent 命令、/v1/intent、Compose ai profile、单独凭据、有界上下文和同预算回退 | `test_intent_service.py`、真实 HTTP 边界测试；API 容器调用独立服务分类为 data | 通过 |
 | 端到端：请求→产物→SSE | 真实模型构图，Worker 经 HTTP 沙箱运行，再由 Agent 汇总；真实数据统计与图表 | `scripts/verify_framework.py` 最终部署回执为 passed，stdout=42、3 行数据实际 mean=2 | 通过 |
 
-当前四个部署进程的 151 个 Python 源文件 SHA-256 均与工作区一致；API、Sandbox、Intent 健康检查通过，Worker 正常运行。密钥、回退服务配置与验收数据保存在忽略路径，未提交 GitHub。遵循 [code_skill](../.trae/skills/code_skill/SKILL.md)，每批修改通过检查后提交并推送。
+该基线验收中，四个部署进程的 151 个 Python 源文件 SHA-256 均与工作区一致。后续 Transformer 已完成真实代码与训练的完整复跑，新增大型依赖、原生扩展、执行报告和结果链接验收，见 [最新实测报告](transformer-reproduction.md)。密钥、回退服务配置与验收数据保存在忽略路径。遵循 [code_skill](../.trae/skills/code_skill/SKILL.md)，每批修改通过检查后提交并推送。

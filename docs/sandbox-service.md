@@ -16,6 +16,7 @@ Compose 默认启动 API、Worker、Sandbox 三个进程。只有 Sandbox 服务
 | `POST /api/v1/sandboxes` | 保存 plan/execution 归属并创建沙箱，返回 dk-/os- 前缀 ID |
 | `GET /api/v1/sandboxes` | 当前命名空间的容器清单 |
 | `GET /api/v1/sandboxes/{id}/image` | 实际 Docker 镜像摘要；后端无法提供时返回 null |
+| `PUT /api/v1/sandboxes/{id}/files` | 受限的未压缩 tar 批量文件传输，避免逐块执行代码来上传依赖 |
 | `POST /api/v1/sandboxes/{id}/python/stream` | 接受 `{code}`，返回 NDJSON 日志和 final 执行结果 |
 | `POST /api/v1/sandboxes/{id}/python` | 接受 `{code}`，返回 JSON stdout/stderr/exit_code |
 | `POST /api/v1/sandboxes/{id}/commands` | 接受 `{cmd: [程序, 参数...]}`，返回相同 JSON 执行结果 |
@@ -23,6 +24,10 @@ Compose 默认启动 API、Worker、Sandbox 三个进程。只有 Sandbox 服务
 | `DELETE /api/v1/sandboxes/{id}` | 回收命名空间内的容器 |
 
 原生 Docker 后端将命令参数按字面值传入容器内的 subprocess；OpenSandbox 的字符串命令接口使用逐项 shell 引用保留参数边界。两者均不在宿主机执行实验命令。Python 文件传输也在同一个受管容器内完成。客户端不能指定宿主机挂载或替换服务配置的镜像。执行超时、流中断和清理失败会保留明确失败状态。
+
+批量传输检查容器归属、工作区路径、常规文件类型、重复项、条目数及总字节；Python/命令接口仍保持 1 MiB 请求体上限。只有 files 路径使用来源与依赖预算加归档元数据额度。旧 Go 服务明确返回 404/405 时客户端保留逐块兼容；鉴权、大小或服务错误不触发重试绕过。
+
+原生工作区显式启用 exec/nosuid/nodev，以支持 NumPy 等 wheel 的共享对象映射；`/tmp` 仍 noexec。pip 在工作区内解压，避免 wheel 与解压内容同时填满输入盘。内存、两处 tmpfs 大小、依赖预算和下载期限均可配置，见 [Transformer 实测](transformer-reproduction.md)。
 
 ## OpenSandbox 回退
 
