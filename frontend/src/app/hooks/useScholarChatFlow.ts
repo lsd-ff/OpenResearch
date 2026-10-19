@@ -96,6 +96,17 @@ const refreshWelcome = (messages: ChatMessage[]) => (Array.isArray(messages) ? m
   return welcome ? { ...message, text: uiText.appWelcome } : message;
 });
 
+const withPlanLink = (state: PersistedChatState): PersistedChatState => {
+  const planId = new URLSearchParams(window.location.search).get('plan');
+  if (!planId || !/^[a-f0-9]{32}$/.test(planId)) return state;
+  const existing = state.sessions.find(session => session.activePlanId === planId);
+  if (existing) return { ...state, activeSessionId: existing.id };
+  // 链接只指定计划 ID；沿用当前身份，由服务端检查归属后恢复真实状态。
+  const session = { ...createSessionRecord(state.sessions.length + 1),
+    id: `plan-${planId}`, title: `执行记录 ${planId.slice(0, 8)}`, activePlanId: planId };
+  return { ...state, activeSessionId: session.id, sessions: [...state.sessions, session] };
+};
+
 const loadPersistedChatState = (): PersistedChatState => {
   if (typeof window === 'undefined') {
     return createSessionState(null, '临时会话');
@@ -103,15 +114,15 @@ const loadPersistedChatState = (): PersistedChatState => {
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createSessionState(null, '临时会话');
+    if (!raw) return withPlanLink(createSessionState(null, '临时会话'));
 
     const normalized = normalizeChatState(JSON.parse(raw));
     if (normalized.sessions.length === 0 || !normalized.activeSessionId) {
-      return createSessionState(normalized.userId, '新会话');
+      return withPlanLink(createSessionState(normalized.userId, '新会话'));
     }
-    return normalized;
+    return withPlanLink(normalized);
   } catch {
-    return createSessionState(null, '临时会话');
+    return withPlanLink(createSessionState(null, '临时会话'));
   }
 };
 
@@ -156,7 +167,12 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
   const chatHistory = activeSession?.chatHistory ?? [];
   const activePlanId = activeSession?.activePlanId ?? null;
 	const activePlanStatus = activeSession?.planGraph?.status ?? null;
-  const intentContext = activeSession?.intentContext ?? null;
+  const intentContext = useMemo<IntentContext | null>(() => {
+    if (activeSession?.intentContext) return activeSession.intentContext;
+    const graph = activeSession?.planGraph;
+    return graph ? { raw_intent: graph.user_intent, intent_type: graph.intent_type,
+      entities: {}, constraints: {}, metadata: {} } : null;
+  }, [activeSession?.intentContext, activeSession?.planGraph]);
   const activeIdentity = persistedState.userId ?? guestUserId;
 
   useEffect(() => {

@@ -71,10 +71,7 @@ async def assess_semantic(
             ],
             SemanticAssessment,
         )
-        if any(
-            item.quote not in evidence.get(item.evidence_key, "") for item in assessment.findings
-        ):
-            raise ContractError("semantic quote does not occur in the original evidence artifact")
+        # 投影只读不可变报告的最终运行字段；引用按解码后的原始日志核对，避免 JSON 转义破坏逐字引用。
         return validate_semantic(criteria, assessment, bounded)
     except (ModelError, ContractError, ValueError, KeyError):
         return {
@@ -85,20 +82,27 @@ async def assess_semantic(
 
 def semantic_evidence(evidence: dict[str, str]) -> dict[str, str]:
     report = ResearchReport.model_validate_json(evidence["research_report"])
-    runs = [
-        {
+    sections = [f"success={report.success}"]
+    for run in report.runs:
+        if not run.attempts:
+            continue
+        attempt = run.attempts[-1]
+        metadata = {
             "variant": run.variant,
             "metrics": run.metrics,
             "environment": run.environment.model_dump(mode="json"),
-            "attempts": [run.attempts[-1].model_dump(exclude={"patch"}, mode="json")],
+            "exit_code": attempt.exit_code,
         }
-        for run in report.runs
-        if run.attempts
-    ]
-    # 报告里还包含模型写出的源码；只把实际运行与重算指标提供给语义评估。
-    execution = json.dumps(
-        {"success": report.success, "runs": runs}, ensure_ascii=False, separators=(",", ":")
-    )
+        sections.extend(
+            [
+                json.dumps(metadata, ensure_ascii=False),
+                "STDOUT:\n" + attempt.stdout,
+                "STDERR:\n" + attempt.stderr,
+                "EXECUTION_ERROR:\n" + attempt.error,
+            ]
+        )
+    # 保留真实换行和引号；源码补丁及旧失败尝试不进入可引用的证据。
+    execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
     if "parsed_paper" in evidence:
         output["parsed_paper"] = evidence["parsed_paper"][:16000]

@@ -1,6 +1,27 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pdfFixture } from './pdfFixture';
 
+test('按链接打开 API 创建的计划并执行，刷新后保留真实结果', async ({ page }) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const headers = await initial.request().allHeaders();
+  const created = await page.request.post('/api/plan', {
+    headers: { 'X-User-Id': headers['x-user-id'], 'X-Session-Id': headers['x-session-id'] },
+    data: { intent: '通过链接查看独立计划', workflow: 'code', code: 'print(17)' },
+  });
+  expect(created.status()).toBe(200);
+  const planId = (await created.json()).plan_graph.id;
+  await page.goto(`/?plan=${planId}`);
+  await expect(page.getByText('通过链接查看独立计划', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
+  await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
+  await page.getByRole('button', { name: '分析报告', exact: true }).click();
+  await expect(page.getByText('17', { exact: true })).toBeVisible();
+});
+
 test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', async ({ page }, testInfo) => {
   await page.goto('/');
   await page.locator('input[type="file"]').setInputFiles({
