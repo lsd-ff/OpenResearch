@@ -1,5 +1,6 @@
 import { Background, Controls, ReactFlow } from '@xyflow/react';
-import type { Edge, Node, OnEdgesChange, OnNodesChange } from '@xyflow/react';
+import type { Edge, Node, OnEdgesChange, OnNodesChange, ReactFlowInstance } from '@xyflow/react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, GitBranch, LoaderCircle, Play, RotateCcw, ShieldCheck, Square } from 'lucide-react';
 import type { IntentContext } from '../../contracts/api';
 
@@ -26,9 +27,29 @@ const intentLabels: Record<string, string> = {
   Framework_Comparison: '框架对比',
   Code_Execution: '代码执行',
   General: '通用任务',
+  Data_Analysis: '数据分析',
+  Paper_Analysis: '论文阅读',
+  Benchmark: '数据评测',
 };
 
 export function GraphPanel(props: GraphPanelProps) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const [flow, setFlow] = useState<ReactFlowInstance<Node, Edge> | null>(null);
+  const graphKey = props.nodes.map(node => node.id).join(':');
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element || !flow) return;
+    let frame = 0;
+    const observer = new ResizeObserver(entries => {
+      if (!entries[0]?.contentRect.width) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        void flow.fitView({ padding: 0.16, maxZoom: 1.08 });
+      });
+    });
+    observer.observe(element);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [flow, graphKey]);
   const {
     nodes,
     edges,
@@ -125,8 +146,9 @@ export function GraphPanel(props: GraphPanelProps) {
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1">
+      <div ref={viewport} className="relative min-h-0 flex-1">
         <ReactFlow
+          onInit={setFlow}
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}

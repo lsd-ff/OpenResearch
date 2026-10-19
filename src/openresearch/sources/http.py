@@ -5,10 +5,12 @@ import httpx
 from openresearch.errors import ContractError
 
 
-async def read_bounded(client: httpx.AsyncClient, url: str, limit: int) -> bytes:
-    """只读来源获取可重试瞬断；三次尝试共用 60 秒预算，大小限制不重试。"""
+async def read_bounded(
+    client: httpx.AsyncClient, url: str, limit: int, *, timeout_seconds: float = 60
+) -> bytes:
+    """只读来源获取可重试瞬断；三次尝试共用期限，大小限制不重试。"""
     try:
-        async with asyncio.timeout(60):
+        async with asyncio.timeout(timeout_seconds):
             for attempt in range(3):
                 try:
                     return await _read_once(client, url, limit)

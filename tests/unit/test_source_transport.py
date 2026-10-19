@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 
@@ -42,3 +44,25 @@ async def test_source_retry_keeps_size_policy_and_attempt_bound(failure):
         with pytest.raises(ContractError):
             await read_bounded(client, "https://api.github.com/source", 4)
     assert calls == (3 if failure == "disconnect" else 1)
+
+
+async def test_slow_source_obeys_its_configured_total_download_deadline():
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(0.05)
+            yield b"actual bytes"
+
+    def handle(request):
+        return httpx.Response(200, stream=SlowStream())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(ContractError, match="unavailable"):
+            await read_bounded(
+                client, "https://files.pythonhosted.org/wheel", 20, timeout_seconds=0.01
+            )
+        assert (
+            await read_bounded(
+                client, "https://files.pythonhosted.org/wheel", 20, timeout_seconds=0.2
+            )
+            == b"actual bytes"
+        )

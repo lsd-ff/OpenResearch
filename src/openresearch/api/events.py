@@ -2,12 +2,15 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from pathlib import PurePosixPath
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from openresearch.api.dependencies import IdentityDep, Runtime, RuntimeDep
+from openresearch.models.output_files import OutputFiles
 from openresearch.models.runtime import Status
 
 router = APIRouter(prefix="/api/plans", tags=["events", "artifacts"])
@@ -86,4 +89,38 @@ async def artifact_content(
         runtime.repository.get_artifact, plan_id, artifact_id, identity.user_id
     )
     content = await asyncio.to_thread(runtime.files.read, artifact)
-    return Response(content, media_type="text/plain", headers={"ETag": f'"{artifact.sha256}"'})
+    return Response(
+        content,
+        media_type="image/svg+xml" if artifact.key == "data_chart" else "text/plain",
+        headers={
+            "ETag": f'"{artifact.sha256}"',
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+        },
+    )
+
+
+@router.get("/{plan_id}/artifacts/{artifact_id}/files/{index}")
+async def download_output_file(
+    plan_id: str, artifact_id: str, index: int, runtime: RuntimeDep, identity: IdentityDep
+) -> Response:
+    artifact = await asyncio.to_thread(
+        runtime.repository.get_artifact, plan_id, artifact_id, identity.user_id
+    )
+    if artifact.key != "execution_files":
+        raise HTTPException(404, "artifact is not an execution file collection")
+    raw = await asyncio.to_thread(runtime.files.read, artifact)
+    bundle = OutputFiles.model_validate_json(raw)
+    if index < 0 or index >= len(bundle.files):
+        raise HTTPException(404, "output file not found")
+    item = bundle.files[index]
+    filename = quote(PurePosixPath(item.path).name, safe="")
+    return Response(
+        item.content(),
+        media_type=item.media_type,
+        headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''" + filename,
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{item.sha256}"',
+        },
+    )

@@ -1,5 +1,6 @@
 import ast
 import hashlib
+import re
 
 from openresearch.errors import ContractError
 from openresearch.models.research import FilePatch, ResearchPatch, ResearchSpec
@@ -36,7 +37,18 @@ def apply_patch(
     merged = files | changed
     if spec.entrypoint not in merged:
         raise ContractError("research entrypoint does not exist after applying the patch")
+    if spec.test_paths:
+        if any(path not in files for path in spec.test_paths):
+            raise ContractError("selected pytest source does not exist in the pinned repository")
+        if merged[spec.entrypoint] != pytest_launcher(spec.test_paths).encode():
+            raise ContractError("the selected pytest launcher must not be replaced or filtered")
     return merged
+
+
+def pytest_launcher(paths: list[str]) -> str:
+    # 只生成测试启动器；测试内容来自固定仓库，退出码原样传给真实沙箱执行结果。
+    arguments = ["-v", "-s", "--tb=short", "--", *paths]
+    return "import pytest\n\nraise SystemExit(pytest.main(" + repr(arguments) + "))\n"
 
 
 def cumulative_patch(
@@ -58,3 +70,24 @@ def cumulative_patch(
     )
     apply_patch(original, patch, spec)
     return patch
+
+
+def validate_generated_tests(intent: str, files: dict[str, bytes], spec: ResearchSpec) -> None:
+    """请求测试时，拒绝只打印成功、常量断言或占位代码冒充测试程序。"""
+    if spec.benchmark or not re.search(r"测试|\btests?\b", intent, re.I):
+        return
+    tree = ast.parse(files[spec.entrypoint])
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert) and not isinstance(node.test, ast.Constant):
+            return
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr.startswith("assert") or (
+            node.func.attr == "main"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in {"pytest", "unittest"}
+        ):
+            return
+    raise ContractError(
+        "generated test entrypoint has no executable nonconstant assertions or test runner"
+    )

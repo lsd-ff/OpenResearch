@@ -1,6 +1,8 @@
 import asyncio
 import json
 
+from packaging.requirements import Requirement
+
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
@@ -8,7 +10,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
-from openresearch.research.repository_context import repository_context
+from openresearch.research.repository_context import pytest_paths, repository_context
 from openresearch.research.source_context import document_context
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.storage.files import ArtifactStore
@@ -27,6 +29,32 @@ DESIGN_PROMPT = (
     "The sandbox is Python 3.12, Linux x86_64, CPU, no network; no shell/build scripts. "
     "Add ablations only when requested, using real arguments implemented by the adapter. "
     "Describe unavailable scientific claims honestly in limitations. Never claim a run occurred."
+    " Include rubric with 1-4 concrete user-scope functional claims and criteria, each using "
+    "required_evidence=['research_report']. Freeze what the requested tests must actually "
+    "assert and print, before generating code. Do not require full training/BLEU unless "
+    "requested. Use qualitative criteria without metric_name/expected_value for numeric "
+    "assertions printed by smoke tests. Set source=null for user-scope functional criteria. "
+    "Account for actual source imports and dependency_bytes; never add CUDA packages on CPU."
+    " patch_paths are allowed .py SOURCE filenames to modify, NOT .patch/diff filenames. "
+    "For pytest suites, running a file containing test definitions does not execute its tests: "
+    "use an adapter calling pytest.main(['-q', ...]) and propagate the returned exit code. "
+    "For unittest preserve unittest.main(). Never report definition-only imports as tests."
+    " Keep the entire design under 600 output tokens. Rationale and limitations: one short "
+    "sentence each. Use 1-3 brief functional rubric checks. Do not include code or diff text "
+    "in this design response; the following preparation stage will write the actual adapter."
+    " Inspect actual core imports; do not blindly copy outdated dependency pins. Select "
+    "Python 3.12-compatible versions for the actual CPU modules, excluding optional GPU, "
+    "plotting and dataset dependencies that the requested adapter will not import."
+    " Ground API behavior in the actual return expressions; do not guess that forward returns "
+    "a loss. For architecture core tests, prioritize component invariants and the complete "
+    "architecture forward pass; add training or optimizer criteria only when requested."
+    " If the repository already has a runnable pytest suite that covers the user's goal, "
+    "PREFER test_paths with the actual .py test filenames. The server will generate a small "
+    "immutable pytest launcher and execute the complete selected files with -v -s. "
+    "For test_paths mode, freeze only assertions covered by those actual tests; do not "
+    "require additional adapter-generated checks or printed tensors absent from the suite. "
+    "Keep entrypoint a NEW adapter path, arguments/ablations empty, and include pytest in "
+    "dependencies. Use an empty test_paths list for benchmarks or goals needing custom code."
 )
 
 
@@ -48,10 +76,12 @@ class ResearchDesigner:
             "provided_source": task.inputs.get("code"),
             "repository": snapshot.model_dump() if snapshot else None,
             "file_paths": list(sources)[:200],
+            "available_pytest_files": pytest_paths(sources),
             "source_excerpts": repository_context(sources),
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,
             "sandbox_memory": self.settings.sandbox_memory,
+            "dependency_bytes": self.settings.dependency_max_bytes,
         }
         design = await self.llm.request_typed(
             [
@@ -60,18 +90,35 @@ class ResearchDesigner:
             ],
             ExperimentDesign,
         )
+        test_paths = spec.test_paths or design.test_paths
+        if test_paths:
+            if spec.benchmark or task.inputs.get("code"):
+                raise ContractError(
+                    "existing pytest suites cannot replace supplied code or benchmarks"
+                )
+            if any(path not in sources for path in test_paths):
+                raise ContractError(
+                    "selected pytest source does not exist in the pinned repository"
+                )
+            if not any(Requirement(item).name.lower() == "pytest" for item in design.dependencies):
+                design.dependencies.append("pytest>=7,<10")
+        if design.entrypoint not in sources and design.entrypoint not in design.patch_paths:
+            raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),
+                "repository": {"url": snapshot.url, "ref": snapshot.commit}
+                if snapshot
+                else spec.repository,
                 "entrypoint": design.entrypoint,
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
+                "test_paths": test_paths,
                 "ablations": [variant.model_dump() for variant in design.ablations],
+                "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
             }
         )
-        if resolved.entrypoint not in sources and resolved.entrypoint not in resolved.patch_paths:
-            raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         return TaskResult(
             result=design.rationale,
             structured_data=design.model_dump_json(),

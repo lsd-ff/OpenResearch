@@ -2,6 +2,7 @@
 
 import importlib.metadata
 import json
+import os
 import pathlib
 import platform
 import subprocess
@@ -13,6 +14,8 @@ from pip._vendor.packaging.utils import canonicalize_name
 root = pathlib.Path("/tmp/openresearch")
 target = pathlib.Path("/workspace/environment")
 target.mkdir(parents=True, exist_ok=True)
+scratch = pathlib.Path("/workspace/install-tmp")
+scratch.mkdir(parents=True, exist_ok=True)
 assert sys.version_info[:2] == (3, 12), "environment lock requires CPython 3.12"
 assert platform.system() == "Linux" and platform.machine() == "x86_64", "unsupported target"
 if (root / "requirements.lock").read_text().strip():
@@ -24,6 +27,7 @@ if (root / "requirements.lock").read_text().strip():
             "--isolated",
             "install",
             "--disable-pip-version-check",
+            "--no-cache-dir",
             "--no-index",
             "--no-deps",
             "--only-binary=:all:",
@@ -37,6 +41,8 @@ if (root / "requirements.lock").read_text().strip():
             str(root / "requirements.lock"),
         ],
         check=True,
+        # wheel 与其解压内容分别占用 tmpfs；在目标所在内存盘解压，避免填满输入盘。
+        env={**os.environ, "TMPDIR": str(scratch)},
     )
 distributions = list(importlib.metadata.distributions(path=[str(target)]))
 installed = {canonicalize_name(item.metadata["Name"]): item.version for item in distributions}

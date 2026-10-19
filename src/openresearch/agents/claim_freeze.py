@@ -2,9 +2,11 @@ import asyncio
 import json
 
 from openresearch.config import Settings
+from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.claims import RubricDraft
 from openresearch.models.documents import PaperCorpus
+from openresearch.models.planning import ExperimentDesign
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.rubrics import freeze_rubric
 from openresearch.storage.files import ArtifactStore
@@ -50,6 +52,11 @@ class ClaimFreezer:
         artifact = plan.artifacts.get("parsed_paper")
         corpus = PaperCorpus.model_validate_json(self.files.read(artifact)) if artifact else None
         draft = RubricDraft.model_validate(task.inputs.get("rubric", {}))
+        design = plan.artifacts.get("experiment_design")
+        if not draft.claims and design:
+            draft = ExperimentDesign.model_validate_json(self.files.read(design)).rubric
+            if not draft.claims:
+                raise ContractError("automatic experiment design must define acceptance checks")
         if not draft.claims and corpus is not None:
             draft = await self._extract(corpus)
         rubric = await asyncio.to_thread(freeze_rubric, draft, corpus)

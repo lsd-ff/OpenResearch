@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -62,6 +62,7 @@ class Task(ContractModel):
     result: str = ""
     code: str = ""
     structured_data: str = ""
+    image_base64: str = Field(default="", max_length=2800000)
     error: str = ""
 
 
@@ -103,6 +104,11 @@ class Artifact(ContractModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class PlanningInfo(ContractModel):
+    strategy: Literal["template", "llm"] = "template"
+    reason: str = "explicit_workflow"
+
+
 class Plan(ContractModel):
     id: str = Field(default_factory=new_id)
     user_intent: str
@@ -111,6 +117,7 @@ class Plan(ContractModel):
     session_id: str
     attachments: list[str] = Field(default_factory=list, max_length=8)
     trace_id: str = Field(default_factory=new_id)
+    planning: PlanningInfo = Field(default_factory=PlanningInfo)
     status: Status = Status.PENDING
     approval: Approval = Field(default_factory=Approval)
     budget: Budget = Field(default_factory=Budget)
@@ -163,4 +170,5 @@ class TaskResult(ContractModel):
     result: str = ""
     code: str = ""
     structured_data: str = ""
+    image_base64: str = Field(default="", max_length=2800000)
     outputs: dict[str, str] = Field(default_factory=dict)

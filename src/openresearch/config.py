@@ -15,12 +15,18 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8080, ge=1, le=65535)
     web_dir: Path | None = None
-    sandbox_backend: Literal["docker", "http"] = "docker"
+    sandbox_backend: Literal["docker", "http", "opensandbox", "auto"] = "docker"
     sandbox_url: str = "http://127.0.0.1:8082"
     sandbox_token: SecretStr = SecretStr("")
+    sandbox_service_port: int = Field(default=8082, ge=1, le=65535)
+    sandbox_fallback_enabled: bool = False
+    opensandbox_url: str = "http://127.0.0.1:8088"
+    opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
     sandbox_network: Literal["none", "bridge"] = "none"
     sandbox_memory: str = "256m"
+    sandbox_tmpfs_size_mb: int = Field(default=64, ge=16, le=2048)
+    sandbox_workspace_size_mb: int = Field(default=256, ge=64, le=4096)
     api_token: SecretStr = SecretStr("")
     require_approval: bool = False
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -39,15 +45,21 @@ class Settings(BaseSettings):
     source_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     source_max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
     source_max_files: int = Field(default=2000, ge=1, le=10000)
+    source_proxy_url: SecretStr = SecretStr("")
+    source_download_timeout_seconds: int = Field(default=60, ge=10, le=600)
     dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
+    planner_mode: Literal["llm", "template"] = "llm"
+    intent_service_url: str = ""
+    intent_service_port: int = Field(default=8083, ge=1, le=65535)
+    intent_service_token: SecretStr = SecretStr("")
     llm_provider: Literal["openai", "anthropic"] = "openai"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = ""
     llm_api_key: SecretStr = SecretStr("")
     llm_timeout_seconds: int = Field(default=60, ge=1, le=300)
     llm_max_output_tokens: int = Field(default=8192, ge=128, le=65536)
-    llm_schema_retries: int = Field(default=1, ge=0, le=2)
+    llm_schema_retries: int = Field(default=2, ge=0, le=2)
     llm_thinking: Literal["default", "disabled"] = "default"
     llm_structured_output: Literal["prompt", "tool"] = "prompt"
     llm_max_input_bytes: int = Field(default=131072, ge=4096, le=1048576)
@@ -58,7 +70,7 @@ class Settings(BaseSettings):
     def absolute_data_dir(cls, value: Path) -> Path:
         return value.expanduser().resolve()
 
-    @field_validator("llm_base_url")
+    @field_validator("llm_base_url", "sandbox_url", "opensandbox_url")
     @classmethod
     def validate_llm_url(cls, value: str) -> str:
         parsed = urlsplit(value)
@@ -74,6 +86,25 @@ class Settings(BaseSettings):
                 "model base URL must be HTTP(S) without credentials, query or fragment"
             )
         return value.rstrip("/")
+
+    @field_validator("intent_service_url")
+    @classmethod
+    def validate_intent_url(cls, value: str) -> str:
+        return cls.validate_llm_url(value) if value else ""
+
+    @field_validator("source_proxy_url")
+    @classmethod
+    def validate_source_proxy(cls, value: SecretStr) -> SecretStr:
+        if value.get_secret_value():
+            parts = urlsplit(value.get_secret_value())
+            if (
+                parts.scheme not in {"http", "https"}
+                or not parts.hostname
+                or parts.query
+                or parts.fragment
+            ):
+                raise ValueError("source proxy must be an HTTP(S) proxy URL")
+        return value
 
     @model_validator(mode="after")
     def validate_lease_polling(self) -> "Settings":

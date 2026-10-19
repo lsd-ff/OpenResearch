@@ -8,6 +8,7 @@ from openresearch.agents.research_design import ResearchDesigner
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.errors import PlanningInputRequired
 from openresearch.llm.client import LLMClient
+from openresearch.models.claims import ClaimDraft, CriterionDraft, RubricDraft
 from openresearch.models.context import Identity
 from openresearch.models.documents import SourceIndex, SourceLink
 from openresearch.models.execution import ExecutionLease
@@ -28,7 +29,16 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
             Identity("alice", "design"),
             workflow="reproduce",
             research=ResearchSpec(
-                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous"),
+                rubric=RubricDraft(
+                    claims=[
+                        ClaimDraft(
+                            title="user criterion",
+                            statement="keep this",
+                            criteria=[CriterionDraft(description="preserve the human acceptance")],
+                        )
+                    ]
+                ),
             ),
             auto_design=True,
         )
@@ -70,6 +80,7 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     result = await designer.execute(plan, task)
     resolved = ResearchSpec.model_validate_json(result.outputs["research_spec"])
     assert resolved.entrypoint == "adapter.py"
+    assert resolved.rubric.claims[0].statement == "keep this"
     lease = ExecutionLease(plan.id, task.id, new_id(), "test")
     plan.artifacts["research_spec"] = files.write(
         lease, "research_spec", result.outputs["research_spec"]
@@ -78,6 +89,91 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     prepare.inputs["code"] = "print('actual adapter')"
     patch = await ResearchPreparer(settings, files).execute(plan, prepare)
     assert json.loads(patch.outputs["research_patch"])["files"][0]["path"] == "adapter.py"
+
+
+async def test_design_corrects_diff_filenames_before_dependency_resolution(
+    settings, repository, files
+):
+    plan = PlanService(settings, repository).build(
+        PlanSubmission(
+            "run core tests",
+            Identity("alice", "design-correction"),
+            workflow="reproduce",
+            research=ResearchSpec(
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+            ),
+            auto_design=True,
+        )
+    )
+    task = next(node for node in plan.nodes if node.type == "research_design")
+    settings.llm_api_key = SecretStr("private-token")
+    settings.llm_model = "test-model"
+    calls = []
+
+    def model(request):
+        calls.append(json.loads(request.content))
+        paths = ["patches/fix-tests.patch"] if len(calls) == 1 else ["openresearch_run.py"]
+        value = {"patch_paths": paths, "rationale": "Execute an actual test adapter"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(value)}}]})
+
+    designer = ResearchDesigner(settings, files)
+    designer.llm = LLMClient(settings, httpx.MockTransport(model))
+    result = await designer.execute(plan, task)
+    assert len(calls) == 2
+    assert "patch_paths" in calls[-1]["messages"][-1]["content"]
+    spec = ResearchSpec.model_validate_json(result.outputs["research_spec"])
+    assert spec.patch_paths == ["openresearch_run.py"]
+
+
+@pytest.mark.parametrize("paths", [[], ["source.py"]])
+def test_generated_patch_paths_include_the_validated_adapter(paths):
+    from openresearch.models.planning import ExperimentDesign
+
+    design = ExperimentDesign(
+        entrypoint="adapter.py", patch_paths=paths, rationale="run actual tests"
+    )
+    assert design.patch_paths == [*paths, "adapter.py"]
+
+
+def test_design_must_reserve_its_entrypoint_within_the_path_budget():
+    from pydantic import ValidationError
+
+    from openresearch.models.planning import ExperimentDesign
+
+    with pytest.raises(ValidationError, match="reserve the entrypoint"):
+        ExperimentDesign(
+            entrypoint="adapter.py",
+            patch_paths=["a.py", "b.py", "c.py"],
+            rationale="run actual tests",
+        )
+
+
+async def test_patch_generation_receives_the_original_goal_as_well_as_the_task(
+    settings, repository, files, monkeypatch
+):
+    from openresearch.models.research import FilePatch, ResearchPatch
+
+    plan = PlanService(settings, repository).build(
+        PlanSubmission(
+            "verify causal mask and real loss decrease",
+            Identity("alice", "original-goal"),
+            workflow="reproduce",
+            research=ResearchSpec(
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+            ),
+        )
+    )
+    task = next(node for node in plan.nodes if node.type == "research_prepare")
+    task.description = "prepare adapter"
+    captured = []
+
+    async def propose(self, intent, spec, sources, error=""):
+        captured.append(intent)
+        return ResearchPatch(files=[FilePatch(path=spec.entrypoint, content="print('actual')")])
+
+    monkeypatch.setattr(ResearchPreparer, "propose", propose)
+    await ResearchPreparer(settings, files).execute(plan, task)
+    assert plan.user_intent in captured[0] and "prepare adapter" in captured[0]
 
 
 async def test_worker_material_question_resumes_current_plan_only(

@@ -8,10 +8,11 @@ from openresearch.models.context import Conversation
 from openresearch.models.planning import IntentDraft, PendingPlanning
 from openresearch.models.research import BenchmarkSpec, ResearchSpec
 from openresearch.models.submissions import PlanSubmission
-from openresearch.services.intent import IntentParser
+from openresearch.services.intent import IntentParser, requests_source_reproduction
 from openresearch.services.planning_inputs import (
     benchmark_mapping,
     dataset_profiles,
+    repository_urls,
 )
 from openresearch.services.planning_outcomes import PlanningOutcome, planning_question
 from openresearch.services.planning_sources import PlanningSources
@@ -68,6 +69,10 @@ class AutoPlanner:
             repository_candidates=pending.repository_candidates if pending else [],
             paper_candidates=pending.paper_candidates if pending else [],
         )
+        if draft.workflow == "data":
+            return await self._data(submission, snapshot, state, draft)
+        if draft.workflow == "code" and requests_source_reproduction(goal):
+            draft.workflow = "reproduce"
         if draft.workflow == "code":
             code = submission.code or self._uploaded_code(state, snapshot.owner_id)
             plan = await asyncio.to_thread(
@@ -78,6 +83,31 @@ class AutoPlanner:
             )
             return PlanningOutcome(snapshot, "代码执行计划已生成，可在右侧运行。", plan=plan)
         return await self._materials(submission, snapshot, state, draft)
+
+    async def _data(
+        self,
+        submission: PlanSubmission,
+        snapshot: Conversation,
+        state: PendingPlanning,
+        draft: IntentDraft,
+    ) -> PlanningOutcome:
+        datasets = [
+            self.uploads.repository.uploads.get(key, snapshot.owner_id)
+            for key in (state.attachments or snapshot.uploads)
+        ]
+        datasets = [
+            item
+            for item in datasets
+            if item.name.lower().endswith((".csv", ".tsv", ".json", ".jsonl"))
+            and (not draft.dataset_name or item.name == draft.dataset_name)
+        ]
+        if len(datasets) != 1:
+            return planning_question(snapshot, state, "请上传一个数据集，或指出要分析的文件名。")
+        plan = await asyncio.to_thread(
+            self.plans.build,
+            replace(submission, intent=state.intent, workflow="data", attachments=[datasets[0].id]),
+        )
+        return PlanningOutcome(snapshot, "数据分析计划已生成，可运行统计分析与图表。", plan=plan)
 
     def _uploaded_code(self, state: PendingPlanning, owner: str) -> str | None:
         sources = [self.uploads.repository.uploads.get(key, owner) for key in state.attachments]
@@ -167,7 +197,7 @@ class AutoPlanner:
         )
         if question:
             return planning_question(snapshot, state, question)
-        research = ResearchSpec(repository=repository, benchmark=benchmark)
+        research = ResearchSpec(repository=repository, benchmark=benchmark, max_repairs=2)
         plan = await asyncio.to_thread(
             self.plans.build,
             replace(
@@ -180,6 +210,10 @@ class AutoPlanner:
                 auto_design=True,
             ),
         )
+        if repository and (draft.repository_choice or repository_urls(state.intent)):
+            for node in plan.nodes:
+                if node.type == "repository_fetch":
+                    node.inputs["auto_discover"] = False
         source_text = (
             f"\n仓库：{repository.url}"
             if repository

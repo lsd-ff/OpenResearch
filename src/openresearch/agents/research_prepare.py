@@ -3,11 +3,17 @@ import hashlib
 import json
 
 from openresearch.config import Settings
+from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.research import FilePatch, ResearchPatch, ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySnapshot
-from openresearch.research.patches import apply_patch, load_sources
+from openresearch.research.patches import (
+    apply_patch,
+    load_sources,
+    pytest_launcher,
+    validate_generated_tests,
+)
 from openresearch.research.repository_context import repository_context
 from openresearch.research.source_context import document_context
 from openresearch.research.specifications import resolved_research
@@ -21,6 +27,12 @@ PATCH_PROMPT = (
     "The Python entrypoint runs from /tmp/openresearch/repository. "
     "When spec.benchmark is null, there is NO dataset: run the requested smoke assertions once "
     "and print actual results to stdout. Do not require any benchmark input/output files. "
+    "Produce the COMPLETE runnable implementation, not placeholder, pass-only code or TODOs. "
+    "For requested tests include real assertions against independent expected behavior, "
+    "import and call actual repository components, then print each measured result and a "
+    "final test count. Use small dimensions, fixed seeds and bounded CPU work. "
+    "Keep a new core-test adapter under 120 lines by reusing actual repository components. "
+    "Do not duplicate the repository implementation or include unused training/data code. "
     "When spec.benchmark is present, OPENRESEARCH_INPUT contains JSON [{id,inputs}]; "
     "write JSON [{id,prediction}] to OPENRESEARCH_PREDICTIONS. Targets are unavailable. "
     "Do not catch failed smoke assertions and pretend success. No downloads."
@@ -60,13 +72,30 @@ class ResearchPreparer:
             "source_excerpts": repository_context(files),
             "error": error[-8000:],
         }
-        return await self.llm.request_typed(
-            [
-                {"role": "system", "content": PATCH_PROMPT},
-                {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
-            ],
-            ResearchPatch,
-        )
+        messages = [
+            {"role": "system", "content": PATCH_PROMPT},
+            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+        ]
+        for attempt in range(2):
+            patch = await self.llm.request_typed(messages, ResearchPatch)
+            try:
+                updated = apply_patch(files, patch, spec)
+                validate_generated_tests(intent, updated, spec)
+                return patch
+            except ContractError as exc:
+                if attempt:
+                    raise
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": patch.model_dump_json()[:12000]},
+                        {
+                            "role": "user",
+                            "content": "Return complete code correcting this validation failure: "
+                            + str(exc),
+                        },
+                    ]
+                )
+        raise AssertionError("bounded patch validation did not return")
 
     async def execute(self, plan: Plan, task: Task) -> TaskResult:
         spec = resolved_research(plan, task, self.files)
@@ -81,13 +110,34 @@ class ResearchPreparer:
             patch = ResearchPatch(
                 files=[FilePatch(path=spec.entrypoint, base_sha256=base, content=code)]
             )
+        elif spec.test_paths:
+            if spec.entrypoint in files:
+                raise ContractError("pytest launcher must use a new adapter path")
+            patch = ResearchPatch(
+                files=[FilePatch(path=spec.entrypoint, content=pytest_launcher(spec.test_paths))],
+                rationale="Run the complete selected original pytest files in the sandbox.",
+            )
         elif spec.entrypoint in files:
             patch = ResearchPatch(
                 rationale="Execute the pinned repository entrypoint without modifications."
             )
         else:
             context = await asyncio.to_thread(document_context, plan, self.files)
-            patch = await self.propose(task.description + "\nSource data: " + context, spec, files)
+            patch = await self.propose(
+                plan.user_intent
+                + "\nTask: "
+                + task.description
+                + "\nSource data: "
+                + context
+                + "\nFrozen acceptance: "
+                + (
+                    self.files.read(plan.artifacts["claim_rubric"])
+                    if "claim_rubric" in plan.artifacts
+                    else ""
+                ),
+                spec,
+                files,
+            )
         await asyncio.to_thread(apply_patch, files, patch, spec)
         return TaskResult(
             result="Research patch validated against source hashes and allowed paths.",

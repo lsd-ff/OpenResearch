@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, field_validator
 
 from openresearch.models.research import ResearchSpec
@@ -11,6 +13,7 @@ class CreatePlanRequest(ContractModel):
     attachments: list[str] = Field(default_factory=list, max_length=8)
     workflow: Workflow = "auto"
     research: ResearchSpec | None = None
+    planning_mode: Literal["auto", "llm", "template"] = "auto"
 
     @field_validator("intent")
     @classmethod

@@ -68,6 +68,7 @@ async def direct_events(
                     "result": node.result,
                     "code": node.code,
                     "structured_data": node.structured_data,
+                    "image_base64": node.image_base64,
                 }
                 yield f"event: result\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
             else:

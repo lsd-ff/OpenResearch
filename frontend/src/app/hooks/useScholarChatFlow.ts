@@ -18,6 +18,7 @@ interface ChatSessionRecord {
   intentContext: IntentContext | null;
   planGraph: PlanGraph | null;
   reportedPlanId?: string;
+  reportedPlanStatus?: string;
 }
 
 interface PersistedChatState {
@@ -79,6 +80,7 @@ const normalizeChatState = (raw: unknown): PersistedChatState => {
   const data = raw as Partial<PersistedChatState>;
   const sessions = Array.isArray(data.sessions)
     ? data.sessions.filter((session): session is ChatSessionRecord => Boolean(session?.id))
+      .map(session => ({ ...session, chatHistory: refreshWelcome(session.chatHistory) }))
     : [];
 
   return {
@@ -88,6 +90,24 @@ const normalizeChatState = (raw: unknown): PersistedChatState => {
   };
 };
 
+const refreshWelcome = (messages: ChatMessage[]) => (Array.isArray(messages) ? messages : []).map((message, index) => {
+  // 欢迎语是产品文案；只更新首条已知欢迎消息，保留用户对话和执行记录。
+  const welcome = index === 0 && message.role === 'system' &&
+    message.text.startsWith('你好，我是 OpenResearch 科研助手。');
+  return welcome ? { ...message, text: uiText.appWelcome } : message;
+});
+
+const withPlanLink = (state: PersistedChatState): PersistedChatState => {
+  const planId = new URLSearchParams(window.location.search).get('plan');
+  if (!planId || !/^[a-f0-9]{32}$/.test(planId)) return state;
+  const existing = state.sessions.find(session => session.activePlanId === planId);
+  if (existing) return { ...state, activeSessionId: existing.id };
+  // 链接只指定计划 ID；沿用当前身份，由服务端检查归属后恢复真实状态。
+  const session = { ...createSessionRecord(state.sessions.length + 1),
+    id: `plan-${planId}`, title: `执行记录 ${planId.slice(0, 8)}`, activePlanId: planId };
+  return { ...state, activeSessionId: session.id, sessions: [...state.sessions, session] };
+};
+
 const loadPersistedChatState = (): PersistedChatState => {
   if (typeof window === 'undefined') {
     return createSessionState(null, '临时会话');
@@ -95,15 +115,15 @@ const loadPersistedChatState = (): PersistedChatState => {
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createSessionState(null, '临时会话');
+    if (!raw) return withPlanLink(createSessionState(null, '临时会话'));
 
     const normalized = normalizeChatState(JSON.parse(raw));
     if (normalized.sessions.length === 0 || !normalized.activeSessionId) {
-      return createSessionState(normalized.userId, '新会话');
+      return withPlanLink(createSessionState(normalized.userId, '新会话'));
     }
-    return normalized;
+    return withPlanLink(normalized);
   } catch {
-    return createSessionState(null, '临时会话');
+    return withPlanLink(createSessionState(null, '临时会话'));
   }
 };
 
@@ -148,7 +168,12 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
   const chatHistory = activeSession?.chatHistory ?? [];
   const activePlanId = activeSession?.activePlanId ?? null;
 	const activePlanStatus = activeSession?.planGraph?.status ?? null;
-  const intentContext = activeSession?.intentContext ?? null;
+  const intentContext = useMemo<IntentContext | null>(() => {
+    if (activeSession?.intentContext) return activeSession.intentContext;
+    const graph = activeSession?.planGraph;
+    return graph ? { raw_intent: graph.user_intent, intent_type: graph.intent_type,
+      entities: {}, constraints: {}, metadata: {} } : null;
+  }, [activeSession?.intentContext, activeSession?.planGraph]);
   const activeIdentity = persistedState.userId ?? guestUserId;
 
   useEffect(() => {
@@ -165,18 +190,23 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
           session => {
             const graph = response.plan_graph;
             const terminal = ['completed', 'failed', 'canceled'].includes(graph.status ?? '');
-            if (!terminal || session.reportedPlanId === graph.id) return { ...session, planGraph: graph };
+            const alreadyReported = session.reportedPlanId === graph.id &&
+              (session.reportedPlanStatus ?? session.planGraph?.status) === graph.status;
+            if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
-            const analysis = graph.nodes.find(node => node.type === 'paper_analyze');
+            const analysis = graph.nodes.find(node => node.type === 'chat_answer')
+              ?? graph.nodes.find(node => node.type === 'paper_analyze');
             const text = graph.status === 'completed'
               ? analysis?.result || '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
               : graph.status === 'canceled' ? '当前计划已取消。'
               : failure?.error || '执行失败，运行记录已保留，可查看失败节点后继续处理。';
-            return { ...session, planGraph: graph, reportedPlanId: graph.id,
+            return { ...session, planGraph: graph, reportedPlanId: graph.id, reportedPlanStatus: graph.status,
               chatHistory: [...session.chatHistory, { role: 'system', text }] };
           }) }));
-        if (!['completed', 'failed', 'canceled'].includes(response.plan_graph.status ?? ''))
-          timer = setTimeout(refreshPlan, 5000);
+        // 失败后仍有低频同步：同一计划重试成功时，必须把新的实际报告写回聊天。
+        if (response.plan_graph.status !== 'completed')
+          timer = setTimeout(refreshPlan,
+            ['failed', 'canceled'].includes(response.plan_graph.status ?? '') ? 15000 : 5000);
       } catch {
         if (!canceled) timer = setTimeout(refreshPlan, 5000);
       }

@@ -83,6 +83,7 @@ class PlanStore:
                     continue
                 task.status = Status.PENDING
                 task.result = task.code = task.structured_data = task.error = ""
+                task.image_base64 = ""
                 Transitions.invalidate(task)
                 for key in task.output_artifacts:
                     plan.artifacts.pop(key, None)

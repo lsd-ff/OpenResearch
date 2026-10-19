@@ -4,7 +4,7 @@ from typing import Literal
 from openresearch.models.context import Identity
 from openresearch.models.research import ResearchSpec
 
-Workflow = Literal["auto", "code", "paper", "reproduce", "benchmark"]
+Workflow = Literal["auto", "code", "paper", "reproduce", "benchmark", "data"]
 
 
 @dataclass(frozen=True)

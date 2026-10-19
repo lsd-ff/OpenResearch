@@ -1,5 +1,7 @@
-.research-launch { position: fixed; right: 20px; top: 12px; z-index: 40; background: #0f766e; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 600; }
-.api-connection { position: fixed; right: 128px; top: 12px; z-index: 45; color: #334155; font-size: 13px; }
+.scholar-workbench { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.workbench-tools { position: relative; z-index: 20; display: flex; flex: none; justify-content: flex-end; align-items: center; gap: 8px; min-height: 52px; padding: 8px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; }
+.research-launch { background: #0f766e; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-weight: 600; cursor: pointer; }
+.api-connection { position: relative; color: #334155; font-size: 13px; }
 .api-connection > button { background: #fff; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
 .api-connection section { position: absolute; right: 0; top: 45px; width: 280px; background: #fff; padding: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px #33415520; }
 .api-connection input { border: 1px solid #cbd5e1; padding: 8px; margin: 8px 0; width: 100%; }
@@ -26,4 +28,4 @@
 .research-panel footer { padding-left: 0; padding-right: 0; font-size: 12px; }
 .research-error { background: #fef2f2; color: #991b1b; padding: 12px; margin-top: 16px; overflow-wrap: anywhere; }
 .research-panel :focus-visible, .research-launch:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
-@media (max-width: 600px) { .research-overlay { padding: 8px; } .research-columns { grid-template-columns: 1fr; gap: 0; } .research-panel form, .research-panel header { padding: 16px; } .research-launch { top: 58px; } }
+@media (max-width: 600px) { .research-overlay { padding: 8px; } .research-columns { grid-template-columns: 1fr; gap: 0; } .research-panel form, .research-panel header { padding: 16px; } }

@@ -1,27 +1,18 @@
 import asyncio
+import json
 import logging
 from contextlib import suppress
 
-from openresearch.agents.claim_freeze import ClaimFreezer
-from openresearch.agents.code import CodeAgent
-from openresearch.agents.documents import DocumentAgent
-from openresearch.agents.environment import EnvironmentAgent
-from openresearch.agents.paper_analysis import PaperAnalyst
-from openresearch.agents.repository import RepositoryAgent
-from openresearch.agents.research_design import ResearchDesigner
-from openresearch.agents.research_execute import ResearchExecutor
-from openresearch.agents.research_prepare import ResearchPreparer
+from openresearch.agents.context import AgentContext
+from openresearch.agents.router import RoutedAgents
 from openresearch.config import Settings
 from openresearch.errors import ContractError, PlanningInputRequired, StaleExecutionError
-from openresearch.llm.client import LLMClient
 from openresearch.models.execution import ExecutionLease, TaskCompletion
-from openresearch.models.routing import validate_role
-from openresearch.models.runtime import Plan, Task, TaskResult
-from openresearch.research.source_context import document_context
+from openresearch.models.output_files import OutputFiles
+from openresearch.models.runtime import Artifact, Plan, Task, TaskResult
 from openresearch.sandbox.base import Sandbox
 from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
-from openresearch.tools.execution import ExecutionTool
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +25,8 @@ class TaskExecutor:
     ) -> None:
         self.repository = repository
         self.files = files
-        self.code_agent = CodeAgent(LLMClient(settings))
-        self.execution_tool = ExecutionTool(repository, sandbox)
-        self.document_agent = DocumentAgent(settings, repository, sandbox)
-        self.paper_analyst = PaperAnalyst(settings, files)
-        self.repository_agent = RepositoryAgent(settings, files)
-        self.environment_agent = EnvironmentAgent(settings)
-        self.research_preparer = ResearchPreparer(settings, files)
-        self.research_designer = ResearchDesigner(settings, files)
-        self.research_executor = ResearchExecutor(settings, repository, files, sandbox)
-        self.claim_freezer = ClaimFreezer(settings, files)
+        self.agents = RoutedAgents(settings, repository, files, sandbox)
+        self.research_executor = self.agents.coder.research_executor
 
     async def execute(self, plan: Plan, task: Task, lease: ExecutionLease) -> None:
         try:
@@ -59,42 +42,7 @@ class TaskExecutor:
             await self._fail(lease, exc)
 
     async def _route(self, plan: Plan, task: Task, lease: ExecutionLease) -> TaskResult:
-        validate_role(task.type, task.assigned_to)
-        if task.type in {
-            "repository_fetch",
-            "environment_lock",
-            "claim_freeze",
-            "research_prepare",
-            "research_design",
-            "research_execute",
-        }:
-            return await self._research(plan, task, lease)
-        if task.type == "document_extract":
-            return await self.document_agent.execute(plan, task, lease)
-        if task.type == "paper_analyze":
-            return await self.paper_analyst.execute(plan, task)
-        if task.type == "code_generate":
-            context = await asyncio.to_thread(document_context, plan, self.files)
-            return await self.code_agent.execute(task, context)
-        if task.type == "code_execute":
-            code = await asyncio.to_thread(self.files.read, plan.artifacts["generated_code"])
-            return await self.execution_tool.execute(task, lease, code)
-        raise ContractError(f"unsupported task route: {task.type}/{task.assigned_to}")
-
-    async def _research(self, plan: Plan, task: Task, lease: ExecutionLease) -> TaskResult:
-        if task.type == "claim_freeze":
-            return await self.claim_freezer.execute(plan, task)
-        if task.type == "repository_fetch":
-            return await self.repository_agent.execute(plan, task)
-        if task.type == "environment_lock":
-            return await self.environment_agent.execute(task, plan, self.files)
-        if task.type == "research_design":
-            return await self.research_designer.execute(plan, task)
-        if task.type == "research_prepare":
-            return await self.research_preparer.execute(plan, task)
-        if task.type == "research_execute":
-            return await self.research_executor.execute(plan, task, lease)
-        raise ContractError(f"unsupported research task: {task.type}")
+        return await self.agents.execute(AgentContext(plan, task, lease))
 
     async def _commit(self, task: Task, lease: ExecutionLease, result: TaskResult) -> None:
         if set(result.outputs) != set(task.output_artifacts):
@@ -103,7 +51,28 @@ class TaskExecutor:
             await asyncio.to_thread(self.files.write, lease, key, value)
             for key, value in result.outputs.items()
         ]
+        self._describe_files(lease, result, output)
         await asyncio.to_thread(self.repository.finish, lease, TaskCompletion(result, output))
+
+    @staticmethod
+    def _describe_files(
+        lease: ExecutionLease, result: TaskResult, artifacts: list[Artifact]
+    ) -> None:
+        collection = next((item for item in artifacts if item.key == "execution_files"), None)
+        if collection is None:
+            return
+        bundle = OutputFiles.model_validate_json(result.outputs["execution_files"])
+        metadata = json.loads(result.structured_data or "{}")
+        metadata["output_files"] = [
+            {
+                "name": item.path,
+                "size": item.size,
+                "sha256": item.sha256,
+                "url": f"/api/plans/{lease.plan_id}/artifacts/{collection.id}/files/{index}",
+            }
+            for index, item in enumerate(bundle.files)
+        ]
+        result.structured_data = json.dumps(metadata, ensure_ascii=False)
 
     async def _fail(self, lease: ExecutionLease, exception: Exception) -> None:
         error = "task timed out" if isinstance(exception, TimeoutError) else str(exception)

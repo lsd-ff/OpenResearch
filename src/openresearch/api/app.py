@@ -37,6 +37,7 @@ def create_app(
     settings: Settings | None = None,
     repository: Repository | None = None,
     sandbox: Sandbox | None = None,
+    discovery: SourceDiscovery | None = None,
 ) -> FastAPI:
     """组装 API；测试可注入存储和沙箱，生产启动由 lifespan 管理资源。"""
     configuration = settings or Settings()
@@ -58,7 +59,9 @@ def create_app(
             plan_service = PlanService(configuration, store)
             upload_service = UploadService(configuration, store)
             chat_service = ChatService(configuration, store, files)
-            discovery_service = SourceDiscovery()
+            discovery_service = discovery or SourceDiscovery(
+                proxy=configuration.source_proxy_url.get_secret_value() or None
+            )
             application.state.runtime = Runtime(
                 settings=configuration,
                 repository=store,

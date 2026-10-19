@@ -1,3 +1,5 @@
+import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -7,6 +9,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, event, insert, select, update
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import OperationalError
 
 from openresearch.errors import NotFoundError
 from openresearch.models.runtime import (
@@ -33,10 +36,31 @@ class Database:
             cursor.execute("PRAGMA busy_timeout=15000")
             cursor.close()
 
-        with self.engine.connect() as connection:
-            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
-            connection.commit()
-        self.upgrade()
+        try:
+            self._enable_wal()
+            self.upgrade()
+        except BaseException:
+            self.engine.dispose()
+            raise
+
+    def _enable_wal(self) -> None:
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                with self.engine.connect() as connection:
+                    connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+                    connection.commit()
+                return
+            except OperationalError as error:
+                code = getattr(error.orig, "sqlite_errorcode", None)
+                if (
+                    code is None
+                    or code & 0xFF not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                    or time.monotonic() >= deadline
+                ):
+                    raise
+                # 首次切换 WAL 可能跳过 SQLite busy_timeout；只对锁冲突做有界重试。
+                time.sleep(0.05)
 
     def upgrade(self) -> None:
         config = Config()

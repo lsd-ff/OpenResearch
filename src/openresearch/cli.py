@@ -54,6 +54,8 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("serve", help="start the HTTP API")
     subparsers.add_parser("worker", help="start the durable execution worker")
+    subparsers.add_parser("sandbox", help="start the isolated execution HTTP service")
+    subparsers.add_parser("intent", help="start the optional intent recognition service")
     subparsers.add_parser("doctor", help="check the configured execution backend")
     db = subparsers.add_parser("db", help="database maintenance")
     db.add_argument("action", choices=["upgrade"])
@@ -64,6 +66,18 @@ def main() -> None:
         uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
     elif args.command == "worker":
         asyncio.run(run_worker(settings))
+    elif args.command == "sandbox":
+        from openresearch.sandbox.service import create_sandbox_app
+
+        uvicorn.run(
+            create_sandbox_app(settings), host=settings.host, port=settings.sandbox_service_port
+        )
+    elif args.command == "intent":
+        from openresearch.api.intent_service import create_intent_app
+
+        uvicorn.run(
+            create_intent_app(settings), host=settings.host, port=settings.intent_service_port
+        )
     elif args.command == "doctor":
         raise SystemExit(0 if asyncio.run(doctor(settings)) else 1)
     elif args.command == "db":

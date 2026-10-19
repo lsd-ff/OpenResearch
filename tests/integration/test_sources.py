@@ -7,8 +7,50 @@ from conftest import make_repository_archive as make_archive
 
 from openresearch.errors import ContractError
 from openresearch.models.sources import EnvironmentSpec, RepositorySpec
+from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.github import GitHubSource
 from openresearch.sources.wheels import WheelSource
+
+
+async def test_default_head_can_use_read_only_git_discovery_when_api_quota_is_exhausted(settings):
+    calls = []
+    head = b"a" * 40 + b" HEAD\0symref=HEAD:refs/heads/main\n"
+    advertisement = (
+        b"001e# service=git-upload-pack\n0000" + f"{len(head) + 4:04x}".encode() + head + b"0000"
+    )
+
+    def handle(request):
+        calls.append(request.url.host)
+        if request.url.host == "api.github.com":
+            return httpx.Response(403, headers={"x-ratelimit-remaining": "0"})
+        if request.url.host == "github.com":
+            assert request.url.path.endswith(".git/info/refs")
+            assert dict(request.url.params) == {"service": "git-upload-pack"}
+            return httpx.Response(200, content=advertisement)
+        assert request.url.path.endswith("a" * 40)
+        return httpx.Response(200, content=make_archive())
+
+    snapshot, _ = await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+        RepositorySpec(url="https://github.com/example/repo")
+    )
+    assert snapshot.commit == "a" * 40
+    assert calls == ["api.github.com", "github.com", "codeload.github.com"]
+
+
+@pytest.mark.parametrize(
+    "reference,headers", [("main", {"x-ratelimit-remaining": "0"}), ("HEAD", {})]
+)
+async def test_explicit_refs_and_non_rate_access_denials_never_switch_resolution(
+    settings, reference, headers
+):
+    def handle(request):
+        assert request.url.host == "api.github.com"
+        return httpx.Response(403, headers=headers)
+
+    with pytest.raises(ContractError):
+        await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+            RepositorySpec(url="https://github.com/example/repo", ref=reference)
+        )
 
 
 async def test_github_download_uses_resolved_sha(settings) -> None:
@@ -29,6 +71,22 @@ async def test_github_download_uses_resolved_sha(settings) -> None:
     assert snapshot.commit == commit
     assert snapshot.files[0].sha256 == hashlib.sha256(files["main.py"]).hexdigest()
     assert len(calls) == 2
+
+
+async def test_full_commit_uses_only_the_immutable_archive_endpoint(settings):
+    calls = []
+    commit = "b" * 40
+
+    def handle(request):
+        calls.append(str(request.url))
+        assert request.url.host == "codeload.github.com"
+        assert request.url.path.endswith(commit)
+        return httpx.Response(200, content=make_archive())
+
+    snapshot, files = await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+        RepositorySpec(url="https://github.com/example/repo", ref=commit)
+    )
+    assert snapshot.commit == commit and files and len(calls) == 1
 
 
 async def test_repository_download_size_is_bounded(settings) -> None:
@@ -87,3 +145,44 @@ async def test_incompatible_package_metadata_is_rejected_before_download(setting
     )
     with pytest.raises(ContractError):
         await WheelSource(settings, transport).fetch(EnvironmentSpec(requirements=["example==1.0"]))
+
+
+@pytest.mark.parametrize("corrupted", [False, True])
+async def test_wheel_cache_revalidates_metadata_and_actual_content(settings, corrupted):
+    raw = b"actual immutable wheel bytes"
+    blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
+    digest = blobs.write(raw)
+    if corrupted:
+        (blobs.root / digest[:2] / digest).write_bytes(b"x" * len(raw))
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.host)
+        assert request.url.host == "pypi.org", (
+            "a validated cached wheel must not be downloaded again"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "info": {"name": "example", "version": "1.0"},
+                "urls": [
+                    {
+                        "filename": "example-1.0-py3-none-any.whl",
+                        "packagetype": "bdist_wheel",
+                        "url": "https://files.pythonhosted.org/example.whl",
+                        "size": len(raw),
+                        "digests": {"sha256": digest},
+                    }
+                ],
+            },
+        )
+
+    source = WheelSource(settings, httpx.MockTransport(handle))
+    specification = EnvironmentSpec(requirements=["example==1.0"])
+    if corrupted:
+        with pytest.raises(ContractError, match="checksum"):
+            await source.fetch(specification)
+    else:
+        lock, files = await source.fetch(specification)
+        assert lock.wheels[0].sha256 == digest and list(files.values()) == [raw]
+    assert calls == ["pypi.org"]

@@ -37,6 +37,7 @@ interface ChatActions {
 }
 
 interface PdfActions {
+  onReadPaper: (attachment: UploadedFile) => void;
   onOpenPdf: () => void;
   onClosePdf: () => void;
   onFullTranslation: () => void;
@@ -82,6 +83,7 @@ export function ChatPanel(props: ChatPanelProps) {
         taskActions={taskActions}
       />
       <ChatComposer
+        onReadPaper={pdfActions.onReadPaper}
         prompt={state.prompt}
         loading={state.loading}
         isLoggedIn={state.isLoggedIn}

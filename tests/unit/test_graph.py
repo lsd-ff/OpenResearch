@@ -22,7 +22,7 @@ def test_rejects_artifacts_without_upstream_producer(settings: Settings) -> None
 
 
 def test_research_without_assets_does_not_become_mock_experiment(settings: Settings) -> None:
-    with pytest.raises(ContractError, match="需要论文附件或实验配置"):
+    with pytest.raises(ContractError, match="需要真实材料"):
         build_code_plan("复现论文的 smoke 实验", "alice", "session", settings)
 
 

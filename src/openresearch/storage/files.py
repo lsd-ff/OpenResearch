@@ -34,7 +34,9 @@ class ArtifactStore:
         return Artifact(
             id=identifier,
             key=key,
-            type="code" if key == "generated_code" else "json",
+            type={"generated_code": "code", "execution_files": "files", "data_chart": "image"}.get(
+                key, "json"
+            ),
             producer_task_id=lease.task_id,
             execution_id=lease.execution_id,
             value=content[:4096],

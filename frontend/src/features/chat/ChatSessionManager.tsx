@@ -43,7 +43,7 @@ export function ChatSessionManager(props: ChatSessionManagerProps) {
   const { state, actions } = props;
 
   return (
-    <div className={`border-b border-gray-200 p-4 ${state.isLoggedIn ? 'bg-slate-50' : 'bg-gradient-to-r from-blue-50 to-slate-50'}`}>
+    <div className={`shrink-0 border-b border-gray-200 p-4 ${state.isLoggedIn ? 'bg-slate-50' : 'bg-gradient-to-r from-blue-50 to-slate-50'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -91,7 +91,7 @@ export function ChatSessionManager(props: ChatSessionManagerProps) {
         </div>
       )}
 
-      <div className="mt-3 space-y-2">
+      <div role="region" aria-label="历史会话" className="mt-3 max-h-[18vh] space-y-2 overflow-y-auto overscroll-contain">
         {state.sessions.map((session) => {
           const isActive = session.id === state.activeSessionId;
           return (

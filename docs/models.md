@@ -13,8 +13,8 @@ OPENRESEARCH_LLM_PROVIDER=anthropic
 OPENRESEARCH_LLM_BASE_URL=https://www.autodl.art/api/v1/anthropic
 OPENRESEARCH_LLM_MODEL=DeepSeek-V4-Flash
 OPENRESEARCH_LLM_API_KEY=YOUR_API_KEY
-OPENRESEARCH_LLM_TIMEOUT_SECONDS=180
-OPENRESEARCH_LLM_MAX_OUTPUT_TOKENS=4096
+OPENRESEARCH_LLM_TIMEOUT_SECONDS=300
+OPENRESEARCH_LLM_MAX_OUTPUT_TOKENS=8192
 OPENRESEARCH_LLM_SCHEMA_RETRIES=1
 OPENRESEARCH_LLM_THINKING=disabled
 OPENRESEARCH_LLM_STRUCTURED_OUTPUT=tool
@@ -44,8 +44,12 @@ Anthropic 可选 `LLM_STRUCTURED_OUTPUT=tool`：通过唯一的 submit_response 
 
 ```powershell
 uv run --locked python scripts/verify_model.py
+# 单独验收自然语言自动规划、追问和论文发现仓库
+uv run --locked python scripts/verify_auto_planning.py
 ```
 
 此命令会产生模型调用费用，上传合成 PDF/四行 CSV，创建独立验收会话，并验证真实对话、PDF 解析和引用、短文翻译、模型生成代码、论文式主张抽取、受限补丁、基线与消融、语义证据，以及故意失败后的模型修复。公共仓库样本使用 pallets/itsdangerous，其分支在获取时固定为提交 SHA。
 
 生成和修复的程序都由部署的 Worker 在 Docker 中运行。脚本只读取产物；JSON 验收结果和报告保存在 `.data/model-acceptance/<运行 ID>/`，不会覆盖旧验收。它验证的是小型软件协议链，不证明真实论文复现、长文翻译或模型科研判断的整体质量。
+
+`verify_auto_planning.py` 只通过聊天和附件创建计划，不传手动实验配置。它使用独立会话验证标签追问、短答继续、真实源码基线与消融、带页码的 PDF 分析，以及从 PDF 发现仓库并自动设计运行入口。该脚本也会调用收费模型，结果保存在 `.data/auto-acceptance/<运行 ID>/`。

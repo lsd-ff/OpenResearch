@@ -1,0 +1,238 @@
+{
+  "scope": "tiny_cpu_core_reproduction",
+  "seed": 42,
+  "source_files": {
+    "Encoder": "/tmp/openresearch/repository/transformer/modules/encoder.py",
+    "Decoder": "/tmp/openresearch/repository/transformer/modules/decoder.py",
+    "MultiHeadAttention": "/tmp/openresearch/repository/transformer/layers/combined/self_attention.py",
+    "PositionalEncoding": "/tmp/openresearch/repository/transformer/layers/combined/positional_encoding.py"
+  },
+  "gradient_regressions": {
+    "Softmax": {
+      "before_max_error": 0.25345476510224757,
+      "after_max_error": 1.7634838034297218e-11
+    },
+    "LogSoftmax": {
+      "before_max_error": 0.9710448853868422,
+      "after_max_error": 7.48900386149387e-11
+    },
+    "CrossEntropy": {
+      "before_max_error": 0.33333333332441484,
+      "after_max_error": 8.918532579116345e-12
+    }
+  },
+  "attention": {
+    "formula_max_error": 1.1102230246251565e-16,
+    "output_shape": [
+      2,
+      5,
+      16
+    ],
+    "causal_future_weight": 0.0
+  },
+  "positional_encoding": {
+    "max_error": 4.440892098500626e-16
+  },
+  "encoder_decoder": {
+    "encoder_shape": [
+      2,
+      4,
+      16
+    ],
+    "logits_shape": [
+      2,
+      5,
+      12
+    ],
+    "cross_attention_source_difference": 0.5394490720246259,
+    "decoder_causality": "passed"
+  },
+  "copy": {
+    "task": "copy",
+    "steps": 200,
+    "initial_loss": 2.570103909181819,
+    "final_loss": 0.0341553612801382,
+    "training_token_accuracy": 1.0,
+    "encoder_embedding_change_norm": 0.47724775290979443,
+    "curve": [
+      {
+        "step": 0,
+        "loss": 2.570103909181819
+      },
+      {
+        "step": 10,
+        "loss": 2.0004979495829796
+      },
+      {
+        "step": 20,
+        "loss": 1.6683834921719196
+      },
+      {
+        "step": 30,
+        "loss": 1.3650357345605486
+      },
+      {
+        "step": 40,
+        "loss": 1.084493131115229
+      },
+      {
+        "step": 50,
+        "loss": 0.8428251624955907
+      },
+      {
+        "step": 60,
+        "loss": 0.6502818294421833
+      },
+      {
+        "step": 70,
+        "loss": 0.4974247069157941
+      },
+      {
+        "step": 80,
+        "loss": 0.3807142534103888
+      },
+      {
+        "step": 90,
+        "loss": 0.2906112442119193
+      },
+      {
+        "step": 100,
+        "loss": 0.2206302741190763
+      },
+      {
+        "step": 110,
+        "loss": 0.16777942508664073
+      },
+      {
+        "step": 120,
+        "loss": 0.12933516627078312
+      },
+      {
+        "step": 130,
+        "loss": 0.10199579890015345
+      },
+      {
+        "step": 140,
+        "loss": 0.082469108036448
+      },
+      {
+        "step": 150,
+        "loss": 0.06823218420207885
+      },
+      {
+        "step": 160,
+        "loss": 0.057657804578403485
+      },
+      {
+        "step": 170,
+        "loss": 0.049590019094458045
+      },
+      {
+        "step": 180,
+        "loss": 0.04328304828037691
+      },
+      {
+        "step": 190,
+        "loss": 0.03825362020421323
+      },
+      {
+        "step": 200,
+        "loss": 0.0341553612801382
+      }
+    ]
+  },
+  "reverse": {
+    "task": "reverse",
+    "steps": 200,
+    "initial_loss": 2.619592015170961,
+    "final_loss": 0.04765837100521373,
+    "training_token_accuracy": 1.0,
+    "encoder_embedding_change_norm": 0.5991351638742103,
+    "curve": [
+      {
+        "step": 0,
+        "loss": 2.619592015170961
+      },
+      {
+        "step": 10,
+        "loss": 1.9960433377845412
+      },
+      {
+        "step": 20,
+        "loss": 1.6643803516011797
+      },
+      {
+        "step": 30,
+        "loss": 1.404423343888333
+      },
+      {
+        "step": 40,
+        "loss": 1.1907815662788535
+      },
+      {
+        "step": 50,
+        "loss": 0.9931222320059911
+      },
+      {
+        "step": 60,
+        "loss": 0.7903092316281853
+      },
+      {
+        "step": 70,
+        "loss": 0.6025552760760873
+      },
+      {
+        "step": 80,
+        "loss": 0.4525079732591345
+      },
+      {
+        "step": 90,
+        "loss": 0.34188807832253154
+      },
+      {
+        "step": 100,
+        "loss": 0.26291118719886086
+      },
+      {
+        "step": 110,
+        "loss": 0.2108316961148234
+      },
+      {
+        "step": 120,
+        "loss": 0.1682652360327798
+      },
+      {
+        "step": 130,
+        "loss": 0.13703895898724264
+      },
+      {
+        "step": 140,
+        "loss": 0.11466115227742542
+      },
+      {
+        "step": 150,
+        "loss": 0.09716155254353279
+      },
+      {
+        "step": 160,
+        "loss": 0.08278547471244717
+      },
+      {
+        "step": 170,
+        "loss": 0.0711027163308232
+      },
+      {
+        "step": 180,
+        "loss": 0.06164694190080737
+      },
+      {
+        "step": 190,
+        "loss": 0.05395191962939343
+      },
+      {
+        "step": 200,
+        "loss": 0.04765837100521373
+      }
+    ]
+  }
+}

@@ -40,6 +40,10 @@ class FakeSandbox:
         return identifier
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult:
+        if code.startswith("# OpenResearch artifact collector\n"):
+            return ExecutionResult(
+                stdout='{"version":"execution.files/v1","files":[]}', exit_code=0
+            )
         await on_log("stdout", "test-output")
         return ExecutionResult(stdout="test-output", exit_code=0)
 

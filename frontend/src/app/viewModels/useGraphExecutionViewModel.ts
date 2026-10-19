@@ -23,6 +23,8 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
   const runtime = useScholarRuntimeContext();
 
   return useMemo(() => {
+    const isExecuting = runtime.state.executionState.isExecuting
+      || activePlanStatus === 'ready' || activePlanStatus === 'in_progress';
     const graphPanelProps = {
       nodes,
       edges,
@@ -33,7 +35,7 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
       runAllText: uiText.runAll,
       graphTitle: uiText.graphTitle,
       graphHint: uiText.graphHint,
-      isExecuting: runtime.state.executionState.isExecuting,
+      isExecuting,
 	  requiresApproval: activePlanStatus === 'awaiting_approval' && !runtime.state.executionState.approvalResolved,
       onRunAll: () => void runtime.actions.handleRunAllTasks(activePlanId),
 	  onApproveAndRun: () => void runtime.actions.handleApproveAndRun(activePlanId),
@@ -49,7 +51,7 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
       ? {
           selectedTask: runtime.state.executionState.selectedTask,
           width: isExpandedMode ? '100%' : `${layout.sidebarWidth}px`,
-          isExecuting: runtime.state.executionState.isExecuting,
+          isExecuting,
           displayMode: runtime.state.executionState.displayMode,
           executionLogs: runtime.state.selectedTaskState.logs,
           executionResult: runtime.state.selectedTaskState.result,
