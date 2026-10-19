@@ -80,6 +80,40 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     assert json.loads(patch.outputs["research_patch"])["files"][0]["path"] == "adapter.py"
 
 
+async def test_design_corrects_diff_filenames_before_dependency_resolution(
+    settings, repository, files
+):
+    plan = PlanService(settings, repository).build(
+        PlanSubmission(
+            "run core tests",
+            Identity("alice", "design-correction"),
+            workflow="reproduce",
+            research=ResearchSpec(
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+            ),
+            auto_design=True,
+        )
+    )
+    task = next(node for node in plan.nodes if node.type == "research_design")
+    settings.llm_api_key = SecretStr("private-token")
+    settings.llm_model = "test-model"
+    calls = []
+
+    def model(request):
+        calls.append(json.loads(request.content))
+        paths = ["patches/fix-tests.patch"] if len(calls) == 1 else ["openresearch_run.py"]
+        value = {"patch_paths": paths, "rationale": "Execute an actual test adapter"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(value)}}]})
+
+    designer = ResearchDesigner(settings, files)
+    designer.llm = LLMClient(settings, httpx.MockTransport(model))
+    result = await designer.execute(plan, task)
+    assert len(calls) == 2
+    assert "patch_paths" in calls[-1]["messages"][-1]["content"]
+    spec = ResearchSpec.model_validate_json(result.outputs["research_spec"])
+    assert spec.patch_paths == ["openresearch_run.py"]
+
+
 async def test_patch_generation_receives_the_original_goal_as_well_as_the_task(
     settings, repository, files, monkeypatch
 ):

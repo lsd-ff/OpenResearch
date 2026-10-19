@@ -33,6 +33,10 @@ DESIGN_PROMPT = (
     "requested. Use qualitative criteria without metric_name/expected_value for numeric "
     "assertions printed by smoke tests. Set source=null for user-scope functional criteria. "
     "Account for actual source imports and dependency_bytes; never add CUDA packages on CPU."
+    " patch_paths are allowed .py SOURCE filenames to modify, NOT .patch/diff filenames. "
+    "For pytest suites, running a file containing test definitions does not execute its tests: "
+    "use an adapter calling pytest.main(['-q', ...]) and propagate the returned exit code. "
+    "For unittest preserve unittest.main(). Never report definition-only imports as tests."
 )
 
 
@@ -67,6 +71,8 @@ class ResearchDesigner:
             ],
             ExperimentDesign,
         )
+        if design.entrypoint not in sources and design.entrypoint not in design.patch_paths:
+            raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),
@@ -77,8 +83,6 @@ class ResearchDesigner:
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
             }
         )
-        if resolved.entrypoint not in sources and resolved.entrypoint not in resolved.patch_paths:
-            raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         return TaskResult(
             result=design.rationale,
             structured_data=design.model_dump_json(),

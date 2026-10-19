@@ -181,6 +181,13 @@ test('旧会话更新欢迎语并从 Transformer 推荐指令自动检索规划'
   expect(response.request().postDataJSON()).toEqual({ message, attachments: [] });
   const source = payload.plan_graph.nodes.find((node: { type: string }) => node.type === 'repository_fetch');
   expect(source.inputs.repository.url).toBe('https://github.com/harvardnlp/annotated-transformer');
+  expect(['ready', 'in_progress']).toContain(payload.plan_graph.status);
+  await expect(page.getByRole('button', { name: '取消', exact: true })).toBeVisible();
+  // 此夹具只验证分类、排队和恢复；真实模型生成与执行另由自然语言实跑验收。
+  const headers = await response.request().allHeaders();
+  await page.request.post(`/api/plans/${payload.plan_graph.id}/cancel`, {
+    headers: { 'X-User-Id': headers['x-user-id'], 'X-Session-Id': headers['x-session-id'] },
+  });
   await expect(page.locator('.react-flow__node')).toHaveCount(7);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();

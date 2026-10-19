@@ -82,7 +82,8 @@ class MessageService:
             )
         )
         response = (
-            "已开始执行，完成后会在当前聊天中返回实际测试报告。\n" + outcome.response
+            "已开始执行，完成后会在当前聊天中返回实际测试报告。\n"
+            + outcome.response.replace("可在右侧运行。", "执行进度会在右侧更新。")
             if auto_run
             else outcome.response
         )
