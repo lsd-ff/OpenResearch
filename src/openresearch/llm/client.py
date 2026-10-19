@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+import time
 from typing import Any, TypeVar
 
 import httpx
@@ -24,6 +26,7 @@ CODE_PROMPT = (
     "directory first. Use SVG with the standard library when plotting without dependencies."
 )
 ResponseContract = TypeVar("ResponseContract", bound=ContractModel)
+logger = logging.getLogger(__name__)
 
 
 class GeneratedCode(ContractModel):
@@ -67,12 +70,26 @@ class LLMClient:
                     + json.dumps(schema, ensure_ascii=False),
                 },
             )
+        started = time.monotonic()
+        completed = False
         try:
             # 修正请求共用一次总预算，不能让格式重试将等待时间成倍延长。
             async with asyncio.timeout(self.settings.llm_timeout_seconds):
-                return await self._validate_contract(conversation, contract, schema)
+                response = await self._validate_contract(conversation, contract, schema)
+                completed = True
+                return response
         except TimeoutError:
             raise ModelError("model provider request timed out") from None
+        finally:
+            # 只记录契约、耗时和终态，绝不输出正文或凭据。
+            logger.info(
+                "model contract finished",
+                extra={
+                    "contract": contract.__name__,
+                    "completed": completed,
+                    "duration_ms": round((time.monotonic() - started) * 1000),
+                },
+            )
 
     async def _validate_contract(
         self,
@@ -155,8 +172,22 @@ class LLMClient:
             raise ModelError(
                 f"model provider request failed (HTTP {exc.response.status_code})"
             ) from None
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+        except (
+            httpx.HTTPError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+            AttributeError,
+        ) as exc:
             # 不把供应商正文、连接 URL、reasoning 或密钥写入任务错误和日志。
+            logger.warning(
+                "invalid model protocol",
+                extra={
+                    "contract": schema.get("title", "json") if schema else "json",
+                    "error_type": type(exc).__name__,
+                },
+            )
             raise ModelError("model provider returned an invalid structured response") from None
 
     async def _send(self, request: ProviderRequest, body: bytes) -> bytes:

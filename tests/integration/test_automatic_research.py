@@ -114,6 +114,13 @@ async def test_design_corrects_diff_filenames_before_dependency_resolution(
     assert spec.patch_paths == ["openresearch_run.py"]
 
 
+def test_empty_generated_patch_paths_include_the_validated_adapter():
+    from openresearch.models.planning import ExperimentDesign
+
+    design = ExperimentDesign(entrypoint="adapter.py", patch_paths=[], rationale="run actual tests")
+    assert design.patch_paths == ["adapter.py"]
+
+
 async def test_patch_generation_receives_the_original_goal_as_well_as_the_task(
     settings, repository, files, monkeypatch
 ):

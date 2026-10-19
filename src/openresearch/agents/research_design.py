@@ -37,6 +37,9 @@ DESIGN_PROMPT = (
     "For pytest suites, running a file containing test definitions does not execute its tests: "
     "use an adapter calling pytest.main(['-q', ...]) and propagate the returned exit code. "
     "For unittest preserve unittest.main(). Never report definition-only imports as tests."
+    " Keep the entire design under 600 output tokens. Rationale and limitations: one short "
+    "sentence each. Use 1-3 brief functional rubric checks. Do not include code or diff text "
+    "in this design response; the following preparation stage will write the actual adapter."
 )
 
 
@@ -83,6 +86,7 @@ class ResearchDesigner:
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
                 "ablations": [variant.model_dump() for variant in design.ablations],
+                "rubric": design.rubric.model_dump(),
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
             }
         )

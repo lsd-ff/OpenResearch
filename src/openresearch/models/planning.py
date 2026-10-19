@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from openresearch.models.claims import RubricDraft
 from openresearch.models.discovery import SearchResult
@@ -56,6 +56,13 @@ class ExperimentDesign(ContractModel):
     @classmethod
     def valid_patch_paths(cls, values: list[str]) -> list[str]:
         return ResearchSpec.bounded_python_paths(values)
+
+    @model_validator(mode="after")
+    def allow_adapter_entrypoint(self) -> "ExperimentDesign":
+        # 自动新建入口本身就是已授权的适配路径；空列表不能阻断准备阶段。
+        if not self.patch_paths:
+            self.patch_paths = [self.entrypoint]
+        return self
 
 
 class SourceSelection(ContractModel):

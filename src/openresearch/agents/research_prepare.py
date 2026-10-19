@@ -26,6 +26,8 @@ PATCH_PROMPT = (
     "For requested tests include real assertions against independent expected behavior, "
     "import and call actual repository components, then print each measured result and a "
     "final test count. Use small dimensions, fixed seeds and bounded CPU work. "
+    "Keep a new core-test adapter under 120 lines by reusing actual repository components. "
+    "Do not duplicate the repository implementation or include unused training/data code. "
     "When spec.benchmark is present, OPENRESEARCH_INPUT contains JSON [{id,inputs}]; "
     "write JSON [{id,prediction}] to OPENRESEARCH_PREDICTIONS. Targets are unavailable. "
     "Do not catch failed smoke assertions and pretend success. No downloads."
