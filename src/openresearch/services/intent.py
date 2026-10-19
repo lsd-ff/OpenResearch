@@ -1,11 +1,18 @@
+import asyncio
 import json
+import logging
 import re
 from typing import Any
 
 from openresearch.config import Settings
+from openresearch.errors import ModelError
 from openresearch.llm.client import LLMClient
 from openresearch.models.context import Conversation
+from openresearch.models.intent import IntentRequest
 from openresearch.models.planning import IntentDraft
+from openresearch.services.remote_intent import RemoteIntentClient
+
+logger = logging.getLogger(__name__)
 
 INTENT_PROMPT = (
     "Classify the user's current request into chat/code/paper/reproduce/benchmark/data. "
@@ -54,7 +61,9 @@ def requests_source_reproduction(message: str) -> bool:
 
 class IntentParser:
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.llm = LLMClient(settings)
+        self.remote = RemoteIntentClient(settings)
 
     async def parse(
         self, snapshot: Conversation, message: str, attachments: list[dict[str, Any]]
@@ -74,13 +83,14 @@ class IntentParser:
             "attachments": attachments,
             "recent_turns": [turn.model_dump(mode="json") for turn in snapshot.turns[-6:]],
         }
-        draft = await self.llm.request_typed(
-            [
-                {"role": "system", "content": INTENT_PROMPT},
-                {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
-            ],
-            IntentDraft,
-        )
+        try:
+            async with asyncio.timeout(self.settings.llm_timeout_seconds):
+                draft = await self._classify(
+                    IntentRequest(snapshot=snapshot, message=message, attachments=attachments),
+                    context,
+                )
+        except TimeoutError:
+            raise ModelError("intent recognition exceeded its model budget") from None
         goal = message
         if snapshot.pending_planning and draft.continue_pending:
             goal = snapshot.pending_planning.intent + "\n" + message
@@ -98,3 +108,17 @@ class IntentParser:
         if draft.workflow in {"code", "reproduce"} and evaluation and action:
             draft.workflow = "benchmark"
         return draft
+
+    async def _classify(self, request: IntentRequest, context: dict[str, Any]) -> IntentDraft:
+        if self.settings.intent_service_url:
+            try:
+                return await self.remote.classify(request)
+            except ModelError:
+                logger.info("optional intent service unavailable; using in-process classifier")
+        return await self.llm.request_typed(
+            [
+                {"role": "system", "content": INTENT_PROMPT},
+                {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+            ],
+            IntentDraft,
+        )

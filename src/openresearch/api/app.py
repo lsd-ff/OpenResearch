@@ -59,7 +59,9 @@ def create_app(
             plan_service = PlanService(configuration, store)
             upload_service = UploadService(configuration, store)
             chat_service = ChatService(configuration, store, files)
-            discovery_service = discovery or SourceDiscovery()
+            discovery_service = discovery or SourceDiscovery(
+                proxy=configuration.source_proxy_url.get_secret_value() or None
+            )
             application.state.runtime = Runtime(
                 settings=configuration,
                 repository=store,

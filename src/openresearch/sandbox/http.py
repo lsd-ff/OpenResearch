@@ -16,9 +16,10 @@ class HttpSandbox:
 
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
+        token = settings.sandbox_token.get_secret_value()
         self.client = client or httpx.AsyncClient(
             base_url=settings.sandbox_url,
-            headers={"Authorization": f"Bearer {settings.sandbox_token.get_secret_value()}"},
+            headers={"Authorization": f"Bearer {token}"} if token else {},
             timeout=httpx.Timeout(settings.task_timeout_seconds, connect=10),
             trust_env=False,
         )

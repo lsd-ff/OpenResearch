@@ -20,7 +20,7 @@
 | OpenAI 兼容模型 | 已有 OpenAI / Anthropic，实际配置使用 Anthropic | 待最终验收 |
 | HuggingFace Papers / Papers with Code 仓库发现 | 按原 Go 实现接 HF Papers，失败或无仓库时回退 GitHub；保留论文出处 | 8 项新增协议测试通过；本机实际 HF 联网超时，外部待验 |
 | GitHub Search 回退 | 主来源失败/空结果时自动回退，记录 fallback_used；所有来源失败明确报错 | 协议通过；实际联合链路待验 |
-| 可选独立 Python AI 意图识别服务 | 当前在 API 内，需要可选服务入口及回退 | 待实现 |
+| 可选独立 Python AI 意图识别服务 | 独立 intent 命令、/v1/intent、Compose ai profile、单独凭据、有限上下文和同预算回退 | 已实现；协议和真实部署验收中 |
 | 端到端：请求到产物再到 SSE | 需要对上述新增能力做完整网页、HTTP、Docker 和真实模型验收 | 待最终验收 |
 
 工程门禁：遵循 code_skill；Ruff、严格 mypy、行为测试、前端构建与 E2E；真实代码只在沙箱执行；每批通过后提交并推送 GitHub，不提交密钥和运行数据。

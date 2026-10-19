@@ -79,6 +79,16 @@ async def test_explicit_provider_does_not_silently_return_other_source() -> None
     assert results[0].source == "huggingface"
 
 
+async def test_large_huggingface_search_is_limited_before_candidate_validation() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"paper": paper()}] + [{"unused": "tail"}] * 120)
+
+    results = await SourceDiscovery(httpx.MockTransport(handle)).search(
+        SearchRequest(kind="repository", provider="huggingface", query="attention", limit=1)
+    )
+    assert len(results) == 1 and results[0].url == "https://github.com/example/transformer"
+
+
 async def test_all_source_failures_are_not_reported_as_successful_empty_results() -> None:
     source = SourceDiscovery(httpx.MockTransport(lambda request: httpx.Response(403)))
     with pytest.raises(ContractError, match="unavailable"):

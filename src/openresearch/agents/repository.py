@@ -22,7 +22,7 @@ class RepositoryAgent:
         self.source = GitHubSource(settings)
         self.files = files
         self.llm = LLMClient(settings)
-        self.discovery = SourceDiscovery()
+        self.discovery = SourceDiscovery(proxy=settings.source_proxy_url.get_secret_value() or None)
         self.blobs = SourceBlobs(settings.data_dir / "sources", settings.source_max_file_bytes)
 
     def _spec(self, plan: Plan, task: Task) -> RepositorySpec:

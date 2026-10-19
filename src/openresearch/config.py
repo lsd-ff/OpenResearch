@@ -43,9 +43,13 @@ class Settings(BaseSettings):
     source_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     source_max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
     source_max_files: int = Field(default=2000, ge=1, le=10000)
+    source_proxy_url: SecretStr = SecretStr("")
     dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
     planner_mode: Literal["llm", "template"] = "llm"
+    intent_service_url: str = ""
+    intent_service_port: int = Field(default=8083, ge=1, le=65535)
+    intent_service_token: SecretStr = SecretStr("")
     llm_provider: Literal["openai", "anthropic"] = "openai"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_model: str = ""
@@ -79,6 +83,25 @@ class Settings(BaseSettings):
                 "model base URL must be HTTP(S) without credentials, query or fragment"
             )
         return value.rstrip("/")
+
+    @field_validator("intent_service_url")
+    @classmethod
+    def validate_intent_url(cls, value: str) -> str:
+        return cls.validate_llm_url(value) if value else ""
+
+    @field_validator("source_proxy_url")
+    @classmethod
+    def validate_source_proxy(cls, value: SecretStr) -> SecretStr:
+        if value.get_secret_value():
+            parts = urlsplit(value.get_secret_value())
+            if (
+                parts.scheme not in {"http", "https"}
+                or not parts.hostname
+                or parts.query
+                or parts.fragment
+            ):
+                raise ValueError("source proxy must be an HTTP(S) proxy URL")
+        return value
 
     @model_validator(mode="after")
     def validate_lease_polling(self) -> "Settings":

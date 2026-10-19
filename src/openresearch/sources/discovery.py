@@ -66,8 +66,11 @@ def parse_arxiv(raw: bytes, limit: int) -> list[SearchResult]:
 
 
 class SourceDiscovery:
-    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self, transport: httpx.AsyncBaseTransport | None = None, *, proxy: str | None = None
+    ) -> None:
         self.transport = transport
+        self.proxy = proxy
         self.lock = asyncio.Lock()
         self.last_request = 0.0
 
@@ -79,7 +82,8 @@ class SourceDiscovery:
             self.last_request = time.monotonic()
             async with httpx.AsyncClient(
                 timeout=10,
-                trust_env=False,
+                trust_env=True,
+                proxy=self.proxy,
                 transport=self.transport,
                 headers={"User-Agent": "OpenResearch-Python"},
             ) as client:

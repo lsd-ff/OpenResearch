@@ -41,7 +41,11 @@ async def search_papers(client: httpx.AsyncClient, request: SearchRequest) -> li
         raw = await read_bounded(
             client, BASE_URL + "/search?" + urlencode({"q": request.query}), 2 * 1024 * 1024
         )
-        hits = PaperSearch(hits=json.loads(raw)).hits[: request.limit]
+        values = json.loads(raw)
+        if not isinstance(values, list):
+            raise ContractError("invalid HuggingFace Papers search collection")
+        # 官方搜索可返回超过一百项；响应体已限额，只校验本次真正使用的有限候选。
+        hits = PaperSearch(hits=values[: request.limit]).hits
         results: dict[str, SearchResult] = {}
         for hit in hits:
             paper = hit.paper

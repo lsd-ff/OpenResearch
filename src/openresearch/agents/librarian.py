@@ -22,7 +22,7 @@ class LibrarianAgent:
         self.documents = DocumentAgent(settings, repository, sandbox)
         self.analyst = PaperAnalyst(settings, files)
         self.repositories = RepositoryAgent(settings, files)
-        self.discovery = SourceDiscovery()
+        self.discovery = SourceDiscovery(proxy=settings.source_proxy_url.get_secret_value() or None)
         self.claims = ClaimFreezer(settings, files)
 
     async def execute(self, context: AgentContext) -> TaskResult:
