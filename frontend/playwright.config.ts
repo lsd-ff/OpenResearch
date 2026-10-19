@@ -20,7 +20,7 @@ export default defineConfig({
     actionTimeout: 15_000,
   },
   webServer: {
-    command: 'uv run --locked openresearch serve',
+    command: 'uv run --locked uvicorn --app-dir tests/e2e api_server:app --host 127.0.0.1 --port 38080',
     cwd: projectRoot,
     url: 'http://127.0.0.1:38080/ping',
     reuseExistingServer: false,

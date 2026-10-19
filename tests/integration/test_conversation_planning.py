@@ -7,13 +7,16 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from openresearch.api.app import create_app
-from openresearch.errors import ConflictError
+from openresearch.errors import ConflictError, ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.context import ConversationTurn, Identity
-from openresearch.models.planning import IntentDraft
+from openresearch.models.discovery import SearchResult
+from openresearch.models.planning import IntentDraft, SourceSelection
 from openresearch.models.submissions import PlanSubmission
 from openresearch.services.intent import IntentParser
+from openresearch.services.planning_sources import PlanningSources
 from openresearch.services.plans import PlanService
+from openresearch.sources.discovery import SourceDiscovery
 from openresearch.storage.conversations import ConversationUpdate
 
 HEADERS = {"X-User-Id": "alice", "X-Session-Id": "natural-planning"}
@@ -25,6 +28,75 @@ def choose(monkeypatch, **values):
         return IntentDraft(**values)
 
     monkeypatch.setattr(IntentParser, "parse", parse)
+
+
+@pytest.mark.parametrize(
+    "proposal,invalid_query",
+    [
+        ("", False),
+        ("Transformer: Attention Is All You Need", False),
+        ("Transformer: Attention Is All You Need", True),
+    ],
+)
+def test_named_paper_searches_with_a_human_name_fallback_instead_of_asking_for_urls(
+    settings, repository, sandbox, monkeypatch, proposal, invalid_query
+):
+    choose(monkeypatch, workflow="reproduce", paper_query=proposal)
+    queries = []
+    url = "https://github.com/harvardnlp/annotated-transformer"
+
+    async def search(self, request):
+        queries.append(request.query)
+        if invalid_query and request.query == proposal:
+            raise ContractError("invalid search query")
+        return (
+            [SearchResult(title="annotated-transformer", url=url, description="", source="github")]
+            if request.query == "Transformer"
+            else []
+        )
+
+    async def select(self, goal, candidates):
+        return SourceSelection(choice=1, reason="Matches the requested architecture")
+
+    monkeypatch.setattr(SourceDiscovery, "search", search)
+    monkeypatch.setattr(PlanningSources, "_select", select)
+    with TestClient(create_app(settings, repository, sandbox)) as client:
+        response = client.post(
+            "/api/messages",
+            json={"message": "复现一下 Transformer 论文的核心架构并跑通测试"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["type"] == "plan"
+        task = next(
+            node for node in payload["plan_graph"]["nodes"] if node["type"] == "repository_fetch"
+        )
+        assert task["inputs"]["repository"]["url"] == url
+        assert queries == ([proposal, "Transformer"] if proposal else ["Transformer"])
+
+
+def test_empty_search_explains_attempted_queries_without_repeating_a_missing_title_question(
+    settings, repository, sandbox, monkeypatch
+):
+    choose(monkeypatch, workflow="reproduce", paper_query="Transformer: Attention Is All You Need")
+    queries = []
+
+    async def search(self, request):
+        queries.append(request.query)
+        return []
+
+    monkeypatch.setattr(SourceDiscovery, "search", search)
+    with TestClient(create_app(settings, repository, sandbox)) as client:
+        payload = client.post(
+            "/api/messages",
+            json={"message": "复现一下 Transformer 论文的核心架构并跑通测试"},
+            headers=HEADERS,
+        ).json()
+        assert payload["type"] == "clarification"
+        assert "已检索" in payload["response"] and "Transformer" in payload["response"]
+        assert "请提供仓库链接、论文标题或论文附件" not in payload["response"]
+        assert len(queries) == 2
 
 
 @pytest.mark.parametrize("proposed_workflow", ["reproduce", "code"])

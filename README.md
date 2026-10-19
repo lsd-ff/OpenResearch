@@ -35,7 +35,7 @@ docker compose logs -f worker
 
 ## 使用
 
-- 直接在聊天中描述目标，例如「用 https://github.com/pallets/itsdangerous 做签名校验冒烟实验」。系统核验来源、自动设计入口和依赖、生成流程图，点击运行即可。
+- 直接在聊天中说出论文或方法名称，例如「复现一下 Transformer 论文的核心架构并跑通测试」。系统先检索来源；模型查询无结果或失败时，会用用户给出的名称再检索一次。匹配明确则自动选取实现并生成流程图，真正歧义才列出候选。也可直接提供仓库链接，例如「用 https://github.com/pallets/itsdangerous 做签名校验冒烟实验」。
 - 添加 PDF 后发送「分析这篇论文」或「复现这篇论文」。解析在 Docker 中完成；分析引用核对实际页码，复现会从原文或真实检索结果发现仓库。多个候选、缺失源码等材料会在聊天中追问，直接回复编号或链接继续。
 - 添加 CSV、TSV、JSONL 或 JSON 对象数组，描述评测目标。常见标签列可识别，歧义列会追问；无需重新上传。标签留在评估端，实验只接收特征。见 [实验协议](docs/experiments.md) 与 [examples](examples/)。
 - 「高级实验设置」是可选入口，用于手动指定仓库、入口、固定依赖、列映射和验收阈值。普通聊天实验无需填写该表单。
@@ -77,7 +77,7 @@ uv run --locked pytest -m docker
 
 默认门禁包含 Ruff、严格 mypy、离线行为测试及 sdist/wheel 构建；前端运行 npm run lint 和 npm run build。CI 已配置 Windows/Linux 与 Python 3.12/3.13，远程结果以 GitHub Actions 实际运行记录为准。
 
-CI 的 browser 作业在独立 Linux 环境运行 Chromium、真实 API 和 Docker Worker，覆盖上传数据、聊天追问、刷新后短答继续规划，以及 smoke 执行与结果恢复。意图分类使用仅支持 IntentDraft 的测试夹具，smoke 输出来自真实 Docker；真实供应商的自动设计、源码复现和 Benchmark 另由 `scripts/verify_auto_planning.py` 显式验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
+CI 的 browser 作业在独立 Linux 环境运行 Chromium、API 和真实 Docker Worker，覆盖上传数据、聊天追问、刷新后短答继续规划、名称检索、旧欢迎语更新，以及 smoke 执行与结果恢复。分类、候选选择和名称检索使用受控夹具，不提供代码或实验结果；smoke 输出来自真实 Docker。真实供应商的自动设计、源码复现和 Benchmark 另由 `scripts/verify_auto_planning.py` 显式验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
 
 SQLite 使用 WAL、外键与写事务锁。状态、事件和产物索引同事务提交；上传、会话、来源页和历史尝试持久化，迁移包含 0001_runtime 与 0002_documents_context。产物读取验证 SHA-256。租约过期恢复会拒绝旧结果；实验允许重复执行，不承诺 exactly-once。
 

@@ -73,3 +73,41 @@ test('窄屏设置工具栏与运行按钮均可点击', async ({ page }, testIn
   await expect(page.getByRole('dialog', { name: '配置复现实验' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('mobile-settings.png'), fullPage: true });
 });
+
+test('旧会话更新欢迎语并从 Transformer 推荐指令自动检索规划', async ({ page }, testInfo) => {
+  const oldAnswer = '你好，我是 OpenResearch 科研助手。这条是需要保留的历史回答。';
+  await page.addInitScript(answer => {
+    const session = {
+      id: 'legacy-welcome', title: '保留的会话', createdAt: '2026-10-10', updatedAt: '2026-10-10',
+      chatHistory: [
+        { role: 'system', text: '你好，我是 OpenResearch 科研助手。可上传论文、执行 Python 实验，仓库复现和数据评估请使用右上角「配置实验」。聊天和代码生成需要配置模型。' },
+        { role: 'user', text: '保留我的原有记录' },
+        { role: 'system', text: answer },
+      ], activePlanId: null, intentContext: null, planGraph: null,
+    };
+    if (!localStorage.getItem('openresearch-python.chat-sessions.v1')) {
+      localStorage.setItem('openresearch-python.chat-sessions.v1', JSON.stringify({
+        userId: null, activeSessionId: session.id, sessions: [session],
+      }));
+    }
+  }, oldAnswer);
+  await page.goto('/');
+  await expect(page.getByText(/直接说出论文或方法名称/)).toBeVisible();
+  await expect(page.getByText(/仓库复现和数据评估请使用右上角/)).toHaveCount(0);
+  await expect(page.getByText('保留我的原有记录', { exact: true })).toBeVisible();
+  await expect(page.getByText(oldAnswer, { exact: true })).toBeVisible();
+  const message = '复现一下 Transformer 论文的核心架构并跑通测试';
+  await page.getByRole('button', { name: message, exact: true }).click();
+  const response = await send(page, message);
+  const payload = await response.json();
+  expect(payload.type).toBe('plan');
+  expect(response.request().postDataJSON()).toEqual({ message, attachments: [] });
+  const source = payload.plan_graph.nodes.find((node: { type: string }) => node.type === 'repository_fetch');
+  expect(source.inputs.repository.url).toBe('https://github.com/harvardnlp/annotated-transformer');
+  await expect(page.locator('.react-flow__node')).toHaveCount(6);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(oldAnswer, { exact: true })).toBeVisible();
+  await expect(page.getByText(/直接说出论文或方法名称/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('named-paper-plan.png'), fullPage: true });
+});

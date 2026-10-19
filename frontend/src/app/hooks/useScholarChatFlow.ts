@@ -79,6 +79,7 @@ const normalizeChatState = (raw: unknown): PersistedChatState => {
   const data = raw as Partial<PersistedChatState>;
   const sessions = Array.isArray(data.sessions)
     ? data.sessions.filter((session): session is ChatSessionRecord => Boolean(session?.id))
+      .map(session => ({ ...session, chatHistory: refreshWelcome(session.chatHistory) }))
     : [];
 
   return {
@@ -87,6 +88,13 @@ const normalizeChatState = (raw: unknown): PersistedChatState => {
     sessions,
   };
 };
+
+const refreshWelcome = (messages: ChatMessage[]) => (Array.isArray(messages) ? messages : []).map((message, index) => {
+  // 欢迎语是产品文案；只更新首条已知欢迎消息，保留用户对话和执行记录。
+  const welcome = index === 0 && message.role === 'system' &&
+    message.text.startsWith('你好，我是 OpenResearch 科研助手。');
+  return welcome ? { ...message, text: uiText.appWelcome } : message;
+});
 
 const loadPersistedChatState = (): PersistedChatState => {
   if (typeof window === 'undefined') {
