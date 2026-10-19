@@ -1,26 +1,26 @@
 # 架构图完整对齐验收
 
-目标：按用户提供的「Sea-Mult-Agent 多智能体科研执行系统」实现 Python 重写，保留 React + TypeScript 前端，将 Go + Gin 换为 Python 服务。图中的可选模块也应有可配置、可验证的实现。已有持久化与恢复能力继续保留。
+按用户提供的「Sea-Mult-Agent 多智能体科研执行系统」完成独立 Python 重写：保留 React + TypeScript，将 Go + Gin 替换为 FastAPI；Plan Store 使用 SQLite、不可变文件与持久事件日志。图中的可选服务也有独立实现与真实部署验收。
 
-以下为本轮逐项验收清单；未有对应证据的项目不标记完成。离线协议测试与外部真实服务验收分别记录。
+验收日期：2026-10-19。功能代码基线：`3bc4a72`。本表的“通过”表示对应架构能力和所列场景已验证，不表示任意论文的科学效果已复现。具体命令、运行回执与边界见 [本轮验证记录](framework-verification.md)。
 
-| 图中要求 | 当前实现 / 本轮工作 | 验收状态 |
-| --- | --- | --- |
-| 聊天、PDF、DAG、执行侧栏、本地会话 | React 工作台已有，需要最终网页回归 | 待最终验收 |
-| chat / plan / execute / stream API | FastAPI 已有，需要逐项核对路由兼容 | 待验收 |
-| 规则 + LLM 意图识别、会话记忆 | IntentParser、SQLite 会话已有 | 待最终验收 |
-| LLM DAG 规划 + 模板回退 | PlannerAgent 生成节点、角色和依赖；保留必要阶段与服务端权限；无效图回退；10 项新增行为测试 | 已实现；真实模型和最终网页待验 |
-| Plan Store、Artifacts、Events | SQLite 与文件存储已有，优于原内存存储的持久性 | 待最终验收 |
-| 依赖解析、Ready 队列、并行调度 | Worker 租约调度已有 | 待最终验收 |
-| 事件总线 + SSE | 持久事件日志与可恢复 SSE 已有 | 待最终验收 |
-| Routed Executor + Chat/Librarian/Data/Coder | 四类 Agent 路由；聊天/汇总、文献/仓库/检索、数据统计/图表/标准冻结、编码/环境/实验执行；保留旧角色映射 | 已实现；7 项新增测试，193 项当批工程回归通过；最终网页待验 |
-| 独立沙箱 API：创建、Python、命令、清理 | Python Sandbox HTTP 服务；API/Worker 通过 HTTP 连接；仅沙箱服务挂载 Docker socket | 已实现；协议和真实 Docker 验收中 |
-| Docker 默认 + OpenSandbox 回退 | 官方 lifecycle + execd SSE 适配、仅创建失败切换、终态退出码、命名空间清单与清理 | 已实现；协议通过，真实回退服务待验 |
-| 容器内 Python、临时工作区、代码、日志、图像和产物 | 自动收集实际输出文件、哈希校验、隔离解释器、持久图像预览、归属校验下载、Data SVG | 已实现；225 项工程测试及真实图像收集/链接拒绝通过；最终网页验收中 |
-| OpenAI 兼容模型 | 已有 OpenAI / Anthropic，实际配置使用 Anthropic | 待最终验收 |
-| HuggingFace Papers / Papers with Code 仓库发现 | 按原 Go 实现接 HF Papers，失败或无仓库时回退 GitHub；保留论文出处 | 8 项新增协议测试通过；本机实际 HF 联网超时，外部待验 |
-| GitHub Search 回退 | 主来源失败/空结果时自动回退，记录 fallback_used；所有来源失败明确报错 | 协议通过；实际联合链路待验 |
-| 可选独立 Python AI 意图识别服务 | 独立 intent 命令、/v1/intent、Compose ai profile、单独凭据、有限上下文和同预算回退 | 已实现；协议和真实部署验收中 |
-| 端到端：请求到产物再到 SSE | 需要对上述新增能力做完整网页、HTTP、Docker 和真实模型验收 | 待最终验收 |
+| 图中要求 | 实现 | 验收证据 | 状态 |
+| --- | --- | --- | --- |
+| 聊天、PDF、DAG、执行侧栏、本地会话 | React 工作台，聊天附件直接阅读 PDF；图随侧栏尺寸适配；刷新恢复 | 7 项 Playwright 回归，包含 PDF、图表、下载、刷新、窄屏 | 通过 |
+| chat / plan / execute / stream API | FastAPI，兼容图中路由；另提供上传、来源、产物和任务操作 | `test_api.py`、`test_task_commands.py`、真实 HTTP 验收 | 通过 |
+| 规则 + LLM 意图识别、会话记忆 | IntentParser、有限历史与来源上下文、SQLite 会话和 revision 冲突检查 | `test_chat_context.py`、`test_conversation_planning.py`；真实模型命名规划 | 通过 |
+| LLM DAG 规划 + 模板回退 | PlannerAgent 提出节点、角色、依赖和优先级；服务端校验必要阶段、权限与产物契约；无效图回退并记录原因 | `test_planner_agent.py`；真实模型计划 ce685985351b456fa7328dc16f84bf3d 的 strategy 为 llm | 通过 |
+| Plan Store、Artifacts、Events | SQLite WAL、文件 SHA-256、状态/事件/索引事务提交，支持重启恢复 | 存储、并发、迟到结果、产物校验及 GC 行为测试；运行产物持久读取 | 通过 |
+| 依赖解析、Ready 队列、并行调度 | 独立 Worker，依赖满足后领取，租约与并发预算由数据库控制 | `test_worker.py`、`test_budgets.py`、`test_process_runtime.py` | 通过 |
+| 事件总线 + SSE | 持久日志、终态推送、Last-Event-ID 断线回放 | 真实模型执行收到 18 个事件，终态和游标回放均核对 | 通过 |
+| Routed Executor + 四类 Agent | Chat 汇总/问答、Librarian 文献/来源、Data 实际统计/图表、Coder 编码/执行；兼容旧角色 | `test_routed_agents.py`；真实代码计划覆盖 Coder→Chat，数据计划核对实际均值 | 通过 |
+| 独立沙箱 API：创建、Python、命令、清理 | Python Sandbox HTTP 服务；API/Worker 经内网调用，仅 Sandbox 挂载 Docker socket | `test_service_http_transport.py`、`test_sandbox_service_docker.py`；最终部署真实 HTTP 执行 | 通过 |
+| Docker 默认 + OpenSandbox 回退 | 默认原生 Docker；仅创建失败切换；官方 lifecycle/execd 适配与资源对账 | 真实 opensandbox-server 1.1.1 验收：非 root、原文输出、文件、退出码 7、清理；部署 Sandbox→OpenSandbox 实际输出 45 | 通过 |
+| 隔离 Python、临时工作区、代码、日志、图像与产物 | 容器内执行；自动收集 /workspace/artifacts；类型、哈希、归属检查；持久预览与下载 | `test_output_collection.py`、`test_output_downloads.py`；网页显示实际 SVG 并下载 demo.svg | 通过 |
+| OpenAI 兼容模型 | 统一结构化模型契约，支持 OpenAI-compatible 与 Anthropic | OpenAI/Anthropic 传输协议测试；用户配置的 Anthropic/DeepSeek 真实调用通过 | 通过 |
+| HuggingFace Papers / Papers with Code 仓库发现 | 沿用原 Go 的 HF Papers 来源，验证真实 githubRepo 并保留论文链接 | `test_discovery_providers.py`；线上 DeepSeek-V3 返回实际 deepseek-ai/deepseek-v3 与 arXiv 2412.19437 | 通过 |
+| GitHub Search 回退 | 主来源空结果或失败后检索 GitHub / arXiv，记录 fallback_used | 协议回退测试；线上 Attention Is All You Need 返回 GitHub 候选且 fallback_used=true | 通过 |
+| 可选独立 Python AI 意图服务 | 独立 intent 命令、/v1/intent、Compose ai profile、单独凭据、有界上下文和同预算回退 | `test_intent_service.py`、真实 HTTP 边界测试；API 容器调用独立服务分类为 data | 通过 |
+| 端到端：请求→产物→SSE | 真实模型构图，Worker 经 HTTP 沙箱运行，再由 Agent 汇总；真实数据统计与图表 | `scripts/verify_framework.py` 最终部署回执为 passed，stdout=42、3 行数据实际 mean=2 | 通过 |
 
-工程门禁：遵循 code_skill；Ruff、严格 mypy、行为测试、前端构建与 E2E；真实代码只在沙箱执行；每批通过后提交并推送 GitHub，不提交密钥和运行数据。
+当前四个部署进程的 151 个 Python 源文件 SHA-256 均与工作区一致；API、Sandbox、Intent 健康检查通过，Worker 正常运行。密钥、回退服务配置与验收数据保存在忽略路径，未提交 GitHub。遵循 [code_skill](../.trae/skills/code_skill/SKILL.md)，每批修改通过检查后提交并推送。

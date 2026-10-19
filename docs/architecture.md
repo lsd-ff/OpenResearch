@@ -71,4 +71,4 @@ SQLite 使用 BEGIN IMMEDIATE 写锁，跨进程领取与并发预算由数据�
 
 独立 React 工作台沿用 DAG 和证据图契约，增加实验配置、认证连接与上传 PDF 阅读。浏览器刷新从 API 恢复计划状态；浏览器本地会话和服务端上下文分别持久化。切换身份创建新会话，避免引用其他身份的资源。
 
-Dockerfile 构建前端与 Python runtime；Compose 独立启动 API/Worker，共享数据卷和管理用 Docker socket，仅发布本机端口。当前是本地可信模式，身份字段不是公网账号认证。GPU 训练、OCR、依赖源码构建和跨主机调度未纳入本版本。
+Dockerfile 构建前端与 Python runtime；Compose 独立启动 API、Worker、Sandbox，并可启用 Intent。API/Worker 共享数据卷，管理用 Docker socket 仅挂载至 Sandbox；只发布本机工作台端口。当前是本地可信模式，身份字段不是公网账号认证。GPU 训练、OCR、依赖源码构建和跨主机调度未纳入本版本。逐项完成状态与真实验收见 [框架对齐表](framework-parity.md) 和 [本轮验证记录](framework-verification.md)。
