@@ -7,6 +7,7 @@ def test_truncated_excerpts_still_expose_actual_module_apis_without_execution():
     files = {f"a{index}.md": b"intro" for index in range(8)}
     files["z/encoder.py"] = (
         b"raise RuntimeError('source must never be executed')\n"
+        b"from numba import jit\n"
         b"class Encoder:\n"
         b"    def __init__(self, vocab, heads=2, *, dropout=0): pass\n"
         b"    def forward(self, tokens, mask, training): pass\n"
@@ -16,6 +17,7 @@ def test_truncated_excerpts_still_expose_actual_module_apis_without_execution():
     encoder = next(item for item in context["python_api"] if item["path"] == "z/encoder.py")
     assert "Encoder.__init__(self, vocab, heads=2, *, dropout=0)" in encoder["signatures"]
     assert "Encoder.forward(self, tokens, mask, training)" in encoder["signatures"]
+    assert encoder["imports"] == ["from numba import jit"]
 
 
 def test_api_summary_skips_invalid_or_oversized_source_and_keeps_a_byte_budget():

@@ -40,6 +40,9 @@ DESIGN_PROMPT = (
     " Keep the entire design under 600 output tokens. Rationale and limitations: one short "
     "sentence each. Use 1-3 brief functional rubric checks. Do not include code or diff text "
     "in this design response; the following preparation stage will write the actual adapter."
+    " Inspect actual core imports; do not blindly copy outdated dependency pins. Select "
+    "Python 3.12-compatible versions for the actual CPU modules, excluding optional GPU, "
+    "plotting and dataset dependencies that the requested adapter will not import."
 )
 
 
@@ -86,7 +89,7 @@ class ResearchDesigner:
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
                 "ablations": [variant.model_dump() for variant in design.ablations],
-                "rubric": design.rubric.model_dump(),
+                "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
             }
         )

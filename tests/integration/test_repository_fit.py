@@ -5,7 +5,7 @@ import pytest
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.discovery import SearchRequest, SearchResult
-from openresearch.models.planning import SourceSelection
+from openresearch.models.planning import RepositoryAssessment, SourceSelection
 from openresearch.models.runtime import Plan, Task
 from openresearch.models.sources import RepositorySnapshot
 from openresearch.research.repository_fit import RepositoryFitter
@@ -46,6 +46,7 @@ async def test_notebook_source_searches_real_alternative_before_design(settings)
         side_effect=[
             SearchRequest(kind="repository", query="named method numpy"),
             SourceSelection(choice=1, reason="A runnable Python implementation"),
+            RepositoryAssessment(covers_architecture=True, reason="Complete requested model"),
         ]
     )
     agent.discovery.search = AsyncMock(
@@ -81,9 +82,48 @@ async def test_explicit_source_constraints_are_preserved(settings, goal, referen
         await agent.fit(plan(goal), snapshot(NOTEBOOK, files, reference), files)
 
 
-async def test_existing_python_source_is_retained_without_new_model_requests(settings):
+async def test_compatible_python_source_is_retained_after_actual_source_assessment(settings):
     agent = fitter(settings)
-    agent.llm.request_typed = AsyncMock(side_effect=AssertionError("no new model request"))
+    agent.llm.request_typed = AsyncMock(
+        return_value=RepositoryAssessment(
+            covers_architecture=True, reason="The source covers the requested architecture"
+        )
+    )
+    agent.discovery.search = AsyncMock(side_effect=AssertionError("no replacement search"))
     files = {"model.py": b"class ActualModel: pass"}
     original = snapshot(RUNNABLE, files)
     assert await agent.fit(plan("复现核心"), original, files) == (original, files)
+    assert agent.llm.request_typed.call_args.args[1] is RepositoryAssessment
+
+
+async def test_decoder_only_source_cannot_satisfy_a_complete_original_architecture(settings):
+    agent = fitter(settings)
+    original = {"model.py": b"class GPT: pass", "README.md": b"Decoder-only model"}
+    alternate = {"model.py": b"class Encoder: pass\nclass Decoder: pass"}
+    agent.llm.request_typed = AsyncMock(
+        side_effect=[
+            RepositoryAssessment(
+                covers_architecture=False, reason="Encoder and cross-attention are missing"
+            ),
+            SearchRequest(kind="repository", query="transformer numpy"),
+            SourceSelection(choice=1, reason="Full encoder-decoder implementation"),
+            RepositoryAssessment(covers_architecture=True, reason="Complete encoder-decoder"),
+        ]
+    )
+    agent.discovery.search = AsyncMock(
+        return_value=[
+            SearchResult(
+                title="full implementation",
+                url=RUNNABLE,
+                source="github",
+                description="encoder decoder",
+            )
+        ]
+    )
+    agent.source.fetch = AsyncMock(return_value=(snapshot(RUNNABLE, alternate), alternate))
+    resolved, _ = await agent.fit(
+        plan("复现原始 Transformer 核心"), snapshot(NOTEBOOK, original), original
+    )
+    assert resolved.url == RUNNABLE
+    query_messages = agent.llm.request_typed.call_args_list[1].args[0]
+    assert "cross-attention" in query_messages[-1]["content"]

@@ -60,11 +60,18 @@ class ExperimentDesign(ContractModel):
     @model_validator(mode="after")
     def allow_adapter_entrypoint(self) -> "ExperimentDesign":
         # 自动新建入口本身就是已授权的适配路径；空列表不能阻断准备阶段。
-        if not self.patch_paths:
-            self.patch_paths = [self.entrypoint]
+        if self.entrypoint not in self.patch_paths:
+            if len(self.patch_paths) == 3:
+                raise ValueError("reserve the entrypoint within the three allowed Python paths")
+            self.patch_paths = [*self.patch_paths, self.entrypoint]
         return self
 
 
 class SourceSelection(ContractModel):
     choice: int | None = Field(default=None, ge=1, le=10)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class RepositoryAssessment(ContractModel):
+    covers_architecture: bool
     reason: str = Field(min_length=1, max_length=1000)

@@ -63,7 +63,7 @@ class RepositoryAgent:
         return TaskResult(
             result=f"Pinned {snapshot.url} at {snapshot.commit}; {len(snapshot.files)} files."
             + (
-                f" Automatically replaced unsupported notebook-only source {spec.url}."
+                f" Automatically replaced incompatible discovered source {spec.url}."
                 if snapshot.url != spec.url
                 else ""
             ),

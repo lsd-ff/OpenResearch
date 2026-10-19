@@ -8,6 +8,7 @@ from openresearch.agents.research_design import ResearchDesigner
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.errors import PlanningInputRequired
 from openresearch.llm.client import LLMClient
+from openresearch.models.claims import ClaimDraft, CriterionDraft, RubricDraft
 from openresearch.models.context import Identity
 from openresearch.models.documents import SourceIndex, SourceLink
 from openresearch.models.execution import ExecutionLease
@@ -28,7 +29,16 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
             Identity("alice", "design"),
             workflow="reproduce",
             research=ResearchSpec(
-                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous"),
+                rubric=RubricDraft(
+                    claims=[
+                        ClaimDraft(
+                            title="user criterion",
+                            statement="keep this",
+                            criteria=[CriterionDraft(description="preserve the human acceptance")],
+                        )
+                    ]
+                ),
             ),
             auto_design=True,
         )
@@ -70,6 +80,7 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     result = await designer.execute(plan, task)
     resolved = ResearchSpec.model_validate_json(result.outputs["research_spec"])
     assert resolved.entrypoint == "adapter.py"
+    assert resolved.rubric.claims[0].statement == "keep this"
     lease = ExecutionLease(plan.id, task.id, new_id(), "test")
     plan.artifacts["research_spec"] = files.write(
         lease, "research_spec", result.outputs["research_spec"]
@@ -114,11 +125,27 @@ async def test_design_corrects_diff_filenames_before_dependency_resolution(
     assert spec.patch_paths == ["openresearch_run.py"]
 
 
-def test_empty_generated_patch_paths_include_the_validated_adapter():
+@pytest.mark.parametrize("paths", [[], ["source.py"]])
+def test_generated_patch_paths_include_the_validated_adapter(paths):
     from openresearch.models.planning import ExperimentDesign
 
-    design = ExperimentDesign(entrypoint="adapter.py", patch_paths=[], rationale="run actual tests")
-    assert design.patch_paths == ["adapter.py"]
+    design = ExperimentDesign(
+        entrypoint="adapter.py", patch_paths=paths, rationale="run actual tests"
+    )
+    assert design.patch_paths == [*paths, "adapter.py"]
+
+
+def test_design_must_reserve_its_entrypoint_within_the_path_budget():
+    from pydantic import ValidationError
+
+    from openresearch.models.planning import ExperimentDesign
+
+    with pytest.raises(ValidationError, match="reserve the entrypoint"):
+        ExperimentDesign(
+            entrypoint="adapter.py",
+            patch_paths=["a.py", "b.py", "c.py"],
+            rationale="run actual tests",
+        )
 
 
 async def test_patch_generation_receives_the_original_goal_as_well_as_the_task(

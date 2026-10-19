@@ -24,7 +24,15 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
                     for method in node.body
                     if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
                 )
-        item: dict[str, object] = {"path": path, "signatures": signatures[:12]}
+        item: dict[str, object] = {
+            "path": path,
+            "signatures": signatures[:32],
+            "imports": [
+                ast.unparse(node)
+                for node in tree.body
+                if isinstance(node, (ast.Import, ast.ImportFrom))
+            ][:12],
+        }
         size = len(json.dumps(item, ensure_ascii=False).encode())
         if size <= remaining:
             output.append(item)
