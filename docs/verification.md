@@ -6,11 +6,11 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| Windows / Python 3.13.5：Ruff、格式、mypy strict | 2026-10-19 复核通过，124 个源文件 |
-| Windows 离线行为测试 | 2026-10-19 复核 163 通过，15 Docker 用例不在默认门禁运行 |
+| Windows / Python 3.13.5：Ruff、格式、mypy strict | 2026-10-19 复核通过，125 个源文件 |
+| Windows 离线行为测试 | 2026-10-19 复核 178 通过，15 Docker 用例不在默认门禁运行 |
 | Windows 驱动 Docker Desktop Linux Engine：真实沙箱验收 | 15 通过，含真实 GitHub/PyPI 和容器实际 Python 条件依赖检查 |
-| GitHub Actions Windows / Ubuntu，Python 3.12 / 3.13 | 2026-10-19 提交 e27d65f：各矩阵 163 通过；Ruff、mypy、打包、前端门禁全部通过 |
-| GitHub Actions Docker 与 Chromium 网页 | Docker 14 通过、1 个联网用例未启用；网页 3 通过，含真实 Docker 输出和刷新恢复 |
+| GitHub Actions Windows / Ubuntu，Python 3.12 / 3.13 | 2026-10-19 提交 1512559：各矩阵 178 通过；Ruff、mypy、打包、前端门禁全部通过 |
+| GitHub Actions Docker 与 Chromium 网页 | Docker 14 通过、1 个联网用例未启用；网页 4 通过，含名称检索、真实 Docker 输出和刷新恢复 |
 | React ESLint、TypeScript、Vite | 通过 |
 | 多阶段 Docker 镜像构建、Compose API/Worker | 构建和启动通过 |
 | Linux HTTP Benchmark | 基线 accuracy=1.0，消融=0.5；下载报告、预测与 SSE；镜像摘要存在 |
@@ -62,6 +62,16 @@
 
 Docker 修复测试的传输替身改为按 user 角色读取上下文，适应新增 Schema 消息；仍验证三次真实容器与累计补丁。Linux 并发负载下的取消测试启动等待改为 15 秒，取消后的清理期限仍独立保持 5 秒；完整重跑通过。
 
+## 仅给论文名称的追加回归
+
+用户提供的原话是「复现一下 Transformer 论文的核心架构并跑通测试」，没有链接或附件。此前没有覆盖完整的命名检索路径，模型漏填检索词、查询无结果或附带无效仓库地址时，可能提前要求用户补来源。现在使用原话中的名称做最多一次查询回退；模型猜测的地址不能中断发现过程，用户提供的实际链接优先，来源仍必须来自真实检索候选。真正未找到来源或服务不可用时继续说明原因，不生成假仓库。
+
+现场探测得到的 `Transformer: Attention Is All You Need` 查询和 `Transformer` 查询都返回了实际 GitHub 候选，因此不能断定原截图那次就是查询无结果。真实接口首次追加验收确实收到“请提供 HTTPS GitHub 仓库地址”，失败记录 `named-source-fc5c614140ab4c04a6b9dc3dc7c854d6` 保留；定位并修复了模型无效 URL 提前中止的分支，没有删除这次失败记录。
+
+2026-10-19 09:34:06–09:34:27（北京时间）通过真实配置模型与 GitHub API 再次发送同一句话，自动选中 [jadore801120/attention-is-all-you-need-pytorch](https://github.com/jadore801120/attention-is-all-you-need-pytorch)，生成六节点计划 `4685a042c2314f28ab03e09080567e03`，并通过 GitHub 仓库元数据核对地址。没有手填来源或上传文件，也没有残留材料追问。本地回执 `.data/named-source-acceptance/named-source-bfb4e6de447d4b1dbe6b5b4f59025dd0/result.json` 标记为 `planning_only`：本次验证自动检索与计划生成，未执行 Transformer 程序或证明其论文效果。
+
+旧浏览器会话只替换首条已知产品欢迎语，其余用户消息、历史回答和计划保持原值，历史追问不会被伪造为新成功结果。[CI 39185784577](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39185784577) 全部通过：178 项离线测试覆盖空查询、无结果、查询失败、模型无效地址、用户真实链接优先及不支持的显式 HTTP 地址；新增网页用例从旧会话出发点击同一条 Transformer 推荐指令，最终产生计划，刷新后仍保留原记录。网页分类、候选选择和搜索为受控夹具，不伪造执行结果；真实联网的计划生成由上一段单独证明。生产 API/Worker 的 125 个 Python 源文件摘要均与本地一致。
+
 ## 重跑
 
 ```powershell
@@ -81,6 +91,6 @@ GitHub 仓库检索实际返回 200。本次 arXiv API 返回 429 Rate exceeded�
 
 OpenAI-compatible 与 Anthropic 的请求、响应工具、格式修正、截止时间、代码生成、修复及语义证据契约有传输层测试；AutoDL 小型真实模型链已通过。未验证模型科研判断的整体质量、长文翻译或真实论文复现效果。全文翻译限定 100 页 / 12000 字符，超限需划词处理。扫描 PDF 无 OCR。
 
-原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 的 Windows/Ubuntu 与 Python 3.12/3.13 矩阵、Docker、前端和网页门禁已运行成功，见 [运行记录](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39184283140)。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
+原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 的 Windows/Ubuntu 与 Python 3.12/3.13 矩阵、Docker、前端和网页门禁已运行成功，见 [运行记录](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39185784577)。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
 
 Starlette TestClient 提示旧 HTTPX 接口弃用；Linux 只读源码挂载产生 pytest cache 无法写入提示，测试本身通过。保留的 PDF.js 依赖构建含 eval 提示，阅读参数已设置 isEvalSupported=false；Vite 同时提示大 chunk，未进行全依赖安全审计或首屏体积优化。
