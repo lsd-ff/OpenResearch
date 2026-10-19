@@ -1,6 +1,6 @@
 """自然语言规划的提议与追问状态；实际资产和执行参数仍由服务端校验。"""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -25,6 +25,12 @@ class IntentDraft(ContractModel):
     repository_choice: int | None = Field(default=None, ge=1, le=10)
     paper_choice: int | None = Field(default=None, ge=1, le=10)
     dataset_name: str | None = None
+
+    @field_validator("input_columns", mode="before")
+    @classmethod
+    def absent_input_columns(cls, value: Any) -> Any:
+        # 模型的 null 表示未指定列；只归一化缺省值，不猜测任何真实列名。
+        return [] if value is None else value
 
 
 class PendingPlanning(ContractModel):
