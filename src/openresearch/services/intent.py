@@ -8,10 +8,12 @@ from openresearch.models.context import Conversation
 from openresearch.models.planning import IntentDraft
 
 INTENT_PROMPT = (
-    "Classify the user's current request into chat/code/paper/reproduce/benchmark. "
+    "Classify the user's current request into chat/code/paper/reproduce/benchmark/data. "
     "Use chat for questions about capabilities, explanations or existing results; use code for "
     "requested standalone execution; paper for reading/translation/analysis; reproduce for "
     "repository experiments or paper reproduction; benchmark for evaluation on uploaded data. "
+    "Use data for descriptive statistics, missing values and exploration of uploaded datasets "
+    "without a predictive model evaluation. Data analysis does not require a target column. "
     "A requested benchmark takes priority over repository reproduction; missing data or column "
     "roles must be clarified by the server, never silently downgrade it to a reproduction run. "
     "Complete a pending task using the new reply; set continue_pending=false for an unrelated "

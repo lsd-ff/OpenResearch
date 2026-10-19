@@ -10,7 +10,7 @@ from openresearch.models.runtime import ContractModel
 
 
 class IntentDraft(ContractModel):
-    workflow: Literal["chat", "code", "paper", "reproduce", "benchmark"]
+    workflow: Literal["chat", "code", "paper", "reproduce", "benchmark", "data"]
     continue_pending: bool = True
     repository_url: str | None = None
     repository_ref: str | None = Field(default=None, max_length=128)

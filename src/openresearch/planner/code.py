@@ -41,7 +41,7 @@ def build_code_plan(
     execute = Task(
         name="Execute Python Experiment",
         type="code_execute",
-        assigned_to="sandbox_agent",
+        assigned_to="coder_agent",
         description="Execute prepared Python code in a resource-limited container.",
         dependencies=[generate.id],
         required_artifacts=["generated_code"],

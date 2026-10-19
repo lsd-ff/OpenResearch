@@ -7,10 +7,13 @@ from openresearch.planner.documents import document_task
 
 
 def research_task(kind: str, tools: list[str], outputs: list[str], settings: Settings) -> Task:
+    role = {"repository_fetch": "librarian_agent", "claim_freeze": "data_agent"}.get(
+        kind, "coder_agent"
+    )
     return Task(
         name=kind.replace("_", " ").title(),
         type=kind,
-        assigned_to="research_agent",
+        assigned_to=role,
         timeout_seconds=settings.task_timeout_seconds,
         output_artifacts=outputs,
         contract=TaskContract(output_artifacts=outputs, allowed_tools=tools),
