@@ -20,6 +20,9 @@ class JsonFormatter(logging.Formatter):
             "sandbox_id",
             "status_code",
             "duration_ms",
+            "contract",
+            "completed",
+            "error_type",
             "error",
         ):
             if hasattr(record, key):
