@@ -1,6 +1,6 @@
 # 验证记录
 
-最新的论文实际执行见 [Transformer 核心复现实测](transformer-reproduction.md)：完整图 7/7、程序退出码 0、257 项工程测试、22 项真实执行/外部验收、8 项网页回归。此前 [架构补齐验证](framework-verification.md) 和下文保留原阶段计数与回执，供追溯。
+最新验收见 [Transformer 单句对话实测](transformer-chat-acceptance.md)：仅原句输入，无附件或手工代码，8/8 节点与原仓库 18 项测试一次通过（3.95 秒，退出码 0），报告回到聊天，3/3 冻结功能规则通过。327 项工程测试、22 项真实执行/外部验收及 10 项 Chromium 网页回归已通过。此前 [显式脚本复跑](transformer-reproduction.md)、[架构补齐验证](framework-verification.md) 和下文保留原阶段计数与回执，供追溯。
 
 日期：2026-10-10。开发遵循项目 code_skill。初次基础验收使用 MockTransport；用户提供配置后，追加 AutoDL / DeepSeek-V4-Flash 的真实模型验收。密钥保存在忽略的本地 .env，报告不记录密钥。外部来源验收实际访问 GitHub/PyPI。
 

@@ -177,6 +177,23 @@ test('窄屏设置工具栏与运行按钮均可点击', async ({ page }, testIn
   await page.screenshot({ path: testInfo.outputPath('mobile-settings.png'), fullPage: true });
 });
 
+test('四十条历史会话保留时，当前聊天与输入框仍可见', async ({ page }) => {
+  await page.addInitScript(() => {
+    const sessions = Array.from({ length: 40 }, (_, index) => ({
+      id: `history-${index}`, title: `历史会话 ${index}`, createdAt: '2026-10-19', updatedAt: '2026-10-19',
+      chatHistory: index === 0 ? [{ role: 'system', text: '长历史仍能阅读当前报告' }] : [],
+      activePlanId: null, intentContext: null, planGraph: null,
+    }));
+    localStorage.setItem('openresearch-python.chat-sessions.v1', JSON.stringify({
+      userId: null, activeSessionId: 'history-0', sessions,
+    }));
+  });
+  await page.goto('/');
+  await expect(page.getByRole('region', { name: '历史会话' }).getByRole('button')).toHaveCount(40);
+  await expect(page.getByText('长历史仍能阅读当前报告', { exact: true })).toBeInViewport();
+  await expect(page.getByPlaceholder('直接描述实验目标，也可添加论文或数据...')).toBeInViewport();
+});
+
 test('旧会话更新欢迎语并从 Transformer 推荐指令自动检索规划', async ({ page }, testInfo) => {
   const oldAnswer = '你好，我是 OpenResearch 科研助手。这条是需要保留的历史回答。';
   await page.addInitScript(answer => {

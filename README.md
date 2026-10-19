@@ -53,7 +53,9 @@ uv run --locked python scripts/verify_deployment.py
 
 示例数据为四行协议验收数据，其结果不代表论文复现效果。
 
-Transformer 核心复现已实际跑通：解析原论文 15 页，固定 NumPy 实现源码，执行数值/因果/梯度测试及 copy/reverse 各 200 步训练，最终完整图 7/7 成功。实际损失、上游梯度修正、环境预算、边界和复跑命令见 [Transformer 实测报告](docs/transformer-reproduction.md)，可运行 `uv run --locked python scripts/verify_transformer.py`。这是小规模 CPU 核心验收，未完成 WMT/BLEU 原始效果复现。
+单句自然对话已实际验收：空白会话只发送「复现一下 Transformer 论文的核心架构并跑通测试」，系统自动固定真实完整实现、运行原仓库 pytest 套件并将中文报告返回聊天。最终 **8/8 节点完成，18 项测试一次通过（3.95 秒），退出码 0，3/3 功能规则通过**，没有提供脚本、填写高级配置或手动重试。来源、执行回执、工程检查与局限见 [Transformer 对话验收报告](docs/transformer-chat-acceptance.md)。本次未执行训练或 WMT/BLEU 评测。
+
+另有 [提供完整脚本后的 Transformer 复跑记录](docs/transformer-reproduction.md)：包含原论文解析、数值/梯度检查及 copy/reverse 小规模训练，可运行 `uv run --locked python scripts/verify_transformer.py`。该历史记录不作为单句自动规划与测试的验收证据。
 
 ## 配置与边界
 
