@@ -10,6 +10,7 @@ from openresearch.models.planning import PendingPlanning, SourceSelection
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySpec
+from openresearch.research.repository_fit import RepositoryFitter
 from openresearch.research.source_context import document_context
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.discovery import SourceDiscovery
@@ -19,6 +20,7 @@ from openresearch.storage.files import ArtifactStore
 
 class RepositoryAgent:
     def __init__(self, settings: Settings, files: ArtifactStore) -> None:
+        self.settings = settings
         self.source = GitHubSource(settings)
         self.files = files
         self.llm = LLMClient(settings)
@@ -52,10 +54,19 @@ class RepositoryAgent:
         else:
             spec = await asyncio.to_thread(self._spec, plan, task)
         snapshot, sources = await self.source.fetch(spec)
+        if task.inputs.get("auto_discover"):
+            snapshot, sources = await RepositoryFitter(
+                self.settings, self.source, self.discovery, self.llm
+            ).fit(plan, snapshot, sources)
         for raw in sources.values():
             await asyncio.to_thread(self.blobs.write, raw)
         return TaskResult(
-            result=f"Pinned {snapshot.url} at {snapshot.commit}; {len(snapshot.files)} files.",
+            result=f"Pinned {snapshot.url} at {snapshot.commit}; {len(snapshot.files)} files."
+            + (
+                f" Automatically replaced unsupported notebook-only source {spec.url}."
+                if snapshot.url != spec.url
+                else ""
+            ),
             outputs={"repository_snapshot": snapshot.model_dump_json()},
         )
 

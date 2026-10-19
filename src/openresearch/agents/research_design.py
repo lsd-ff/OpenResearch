@@ -76,6 +76,9 @@ class ResearchDesigner:
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),
+                "repository": {"url": snapshot.url, "ref": snapshot.commit}
+                if snapshot
+                else spec.repository,
                 "entrypoint": design.entrypoint,
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
