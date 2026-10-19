@@ -62,6 +62,7 @@ class Task(ContractModel):
     result: str = ""
     code: str = ""
     structured_data: str = ""
+    image_base64: str = Field(default="", max_length=2800000)
     error: str = ""
 
 
@@ -169,4 +170,5 @@ class TaskResult(ContractModel):
     result: str = ""
     code: str = ""
     structured_data: str = ""
+    image_base64: str = Field(default="", max_length=2800000)
     outputs: dict[str, str] = Field(default_factory=dict)

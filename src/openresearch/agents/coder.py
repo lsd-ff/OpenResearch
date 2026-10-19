@@ -23,7 +23,7 @@ class CoderAgent:
     ) -> None:
         self.files = files
         self.code = CodeAgent(LLMClient(settings))
-        self.execution = ExecutionTool(repository, sandbox)
+        self.execution = ExecutionTool(repository, sandbox, settings.max_output_bytes)
         self.environment = EnvironmentAgent(settings)
         self.designer = ResearchDesigner(settings, files)
         self.preparer = ResearchPreparer(settings, files)

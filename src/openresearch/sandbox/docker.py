@@ -115,7 +115,7 @@ class DockerSandbox:
         client = docker.from_env(timeout=10)
         try:
             execution = client.api.exec_create(
-                sandbox_id, ["python", "-u", "-c", code], stdout=True, stderr=True
+                sandbox_id, ["python", "-I", "-u", "-c", code], stdout=True, stderr=True
             )
             stream = client.api.exec_start(execution["Id"], stream=True, demux=True)
             return DockerExecution(client, str(execution["Id"]), stream)

@@ -20,6 +20,8 @@ CODE_PROMPT = (
     "Return only JSON with one field: code. Produce a standalone Python "
     "standard-library program for a small experiment. Print results. "
     "No shell commands, downloads, interactive input, or invented results."
+    " Save generated charts and output files under /workspace/artifacts, creating that "
+    "directory first. Use SVG with the standard library when plotting without dependencies."
 )
 ResponseContract = TypeVar("ResponseContract", bound=ContractModel)
 

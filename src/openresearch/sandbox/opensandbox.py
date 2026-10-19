@@ -130,7 +130,7 @@ class OpenSandbox:
                 endpoint + "/command",
                 headers=headers,
                 json={
-                    "argv": ["python", "-u", "-c", code],
+                    "argv": ["python", "-I", "-u", "-c", code],
                     "background": False,
                     "timeout": self.settings.task_timeout_seconds * 1000,
                     "uid": 65534,

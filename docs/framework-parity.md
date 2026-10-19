@@ -16,7 +16,7 @@
 | Routed Executor + Chat/Librarian/Data/Coder | 四类 Agent 路由；聊天/汇总、文献/仓库/检索、数据统计/图表/标准冻结、编码/环境/实验执行；保留旧角色映射 | 已实现；7 项新增测试，193 项当批工程回归通过；最终网页待验 |
 | 独立沙箱 API：创建、Python、命令、清理 | Python Sandbox HTTP 服务；API/Worker 通过 HTTP 连接；仅沙箱服务挂载 Docker socket | 已实现；协议和真实 Docker 验收中 |
 | Docker 默认 + OpenSandbox 回退 | 官方 lifecycle + execd SSE 适配、仅创建失败切换、终态退出码、命名空间清单与清理 | 已实现；协议通过，真实回退服务待验 |
-| 容器内 Python、临时工作区、代码、日志、图像和产物 | 基础执行已有，需核对图像产物与下载展示 | 待验收 |
+| 容器内 Python、临时工作区、代码、日志、图像和产物 | 自动收集实际输出文件、哈希校验、隔离解释器、持久图像预览、归属校验下载、Data SVG | 已实现；225 项工程测试及真实图像收集/链接拒绝通过；最终网页验收中 |
 | OpenAI 兼容模型 | 已有 OpenAI / Anthropic，实际配置使用 Anthropic | 待最终验收 |
 | HuggingFace Papers / Papers with Code 仓库发现 | 按原 Go 实现接 HF Papers，失败或无仓库时回退 GitHub；保留论文出处 | 8 项新增协议测试通过；本机实际 HF 联网超时，外部待验 |
 | GitHub Search 回退 | 主来源失败/空结果时自动回退，记录 fallback_used；所有来源失败明确报错 | 协议通过；实际联合链路待验 |

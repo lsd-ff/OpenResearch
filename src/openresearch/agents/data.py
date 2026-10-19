@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 
 from openresearch.agents.claim_freeze import ClaimFreezer
@@ -44,10 +45,12 @@ class DataAgent:
         profile = await asyncio.to_thread(profile_records, records)
         profile["source"] = {"upload_id": record.id, "name": record.name, "sha256": record.sha256}
         payload = json.dumps(profile, ensure_ascii=False, allow_nan=False)
+        chart = missing_values_chart(profile)
         return TaskResult(
             result=(
                 f"分析了 {len(records)} 行、{len(profile['columns'])} 列；统计值来自实际上传数据。"
             ),
             structured_data=payload,
-            outputs={"data_profile": payload, "data_chart": missing_values_chart(profile)},
+            image_base64="data:image/svg+xml;base64," + base64.b64encode(chart.encode()).decode(),
+            outputs={"data_profile": payload, "data_chart": chart},
         )

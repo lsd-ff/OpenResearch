@@ -8,6 +8,8 @@ import type { ExecutionDisplayMode } from '../../app/hooks/useScholarRuntime';
 import type { Task } from '../../contracts/api';
 import { ClaimEvidenceGraphView } from '../claim-evidence/ClaimEvidenceGraphView';
 import { getAgentIcon } from '../shared/agentVisuals';
+import { imageSource } from './imageSource';
+import { OutputFiles } from './OutputFiles';
 
 type CompactMode = Exclude<ExecutionDisplayMode, 'report-expanded' | 'plot-expanded' | 'evidence-expanded'>;
 
@@ -34,7 +36,7 @@ const resolveCompactMode = (displayMode: ExecutionDisplayMode): CompactMode => {
   return displayMode;
 };
 
-const reportAgents = new Set(['librarian_agent', 'data_agent', 'research_coding_agent', 'research_agent']);
+const reportAgents = new Set(['chat_agent', 'coder_agent', 'librarian_agent', 'data_agent', 'research_coding_agent', 'research_agent']);
 
 export function ExecutionSidebar(props: ExecutionSidebarProps) {
   const {
@@ -153,7 +155,7 @@ function ExpandedPlotView({ executionImage, onClose }: ExpandedPlotViewProps) {
       </div>
       <div className="flex-1 flex items-center justify-center overflow-hidden bg-gray-50 rounded-3xl p-8 border border-gray-100 shadow-inner">
         <img
-          src={`data:image/png;base64,${executionImage}`}
+          src={imageSource(executionImage)}
           alt="Full Resolution Plot"
           className="max-w-full max-h-full object-contain rounded-xl shadow-2xl transition-transform hover:scale-105 duration-500"
         />
@@ -403,7 +405,7 @@ function ExecutionSidebarShell(props: ExecutionSidebarShellProps) {
             </div>
           ) : activeMode === 'plot' ? (
             <div className="bg-white rounded-2xl border border-gray-100 p-2 flex-1 flex flex-col items-center justify-center overflow-hidden shadow-inner h-64">
-              <img src={`data:image/png;base64,${executionImage}`} alt="Generated Plot" className="max-w-full max-h-full object-contain rounded-lg shadow-md" />
+              <img src={imageSource(executionImage)} alt="Generated Plot" className="max-w-full max-h-full object-contain rounded-lg shadow-md" />
               <div className="mt-2 text-[10px] text-gray-400">点击下方按钮可全屏查看</div>
             </div>
           ) : activeMode === 'evidence' ? (
@@ -417,6 +419,7 @@ function ExecutionSidebarShell(props: ExecutionSidebarShellProps) {
               </ReactMarkdown>
             </div>
           )}
+          <OutputFiles raw={executionStructuredData} image={executionImage} />
         </div>
       </div>
     </>

@@ -19,6 +19,9 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
         result = SourceSelection(choice=1, reason="Controlled matching source fixture")
     elif any('"title": "IntentDraft"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
+        if "分析数据" in context["message"]:
+            result = IntentDraft(workflow="data")
+            return {"choices": [{"message": {"content": result.model_dump_json()}}]}
         result = (
             IntentDraft(
                 workflow="reproduce",

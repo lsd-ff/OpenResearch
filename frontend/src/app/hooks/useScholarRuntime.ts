@@ -37,7 +37,7 @@ type ExecutionAction =
   | { type: 'reset' };
 
 const initialNodeExecutionState: NodeExecutionState = { logs: '', result: '', code: '', structuredData: '', imageBase64: '' };
-const reportAgents = new Set(['librarian_agent', 'data_agent', 'research_coding_agent', 'research_agent']);
+const reportAgents = new Set(['chat_agent', 'coder_agent', 'librarian_agent', 'data_agent', 'research_coding_agent', 'research_agent']);
 const isReportAgent = (assignedTo: string) => reportAgents.has(assignedTo);
 
 const updateNodeStatus = (node: Node, status: string): Node => {

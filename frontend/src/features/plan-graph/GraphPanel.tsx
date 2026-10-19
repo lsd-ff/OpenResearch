@@ -26,6 +26,9 @@ const intentLabels: Record<string, string> = {
   Framework_Comparison: '框架对比',
   Code_Execution: '代码执行',
   General: '通用任务',
+  Data_Analysis: '数据分析',
+  Paper_Analysis: '论文阅读',
+  Benchmark: '数据评测',
 };
 
 export function GraphPanel(props: GraphPanelProps) {

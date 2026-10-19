@@ -45,11 +45,11 @@ def build_code_plan(
         description="Execute prepared Python code in a resource-limited container.",
         dependencies=[generate.id],
         required_artifacts=["generated_code"],
-        output_artifacts=["run_metrics"],
+        output_artifacts=["run_metrics", "execution_files"],
         timeout_seconds=settings.task_timeout_seconds,
         contract=TaskContract(
             input_artifacts=["generated_code"],
-            output_artifacts=["run_metrics"],
+            output_artifacts=["run_metrics", "execution_files"],
             allowed_tools=["sandbox.python"],
         ),
     )

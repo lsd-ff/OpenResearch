@@ -60,6 +60,7 @@ class ExecutionStore:
                 self._publish_artifacts(connection, plan, node, completion)
                 node.result = completion.result.result
                 node.structured_data = completion.result.structured_data
+                node.image_base64 = completion.result.image_base64
             error = completion.result.error if completion.result else completion.error
             self._fail(connection, plan, node, error)
         connection.execute(
@@ -91,6 +92,7 @@ class ExecutionStore:
             result.code,
             result.structured_data,
         )
+        node.image_base64 = result.image_base64
         self.database.publish(
             connection,
             plan,
@@ -100,6 +102,7 @@ class ExecutionStore:
                 "result": node.result,
                 "code": node.code,
                 "structured_data": node.structured_data,
+                "image_base64": node.image_base64,
             },
         )
 

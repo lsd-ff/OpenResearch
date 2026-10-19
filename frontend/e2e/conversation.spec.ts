@@ -1,5 +1,39 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test('代码产出 SVG 后可查看、下载并在刷新后恢复图像', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#2563eb"/></svg>';
+  const code = `from pathlib import Path\np = Path('/workspace/artifacts')\np.mkdir(parents=True)\n(p / 'demo.svg').write_text(${JSON.stringify(svg)})\nprint('image-output-created')`;
+  await send(page, `运行以下代码\n\`\`\`python\n${code}\n\`\`\``);
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible({ timeout: 90_000 });
+  await page.reload();
+  await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
+  const image = page.getByAltText('Generated Plot');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(160);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('link', { name: /下载 demo.svg/ }).click();
+  expect((await downloaded).suggestedFilename()).toBe('demo.svg');
+  await page.screenshot({ path: testInfo.outputPath('image-output.png'), fullPage: true });
+});
+
+test('上传数据后直接聊天即可分析并查看实际缺失值图表', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'statistics.csv', mimeType: 'text/csv', buffer: Buffer.from('x,label\n1,a\n3,b\n,a\n'),
+  });
+  await expect(page.getByRole('button', { name: '移除 statistics.csv', exact: true })).toBeVisible();
+  const response = await send(page, '分析数据中的均值和缺失值');
+  expect((await response.json()).plan_graph.intent_type).toBe('Data_Analysis');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await page.locator('.react-flow__node').filter({ hasText: 'Analyze Uploaded Dataset' }).click();
+  await expect(page.getByAltText('Generated Plot')).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载图表', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('data-analysis-chart.png'), fullPage: true });
+});
+
 async function send(page: Page, message: string) {
   await page.getByPlaceholder('直接描述实验目标，也可添加论文或数据...').fill(message);
   const response = page.waitForResponse(response =>

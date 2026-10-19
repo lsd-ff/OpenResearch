@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from contextlib import suppress
 
@@ -7,7 +8,8 @@ from openresearch.agents.router import RoutedAgents
 from openresearch.config import Settings
 from openresearch.errors import ContractError, PlanningInputRequired, StaleExecutionError
 from openresearch.models.execution import ExecutionLease, TaskCompletion
-from openresearch.models.runtime import Plan, Task, TaskResult
+from openresearch.models.output_files import OutputFiles
+from openresearch.models.runtime import Artifact, Plan, Task, TaskResult
 from openresearch.sandbox.base import Sandbox
 from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
@@ -49,7 +51,28 @@ class TaskExecutor:
             await asyncio.to_thread(self.files.write, lease, key, value)
             for key, value in result.outputs.items()
         ]
+        self._describe_files(lease, result, output)
         await asyncio.to_thread(self.repository.finish, lease, TaskCompletion(result, output))
+
+    @staticmethod
+    def _describe_files(
+        lease: ExecutionLease, result: TaskResult, artifacts: list[Artifact]
+    ) -> None:
+        collection = next((item for item in artifacts if item.key == "execution_files"), None)
+        if collection is None:
+            return
+        bundle = OutputFiles.model_validate_json(result.outputs["execution_files"])
+        metadata = json.loads(result.structured_data or "{}")
+        metadata["output_files"] = [
+            {
+                "name": item.path,
+                "size": item.size,
+                "sha256": item.sha256,
+                "url": f"/api/plans/{lease.plan_id}/artifacts/{collection.id}/files/{index}",
+            }
+            for index, item in enumerate(bundle.files)
+        ]
+        result.structured_data = json.dumps(metadata, ensure_ascii=False)
 
     async def _fail(self, lease: ExecutionLease, exception: Exception) -> None:
         error = "task timed out" if isinstance(exception, TimeoutError) else str(exception)
