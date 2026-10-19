@@ -9,7 +9,8 @@
 | Windows / Python 3.13.5：Ruff、格式、mypy strict | 2026-10-19 复核通过，124 个源文件 |
 | Windows 离线行为测试 | 2026-10-19 复核 163 通过，15 Docker 用例不在默认门禁运行 |
 | Windows 驱动 Docker Desktop Linux Engine：真实沙箱验收 | 15 通过，含真实 GitHub/PyPI 和容器实际 Python 条件依赖检查 |
-| GitHub Actions Windows / Ubuntu，Python 3.12 / 3.13 | 2026-10-19 提交 0c38cb4 的全部质量、Docker、前端门禁通过 |
+| GitHub Actions Windows / Ubuntu，Python 3.12 / 3.13 | 2026-10-19 提交 e27d65f：各矩阵 163 通过；Ruff、mypy、打包、前端门禁全部通过 |
+| GitHub Actions Docker 与 Chromium 网页 | Docker 14 通过、1 个联网用例未启用；网页 3 通过，含真实 Docker 输出和刷新恢复 |
 | React ESLint、TypeScript、Vite | 通过 |
 | 多阶段 Docker 镜像构建、Compose API/Worker | 构建和启动通过 |
 | Linux HTTP Benchmark | 基线 accuracy=1.0，消融=0.5；下载报告、预测与 SSE；镜像摘要存在 |
@@ -40,6 +41,10 @@
 原始验收 `auto-acceptance-14f89b113c7e445ca29588b7ae9fdeef` 在前两条成功后，第三条规划收到 422，失败记录保留。离线复现确认模型将显式论文复现误分为 code 会进入旧拒绝路径，已增加来源要求保护和两个行为用例；原供应商分类响应未保留，不能据此断言最初 422 的精确内部原因。再次通过相同聊天与附件建立的第三条计划已完成；恢复记录重新读取并核验前两条的原始产物，未重算或改写失败记录。本地回执：`.data/auto-acceptance/recovery-4eb5e5bc04604f9c8efde9cb50aa7eed/result.json`，复现执行时间 2026-10-19 08:58:19–09:00:31（北京时间）。这些协议夹具不构成科学论文效果证据。
 
 网页 CI 首次启动暴露 API/Worker 并发打开新库时 WAL 切换立即返回 SQLITE_BUSY 的问题。已对该阶段的锁错误增加有界重试，其它数据库错误继续抛出；回归用例持有真实 SQLite 写锁，验证等待、解锁后迁移和原数据保留。将旧启动逻辑注入同一用例可稳定复现失败。Playwright 的 API 使用独立目录、端口和本地分类夹具，避免读取实际模型凭据和工作数据。
+
+后续网页 trace 确认悬浮的高级设置按钮遮住了运行按钮，已改为占据布局空间的设置工具栏，并按剩余空间计算移动端高度。最终 [CI 39184283140](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39184283140) 的三个网页用例全部通过：上传 CSV 后追问、刷新后短答生成六节点计划（只上传一次、无需高级表单）；正常点击运行 smoke，经真实 Docker 得到 sum=15，刷新后恢复两节点完成状态及输出；390px 窄屏设置与运行按钮可点击，高级表单可正常打开。未使用强制点击或直接调用 API 代替网页操作。分类夹具只返回 IntentDraft，其它模型契约会被拒绝；真实模型自动设计与实验结果由上面的三条计划独立证明。
+
+最终部署复核的 Benchmark 为 `b5ea4cea5caf4a199d3dc3ec766654df`，基线/消融仍为 1.0 / 0.5；单节点与重分配计划 `babf194fe9c5470091d96de498a1c3b9` 完成。更新工具栏并重启后，三个模型计划仍可读取为 completed；API/Worker 的 124 个 Python 源文件摘要和模型配置与本地一致，工作台实际提供新工具栏样式。317 个提交/构建文件未发现本机模型密钥，审计回执位于 `.data/final-audit.json`。运行数据、凭据和浏览器截图均不提交；网页截图与 trace 由 CI 产物保留 7 天。
 
 配置保持用户提供的 Anthropic BASE_URL 和模型别名；预检返回 HTTP 200，供应商响应标记为 DeepSeek-V4-Flash-0731。该字段只记录供应商声明，未独立确认模型权重。当前运行采用 Anthropic submit_response 的 input_schema、关闭扩展思考、8192 输出 token、300 秒模型总期限、480 秒任务和 1800 秒计划预算。
 
@@ -76,6 +81,6 @@ GitHub 仓库检索实际返回 200。本次 arXiv API 返回 429 Rate exceeded�
 
 OpenAI-compatible 与 Anthropic 的请求、响应工具、格式修正、截止时间、代码生成、修复及语义证据契约有传输层测试；AutoDL 小型真实模型链已通过。未验证模型科研判断的整体质量、长文翻译或真实论文复现效果。全文翻译限定 100 页 / 12000 字符，超限需划词处理。扫描 PDF 无 OCR。
 
-原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 的 Windows/Ubuntu 与 Python 3.12/3.13 矩阵、Docker 和前端门禁已运行成功，见 [运行记录](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39183060908)。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
+原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 的 Windows/Ubuntu 与 Python 3.12/3.13 矩阵、Docker、前端和网页门禁已运行成功，见 [运行记录](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39184283140)。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
 
 Starlette TestClient 提示旧 HTTPX 接口弃用；Linux 只读源码挂载产生 pytest cache 无法写入提示，测试本身通过。保留的 PDF.js 依赖构建含 eval 提示，阅读参数已设置 isEvalSupported=false；Vite 同时提示大 chunk，未进行全依赖安全审计或首屏体积优化。
