@@ -7,9 +7,9 @@
 | 检查 | 结果 |
 | --- | --- |
 | Windows / Python 3.13.5：Ruff、格式、mypy strict | 2026-10-19 复核通过，124 个源文件 |
-| Windows 离线行为测试 | 2026-10-19 复核 160 通过，15 Docker 用例不在默认门禁运行 |
+| Windows 离线行为测试 | 2026-10-19 复核 163 通过，15 Docker 用例不在默认门禁运行 |
 | Windows 驱动 Docker Desktop Linux Engine：真实沙箱验收 | 15 通过，含真实 GitHub/PyPI 和容器实际 Python 条件依赖检查 |
-| Linux 容器 / Python 3.12.13：离线行为测试 | 132 通过 |
+| GitHub Actions Windows / Ubuntu，Python 3.12 / 3.13 | 2026-10-19 提交 0c38cb4 的全部质量、Docker、前端门禁通过 |
 | React ESLint、TypeScript、Vite | 通过 |
 | 多阶段 Docker 镜像构建、Compose API/Worker | 构建和启动通过 |
 | Linux HTTP Benchmark | 基线 accuracy=1.0，消融=0.5；下载报告、预测与 SSE；镜像摘要存在 |
@@ -31,9 +31,17 @@
 
 ## 真实模型追加验收
 
-2026-10-19：工作台和 Worker 已恢复启动，容器内全部 Python 源文件摘要与本地一致。`scripts/check.py`、前端 ESLint / TypeScript / Vite 已重新通过。聊天自动规划的真实模型验收已通过标签追问和补充后的计划生成，完整自动设计与执行仍在验收中；不能将此前高级表单路径的成功记录视为这条新路径已经通过。后续使用 `scripts/verify_auto_planning.py` 留存独立记录；本地密钥不进入提交。
+2026-10-19：工作台和 Worker 已恢复启动，`scripts/check.py`、前端 ESLint / TypeScript / Vite 已重新通过。聊天自动规划的真实模型验收通过以下三条独立计划，全程不提交手动 ResearchSpec：
 
-配置保持用户提供的 Anthropic BASE_URL 和模型别名；预检返回 HTTP 200，供应商响应标记为 DeepSeek-V4-Flash-0731。该字段只记录供应商声明，未独立确认模型权重。运行采用 Anthropic submit_response 的 input_schema、关闭扩展思考、4096 输出 token、180 秒模型总期限、480 秒任务和 1800 秒计划预算。
+- Benchmark `89fc55734c7f480494e39e2a7acbfa6f`：上传 CSV 后追问歧义标签，短答无需重传；自动生成入口、锁定依赖，真实源码基线 accuracy=1.0、消融=0.5。实际导入 `/repository/src/itsdangerous/__init__.py`，报告记录沙箱镜像摘要。
+- PDF 分析 `d69968475f0d40e98dcbf9d2a1513edd`：在 Docker 解析上传原文，两个引用逐字匹配第一页文本。
+- PDF 复现 `ac8c126b3a924846808036590c930c74`：消息不包含仓库地址，由原文发现 pallets/itsdangerous；七个节点完成自动设计、依赖锁定、规则冻结、补丁和真实源码执行，输出 AUTO_ROUNDTRIP_CONFIRMED 与实际源码路径。
+
+原始验收 `auto-acceptance-14f89b113c7e445ca29588b7ae9fdeef` 在前两条成功后，第三条规划收到 422，失败记录保留。离线复现确认模型将显式论文复现误分为 code 会进入旧拒绝路径，已增加来源要求保护和两个行为用例；原供应商分类响应未保留，不能据此断言最初 422 的精确内部原因。再次通过相同聊天与附件建立的第三条计划已完成；恢复记录重新读取并核验前两条的原始产物，未重算或改写失败记录。本地回执：`.data/auto-acceptance/recovery-4eb5e5bc04604f9c8efde9cb50aa7eed/result.json`，复现执行时间 2026-10-19 08:58:19–09:00:31（北京时间）。这些协议夹具不构成科学论文效果证据。
+
+网页 CI 首次启动暴露 API/Worker 并发打开新库时 WAL 切换立即返回 SQLITE_BUSY 的问题。已对该阶段的锁错误增加有界重试，其它数据库错误继续抛出；回归用例持有真实 SQLite 写锁，验证等待、解锁后迁移和原数据保留。将旧启动逻辑注入同一用例可稳定复现失败。Playwright 的 API 使用独立目录、端口和本地分类夹具，避免读取实际模型凭据和工作数据。
+
+配置保持用户提供的 Anthropic BASE_URL 和模型别名；预检返回 HTTP 200，供应商响应标记为 DeepSeek-V4-Flash-0731。该字段只记录供应商声明，未独立确认模型权重。当前运行采用 Anthropic submit_response 的 input_schema、关闭扩展思考、8192 输出 token、300 秒模型总期限、480 秒任务和 1800 秒计划预算。
 
 `scripts/verify_model.py` 完整运行通过：2026-10-10 13:08:00–13:09:59（北京时间）。本地记录：`.data/model-acceptance/model-acceptance-d786a9f81e0242b38db0050e0fd13e61/result.json`。文档、代码、研究和修复计划分别为 27ea1c2932aa460888687cee156f82b9、6b199d71615e48e39fd15b6c2f6cd9b4、40e22c93760a4751a2664372cde6b686、34dfc7a2f82640ec98d4ebf2469396d2。
 
@@ -68,6 +76,6 @@ GitHub 仓库检索实际返回 200。本次 arXiv API 返回 429 Rate exceeded�
 
 OpenAI-compatible 与 Anthropic 的请求、响应工具、格式修正、截止时间、代码生成、修复及语义证据契约有传输层测试；AutoDL 小型真实模型链已通过。未验证模型科研判断的整体质量、长文翻译或真实论文复现效果。全文翻译限定 100 页 / 12000 字符，超限需划词处理。扫描 PDF 无 OCR。
 
-原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 已配置，尚无远程运行记录。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
+原 Go HTTP 沙箱适配器验证了流错误处理，没有启动原服务进行完整端到端验收；原协议不能提供镜像摘要与 label 清单。远程 GitHub Actions 的 Windows/Ubuntu 与 Python 3.12/3.13 矩阵、Docker 和前端门禁已运行成功，见 [运行记录](https://github.com/lsd-ff/OpenResearch-Python/actions/runs/39183060908)。Python 3.14.5 仅验证 wheel 安装和迁移，没有运行完整行为测试集。
 
 Starlette TestClient 提示旧 HTTPX 接口弃用；Linux 只读源码挂载产生 pytest cache 无法写入提示，测试本身通过。保留的 PDF.js 依赖构建含 eval 提示，阅读参数已设置 isEvalSupported=false；Vite 同时提示大 chunk，未进行全依赖安全审计或首屏体积优化。
