@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     sandbox_image: str = "python:3.12-slim"
     sandbox_network: Literal["none", "bridge"] = "none"
     sandbox_memory: str = "256m"
+    sandbox_tmpfs_size_mb: int = Field(default=64, ge=16, le=2048)
+    sandbox_workspace_size_mb: int = Field(default=256, ge=64, le=4096)
     api_token: SecretStr = SecretStr("")
     require_approval: bool = False
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

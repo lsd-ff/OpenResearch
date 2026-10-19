@@ -98,7 +98,10 @@ class WheelSource:
         files: dict[str, bytes] = {}
         pins = dict(pin.split("==", 1) for pin in spec.requirements)
         async with httpx.AsyncClient(
-            timeout=60, trust_env=False, transport=self.transport
+            timeout=60,
+            trust_env=False,
+            proxy=self.settings.source_proxy_url.get_secret_value() or None,
+            transport=self.transport,
         ) as client:
             for pin in spec.requirements:
                 name, version = pin.split("==", 1)

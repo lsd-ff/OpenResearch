@@ -14,6 +14,7 @@ from openresearch.models.planning import IntentDraft, PendingPlanning, SourceSel
 from openresearch.models.sources import RepositorySpec
 from openresearch.services.planning_inputs import repository_urls
 from openresearch.services.planning_outcomes import PlanningOutcome, planning_question
+from openresearch.services.repository_search import RepositorySearch
 from openresearch.services.source_queries import source_queries
 from openresearch.services.uploads import UploadService
 from openresearch.sources.discovery import SourceDiscovery, arxiv_pdf_url
@@ -41,15 +42,15 @@ class PlanningSources:
             if draft.repository_ref and draft.repository_ref in state.intent
             else "HEAD"
         )
+        if len(urls) == 1:
+            return RepositorySpec(url=urls[0], ref=reference), ""
+        if len(urls) > 1:
+            return None, "发现多个仓库，请在聊天中指出本次使用哪一个：\n" + "\n".join(urls)
         if draft.repository_choice and state.repository_candidates:
             index = draft.repository_choice - 1
             if index >= len(state.repository_candidates):
                 return None, "请选择实际列出的仓库编号或提供仓库链接。"
             return RepositorySpec(url=state.repository_candidates[index].url, ref=reference), ""
-        if len(urls) == 1:
-            return RepositorySpec(url=urls[0], ref=reference), ""
-        if len(urls) > 1:
-            return None, "发现多个仓库，请在聊天中指出本次使用哪一个：\n" + "\n".join(urls)
         if draft.repository_url:
             try:
                 RepositorySpec(url=draft.repository_url, ref=reference)
@@ -68,15 +69,15 @@ class PlanningSources:
             return None, ""
         if not state.repository_candidates and queries:
             try:
-                state.repository_candidates = await self._search("repository", queries)
+                state.repository_candidates, choice = await RepositorySearch(
+                    self.discovery, self._select
+                ).find(state.intent, queries)
             except ContractError:
                 return None, "仓库检索服务暂时不可用。请在聊天中提供仓库链接，我会继续自动规划。"
-            if state.repository_candidates:
-                selection = await self._select(state.intent, state.repository_candidates)
-                if selection.choice and selection.choice <= len(state.repository_candidates):
-                    return RepositorySpec(
-                        url=state.repository_candidates[selection.choice - 1].url, ref=reference
-                    ), ""
+            if choice:
+                return RepositorySpec(
+                    url=state.repository_candidates[choice - 1].url, ref=reference
+                ), ""
         if state.repository_candidates:
             return None, "找到以下仓库，请回复编号或直接提供链接：\n" + self._options(
                 state.repository_candidates

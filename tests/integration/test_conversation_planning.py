@@ -368,6 +368,27 @@ async def test_explicit_benchmark_cannot_be_downgraded_by_model(settings, reposi
     assert result.workflow == "reproduce"
 
 
+async def test_explicit_repository_correction_overrides_an_old_candidate(settings):
+    from openresearch.models.planning import PendingPlanning
+
+    source = PlanningSources(settings, None, None, None)
+    state = PendingPlanning(
+        intent="改用 " + URL,
+        repository_candidates=[
+            SearchResult(
+                title="unrelated",
+                url="https://github.com/example/unrelated",
+                description="",
+                source="github",
+            )
+        ],
+    )
+    result, question = await source.repository(
+        state, IntentDraft(workflow="reproduce", repository_choice=1), False
+    )
+    assert result.url == URL and not question
+
+
 def test_paper_download_failure_keeps_a_material_question(
     settings, repository, sandbox, monkeypatch
 ):

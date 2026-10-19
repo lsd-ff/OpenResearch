@@ -50,3 +50,26 @@ async def test_real_python_experiment(
             *(active.future for active in worker.active.values()), return_exceptions=True
         )
         await sandbox.shutdown()
+
+
+async def test_configured_resource_budgets_preserve_container_isolation(settings):
+    from contextlib import closing
+
+    import docker
+
+    settings.sandbox_memory = "1g"
+    settings.sandbox_tmpfs_size_mb = 256
+    settings.sandbox_workspace_size_mb = 512
+    sandbox = DockerSandbox(settings)
+    identifier = await sandbox.create("resource-verification", "bounded-memory")
+    try:
+        with closing(docker.from_env()) as client:
+            config = client.containers.get(identifier).attrs["HostConfig"]
+        assert config["Memory"] == 1024**3
+        assert "size=256m" in config["Tmpfs"]["/tmp"]
+        assert "noexec" in config["Tmpfs"]["/tmp"]
+        assert "size=512m" in config["Tmpfs"]["/workspace"]
+        assert config["ReadonlyRootfs"] and config["NetworkMode"] == "none"
+        assert config["PidsLimit"] == 64 and config["NanoCpus"] == 1_000_000_000
+    finally:
+        await sandbox.close(identifier)

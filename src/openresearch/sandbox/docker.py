@@ -58,12 +58,22 @@ class DockerSandbox:
                 network_mode=self.settings.sandbox_network,
                 read_only=True,
                 tmpfs={
-                    "/tmp": "rw,noexec,nosuid,size=64m",
+                    "/tmp": f"rw,noexec,nosuid,size={self.settings.sandbox_tmpfs_size_mb}m",
                     # 二进制 wheel 的扩展模块需要可执行映射；仅此内存盘允许映射。
-                    "/workspace": "rw,nosuid,size=256m,mode=1777",
+                    "/workspace": (
+                        f"rw,nosuid,size={self.settings.sandbox_workspace_size_mb}m,mode=1777"
+                    ),
                 },
                 user="65534:65534",
-                environment={"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"},
+                environment={
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "PYTHONUNBUFFERED": "1",
+                    # CPU 配额为一核，避免数值库线程池耗尽容器进程额度。
+                    "OPENBLAS_NUM_THREADS": "1",
+                    "OMP_NUM_THREADS": "1",
+                    "MKL_NUM_THREADS": "1",
+                    "NUMBA_NUM_THREADS": "1",
+                },
             )
             return str(container.id)
 

@@ -87,7 +87,11 @@ class ResearchPreparer:
             )
         else:
             context = await asyncio.to_thread(document_context, plan, self.files)
-            patch = await self.propose(task.description + "\nSource data: " + context, spec, files)
+            patch = await self.propose(
+                plan.user_intent + "\nTask: " + task.description + "\nSource data: " + context,
+                spec,
+                files,
+            )
         await asyncio.to_thread(apply_patch, files, patch, spec)
         return TaskResult(
             result="Research patch validated against source hashes and allowed paths.",

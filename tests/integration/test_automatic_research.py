@@ -80,6 +80,34 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     assert json.loads(patch.outputs["research_patch"])["files"][0]["path"] == "adapter.py"
 
 
+async def test_patch_generation_receives_the_original_goal_as_well_as_the_task(
+    settings, repository, files, monkeypatch
+):
+    from openresearch.models.research import FilePatch, ResearchPatch
+
+    plan = PlanService(settings, repository).build(
+        PlanSubmission(
+            "verify causal mask and real loss decrease",
+            Identity("alice", "original-goal"),
+            workflow="reproduce",
+            research=ResearchSpec(
+                repository=RepositorySpec(url="https://github.com/pallets/itsdangerous")
+            ),
+        )
+    )
+    task = next(node for node in plan.nodes if node.type == "research_prepare")
+    task.description = "prepare adapter"
+    captured = []
+
+    async def propose(self, intent, spec, sources, error=""):
+        captured.append(intent)
+        return ResearchPatch(files=[FilePatch(path=spec.entrypoint, content="print('actual')")])
+
+    monkeypatch.setattr(ResearchPreparer, "propose", propose)
+    await ResearchPreparer(settings, files).execute(plan, task)
+    assert plan.user_intent in captured[0] and "prepare adapter" in captured[0]
+
+
 async def test_worker_material_question_resumes_current_plan_only(
     settings, repository, files, sandbox
 ):
