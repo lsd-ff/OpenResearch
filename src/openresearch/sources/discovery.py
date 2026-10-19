@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -10,8 +11,10 @@ import httpx
 from openresearch.errors import ContractError
 from openresearch.models.discovery import SearchRequest, SearchResult
 from openresearch.sources.http import read_bounded
+from openresearch.sources.huggingface import search_papers
 
 ATOM = "{http://www.w3.org/2005/Atom}"
+logger = logging.getLogger(__name__)
 
 
 def arxiv_pdf_url(url: str) -> str:
@@ -75,12 +78,42 @@ class SourceDiscovery:
                 await asyncio.sleep(delay)
             self.last_request = time.monotonic()
             async with httpx.AsyncClient(
-                timeout=30,
+                timeout=10,
                 trust_env=False,
                 transport=self.transport,
                 headers={"User-Agent": "OpenResearch-Python"},
             ) as client:
-                return await self._search(client, request)
+                return await self._providers(client, request)
+
+    async def _providers(
+        self, client: httpx.AsyncClient, request: SearchRequest
+    ) -> list[SearchResult]:
+        if request.provider == "huggingface":
+            return await search_papers(client, request)
+        if request.provider != "auto":
+            expected = "arxiv" if request.kind == "paper" else "github"
+            if request.provider != expected:
+                raise ContractError("source provider does not support the requested search kind")
+            return await self._search(client, request)
+        available = False
+        try:
+            # 整个主来源有总期限，详情较多或来源限流也不能阻塞 GitHub/arXiv 回退。
+            async with asyncio.timeout(15):
+                results = await search_papers(client, request)
+            available = True
+            if results:
+                return results
+        except (ContractError, TimeoutError):
+            logger.info("HuggingFace Papers unavailable; trying fallback source")
+        try:
+            results = await self._search(client, request)
+        except ContractError:
+            if available:
+                return []
+            raise
+        for result in results:
+            result.fallback_used = True
+        return results
 
     async def _search(
         self, client: httpx.AsyncClient, request: SearchRequest
@@ -93,13 +126,17 @@ class SourceDiscovery:
         url = "https://api.github.com/search/repositories?" + urlencode(
             {"q": request.query, "per_page": request.limit}
         )
-        response = json.loads(await read_bounded(client, url, 2 * 1024 * 1024))
-        return [
-            SearchResult(
-                title=item["full_name"],
-                url=item["html_url"],
-                source="github",
-                description=item.get("description") or "",
-            )
-            for item in response["items"][: request.limit]
-        ]
+        try:
+            response = json.loads(await read_bounded(client, url, 2 * 1024 * 1024))
+            items = response["items"][: request.limit]
+            return [
+                SearchResult(
+                    title=item["full_name"],
+                    url=item["html_url"],
+                    source="github",
+                    description=item.get("description") or "",
+                )
+                for item in items
+            ]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ContractError("invalid GitHub search response") from exc
