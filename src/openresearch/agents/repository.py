@@ -53,11 +53,12 @@ class RepositoryAgent:
             spec = await self._discover(plan)
         else:
             spec = await asyncio.to_thread(self._spec, plan, task)
-        snapshot, sources = await self.source.fetch(spec)
         if task.inputs.get("auto_discover"):
             snapshot, sources = await RepositoryFitter(
                 self.settings, self.source, self.discovery, self.llm
-            ).fit(plan, snapshot, sources)
+            ).fetch(plan, spec)
+        else:
+            snapshot, sources = await self.source.fetch(spec)
         for raw in sources.values():
             await asyncio.to_thread(self.blobs.write, raw)
         return TaskResult(

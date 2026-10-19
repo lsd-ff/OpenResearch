@@ -12,6 +12,7 @@ from openresearch.services.intent import IntentParser, requests_source_reproduct
 from openresearch.services.planning_inputs import (
     benchmark_mapping,
     dataset_profiles,
+    repository_urls,
 )
 from openresearch.services.planning_outcomes import PlanningOutcome, planning_question
 from openresearch.services.planning_sources import PlanningSources
@@ -209,6 +210,10 @@ class AutoPlanner:
                 auto_design=True,
             ),
         )
+        if repository and (draft.repository_choice or repository_urls(state.intent)):
+            for node in plan.nodes:
+                if node.type == "repository_fetch":
+                    node.inputs["auto_discover"] = False
         source_text = (
             f"\n仓库：{repository.url}"
             if repository

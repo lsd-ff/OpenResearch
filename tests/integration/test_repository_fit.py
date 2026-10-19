@@ -7,7 +7,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.discovery import SearchRequest, SearchResult
 from openresearch.models.planning import RepositoryAssessment, SourceSelection
 from openresearch.models.runtime import Plan, Task
-from openresearch.models.sources import RepositorySnapshot
+from openresearch.models.sources import RepositorySnapshot, RepositorySpec
 from openresearch.research.repository_fit import RepositoryFitter
 from openresearch.sources.archive import inventory
 from openresearch.sources.discovery import SourceDiscovery
@@ -111,13 +111,16 @@ async def test_decoder_only_source_cannot_satisfy_a_complete_original_architectu
         ]
     )
     agent.discovery.search = AsyncMock(
-        return_value=[
-            SearchResult(
-                title="full implementation",
-                url=RUNNABLE,
-                source="github",
-                description="encoder decoder",
-            )
+        side_effect=[
+            [],
+            [
+                SearchResult(
+                    title="full implementation",
+                    url=RUNNABLE,
+                    source="github",
+                    description="encoder decoder",
+                )
+            ],
         ]
     )
     agent.source.fetch = AsyncMock(return_value=(snapshot(RUNNABLE, alternate), alternate))
@@ -125,5 +128,68 @@ async def test_decoder_only_source_cannot_satisfy_a_complete_original_architectu
         plan("复现原始 Transformer 核心"), snapshot(NOTEBOOK, original), original
     )
     assert resolved.url == RUNNABLE
+    assert agent.discovery.search.call_args_list[0].args[0].query == "Transformer numpy in:name"
     query_messages = agent.llm.request_typed.call_args_list[1].args[0]
     assert "cross-attention" in query_messages[-1]["content"]
+
+
+async def test_oversized_candidate_does_not_block_the_next_real_candidate(settings):
+    agent = fitter(settings)
+    oversized = "https://github.com/example/large-model"
+    original = {"intro.ipynb": b"{}"}
+    alternate = {"model.py": b"class Encoder: pass\nclass Decoder: pass"}
+    agent.llm.request_typed = AsyncMock(
+        side_effect=[
+            SearchRequest(kind="repository", query="transformer numpy in:name"),
+            SourceSelection(choice=1, reason="First actual candidate"),
+            SourceSelection(choice=1, reason="Next actual candidate"),
+            RepositoryAssessment(covers_architecture=True, reason="Full architecture"),
+        ]
+    )
+    agent.discovery.search = AsyncMock(
+        return_value=[
+            SearchResult(title="large", url=oversized, source="github", description="large"),
+            SearchResult(title="small", url=RUNNABLE, source="github", description="small"),
+        ]
+    )
+    agent.source.fetch = AsyncMock(
+        side_effect=[
+            ContractError("external source exceeds configured size limit"),
+            (snapshot(RUNNABLE, alternate), alternate),
+        ]
+    )
+    resolved, _ = await agent.fit(plan("复现核心"), snapshot(NOTEBOOK, original), original)
+    assert resolved.url == RUNNABLE
+    assert [call.args[0].url for call in agent.source.fetch.call_args_list] == [oversized, RUNNABLE]
+    assert agent.discovery.search.call_count == 1
+
+
+async def test_failed_initial_automatic_source_can_be_replaced(settings):
+    agent = fitter(settings)
+    files = {"model.py": b"class ActualModel: pass"}
+    agent.llm.request_typed = AsyncMock(
+        side_effect=[
+            SearchRequest(kind="repository", query="model numpy in:name"),
+            SourceSelection(choice=1, reason="Actual replacement"),
+            RepositoryAssessment(covers_architecture=True, reason="Full model"),
+        ]
+    )
+    agent.discovery.search = AsyncMock(
+        return_value=[
+            SearchResult(title="small", url=RUNNABLE, source="github", description="small")
+        ]
+    )
+    agent.source.fetch = AsyncMock(
+        side_effect=[ContractError("source unavailable"), (snapshot(RUNNABLE, files), files)]
+    )
+    resolved, _ = await agent.fetch(plan("复现核心"), RepositorySpec(url=NOTEBOOK))
+    assert resolved.url == RUNNABLE
+
+
+@pytest.mark.parametrize("goal,reference", [("复现 " + NOTEBOOK, "HEAD"), ("复现核心", "v1")])
+async def test_failed_fixed_source_never_switches_repositories(settings, goal, reference):
+    agent = fitter(settings)
+    agent.source.fetch = AsyncMock(side_effect=ContractError("source exceeds budget"))
+    agent.llm.request_typed = AsyncMock(side_effect=AssertionError("must preserve source"))
+    with pytest.raises(ContractError, match="exceeds budget"):
+        await agent.fetch(plan(goal), RepositorySpec(url=NOTEBOOK, ref=reference))

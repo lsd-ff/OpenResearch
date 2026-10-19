@@ -155,6 +155,9 @@ def test_repository_reproduction_from_chat_requires_no_form(
             ]["url"]
             == URL
         )
+        assert not next(node for node in graph["nodes"] if node["type"] == "repository_fetch")[
+            "inputs"
+        ]["auto_discover"]
         assert (
             repository.sessions.get(Identity("alice", "natural-planning")).pending_planning is None
         )
