@@ -196,7 +196,7 @@ class AutoPlanner:
         )
         if question:
             return planning_question(snapshot, state, question)
-        research = ResearchSpec(repository=repository, benchmark=benchmark)
+        research = ResearchSpec(repository=repository, benchmark=benchmark, max_repairs=2)
         plan = await asyncio.to_thread(
             self.plans.build,
             replace(

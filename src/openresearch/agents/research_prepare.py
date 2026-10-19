@@ -3,11 +3,12 @@ import hashlib
 import json
 
 from openresearch.config import Settings
+from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.research import FilePatch, ResearchPatch, ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySnapshot
-from openresearch.research.patches import apply_patch, load_sources
+from openresearch.research.patches import apply_patch, load_sources, validate_generated_tests
 from openresearch.research.repository_context import repository_context
 from openresearch.research.source_context import document_context
 from openresearch.research.specifications import resolved_research
@@ -64,13 +65,30 @@ class ResearchPreparer:
             "source_excerpts": repository_context(files),
             "error": error[-8000:],
         }
-        return await self.llm.request_typed(
-            [
-                {"role": "system", "content": PATCH_PROMPT},
-                {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
-            ],
-            ResearchPatch,
-        )
+        messages = [
+            {"role": "system", "content": PATCH_PROMPT},
+            {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
+        ]
+        for attempt in range(2):
+            patch = await self.llm.request_typed(messages, ResearchPatch)
+            try:
+                updated = apply_patch(files, patch, spec)
+                validate_generated_tests(intent, updated, spec)
+                return patch
+            except ContractError as exc:
+                if attempt:
+                    raise
+                messages.extend(
+                    [
+                        {"role": "assistant", "content": patch.model_dump_json()[:12000]},
+                        {
+                            "role": "user",
+                            "content": "Return complete code correcting this validation failure: "
+                            + str(exc),
+                        },
+                    ]
+                )
+        raise AssertionError("bounded patch validation did not return")
 
     async def execute(self, plan: Plan, task: Task) -> TaskResult:
         spec = resolved_research(plan, task, self.files)

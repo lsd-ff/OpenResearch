@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import dataclass, replace
 
 from openresearch.agents.research_prepare import ResearchPreparer
@@ -31,7 +32,19 @@ class RepairPipeline:
             if not error or number > request.spec.max_repairs:
                 return RepairOutcome(output, request)
             try:
-                proposal = await self.preparer.propose(intent, request.spec, request.files, error)
+                failure = attempts[-1]
+                # 修复必须看到本次真实回溯；仅有退出码无法定位导入、参数或数值断言错误。
+                feedback = json.dumps(
+                    {
+                        "error": error,
+                        "stdout": failure.stdout[-3000:],
+                        "stderr": failure.stderr[-5000:],
+                    },
+                    ensure_ascii=False,
+                )
+                proposal = await self.preparer.propose(
+                    intent, request.spec, request.files, feedback
+                )
                 patched = await asyncio.to_thread(
                     apply_patch, request.files, proposal, request.spec
                 )
