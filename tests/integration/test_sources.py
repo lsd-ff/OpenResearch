@@ -7,6 +7,7 @@ from conftest import make_repository_archive as make_archive
 
 from openresearch.errors import ContractError
 from openresearch.models.sources import EnvironmentSpec, RepositorySpec
+from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.github import GitHubSource
 from openresearch.sources.wheels import WheelSource
 
@@ -87,3 +88,44 @@ async def test_incompatible_package_metadata_is_rejected_before_download(setting
     )
     with pytest.raises(ContractError):
         await WheelSource(settings, transport).fetch(EnvironmentSpec(requirements=["example==1.0"]))
+
+
+@pytest.mark.parametrize("corrupted", [False, True])
+async def test_wheel_cache_revalidates_metadata_and_actual_content(settings, corrupted):
+    raw = b"actual immutable wheel bytes"
+    blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
+    digest = blobs.write(raw)
+    if corrupted:
+        (blobs.root / digest[:2] / digest).write_bytes(b"x" * len(raw))
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.host)
+        assert request.url.host == "pypi.org", (
+            "a validated cached wheel must not be downloaded again"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "info": {"name": "example", "version": "1.0"},
+                "urls": [
+                    {
+                        "filename": "example-1.0-py3-none-any.whl",
+                        "packagetype": "bdist_wheel",
+                        "url": "https://files.pythonhosted.org/example.whl",
+                        "size": len(raw),
+                        "digests": {"sha256": digest},
+                    }
+                ],
+            },
+        )
+
+    source = WheelSource(settings, httpx.MockTransport(handle))
+    specification = EnvironmentSpec(requirements=["example==1.0"])
+    if corrupted:
+        with pytest.raises(ContractError, match="checksum"):
+            await source.fetch(specification)
+    else:
+        lock, files = await source.fetch(specification)
+        assert lock.wheels[0].sha256 == digest and list(files.values()) == [raw]
+    assert calls == ["pypi.org"]

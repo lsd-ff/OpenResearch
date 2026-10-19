@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 from typing import Any
@@ -14,6 +15,7 @@ from packaging.version import Version
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, LockedWheel
+from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.http import read_bounded
 
 
@@ -92,6 +94,22 @@ class WheelSource:
     ) -> None:
         self.settings = settings
         self.transport = transport
+        self.blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
+
+    async def _asset(self, client: httpx.AsyncClient, asset: dict[str, Any]) -> bytes:
+        size = asset.get("size")
+        if isinstance(size, int):
+            try:
+                # 每次仍核验公开元数据、闭包和缓存摘要；损坏缓存不能被当作成功结果。
+                return await asyncio.to_thread(self.blobs.read, asset["digests"]["sha256"], size)
+            except FileNotFoundError:
+                pass
+        return await read_bounded(
+            client,
+            asset["url"],
+            self.settings.dependency_max_bytes,
+            timeout_seconds=self.settings.source_download_timeout_seconds,
+        )
 
     async def fetch(self, spec: EnvironmentSpec) -> tuple[EnvironmentLock, dict[str, bytes]]:
         lock = EnvironmentLock()
@@ -113,12 +131,7 @@ class WheelSource:
                 validate_package(metadata, name, version)
                 validate_closure(metadata, pins)
                 asset = choose_wheel(metadata)
-                raw = await read_bounded(
-                    client,
-                    asset["url"],
-                    self.settings.dependency_max_bytes,
-                    timeout_seconds=self.settings.source_download_timeout_seconds,
-                )
+                raw = await self._asset(client, asset)
                 digest = hashlib.sha256(raw).hexdigest()
                 if digest != asset["digests"]["sha256"]:
                     raise ContractError("wheel checksum mismatch")
