@@ -31,17 +31,19 @@ def choose(monkeypatch, **values):
 
 
 @pytest.mark.parametrize(
-    "proposal,invalid_query",
+    "proposal,invalid_query,guessed_url",
     [
-        ("", False),
-        ("Transformer: Attention Is All You Need", False),
-        ("Transformer: Attention Is All You Need", True),
+        ("", False, None),
+        ("Transformer: Attention Is All You Need", False, None),
+        ("Transformer: Attention Is All You Need", True, None),
+        ("Transformer: Attention Is All You Need", False, "https://github.com/"),
+        ("", False, "https://github.com/OWNER/REPO/tree/main"),
     ],
 )
 def test_named_paper_searches_with_a_human_name_fallback_instead_of_asking_for_urls(
-    settings, repository, sandbox, monkeypatch, proposal, invalid_query
+    settings, repository, sandbox, monkeypatch, proposal, invalid_query, guessed_url
 ):
-    choose(monkeypatch, workflow="reproduce", paper_query=proposal)
+    choose(monkeypatch, workflow="reproduce", paper_query=proposal, repository_url=guessed_url)
     queries = []
     url = "https://github.com/harvardnlp/annotated-transformer"
 
@@ -125,10 +127,11 @@ def test_paper_reproduction_from_chat_defers_repository_discovery(
         assert "repository" not in source["inputs"]
 
 
+@pytest.mark.parametrize("model_url", [URL, "https://github.com/"])
 def test_repository_reproduction_from_chat_requires_no_form(
-    settings, repository, sandbox, monkeypatch
+    settings, repository, sandbox, monkeypatch, model_url
 ):
-    choose(monkeypatch, workflow="reproduce", repository_url=URL)
+    choose(monkeypatch, workflow="reproduce", repository_url=model_url)
     with TestClient(create_app(settings, repository, sandbox)) as client:
         response = client.post(
             "/api/messages", json={"message": f"用 {URL} 做轻量复现实验"}, headers=HEADERS
@@ -155,6 +158,19 @@ def test_repository_reproduction_from_chat_requires_no_form(
         assert (
             repository.sessions.get(Identity("alice", "natural-planning")).pending_planning is None
         )
+
+
+def test_explicit_http_repository_still_requires_a_supported_source(
+    settings, repository, sandbox, monkeypatch
+):
+    url = "http://github.com/pallets/itsdangerous"
+    choose(monkeypatch, workflow="reproduce", repository_url=url)
+    with TestClient(create_app(settings, repository, sandbox)) as client:
+        payload = client.post(
+            "/api/messages", json={"message": f"复现 {url}"}, headers=HEADERS
+        ).json()
+        assert payload["type"] == "clarification" and "HTTPS GitHub" in payload["response"]
+        assert not repository.sessions.get(Identity("alice", "natural-planning")).plans
 
 
 def test_missing_material_question_survives_restart_and_url_reply(

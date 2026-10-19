@@ -46,20 +46,24 @@ class PlanningSources:
             if index >= len(state.repository_candidates):
                 return None, "请选择实际列出的仓库编号或提供仓库链接。"
             return RepositorySpec(url=state.repository_candidates[index].url, ref=reference), ""
-        if draft.repository_url:
-            try:
-                selected = RepositorySpec(url=draft.repository_url, ref=reference)
-            except ValueError:
-                return None, "请提供 HTTPS GitHub 仓库地址，例如 https://github.com/OWNER/REPO。"
-            if selected.url in urls:
-                return selected, ""
-            if not urls and not has_documents and not queries:
-                return None, "请提供真实仓库地址；模型推测的链接不能直接用于实验。"
-            # 有真实查询或材料时继续核验来源，而不是采用模型记忆中的 URL。
         if len(urls) == 1:
             return RepositorySpec(url=urls[0], ref=reference), ""
         if len(urls) > 1:
             return None, "发现多个仓库，请在聊天中指出本次使用哪一个：\n" + "\n".join(urls)
+        if draft.repository_url:
+            try:
+                RepositorySpec(url=draft.repository_url, ref=reference)
+            except ValueError:
+                if draft.repository_url in state.intent:
+                    return (
+                        None,
+                        "请提供 HTTPS GitHub 仓库地址，例如 https://github.com/OWNER/REPO。",
+                    )
+                # 模型补出的错误 URL 不是用户缺少材料；继续按实际名称查找来源。
+            else:
+                if not urls and not has_documents and not queries:
+                    return None, "请提供真实仓库地址；模型推测的链接不能直接用于实验。"
+            # 有真实查询或材料时继续核验来源，而不是采用模型记忆中的 URL。
         if has_documents:
             return None, ""
         if not state.repository_candidates and queries:

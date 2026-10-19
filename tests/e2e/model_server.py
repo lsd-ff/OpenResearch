@@ -20,7 +20,11 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
     elif any('"title": "IntentDraft"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
         result = (
-            IntentDraft(workflow="reproduce", paper_query="Transformer: Attention Is All You Need")
+            IntentDraft(
+                workflow="reproduce",
+                paper_query="Transformer: Attention Is All You Need",
+                repository_url="https://github.com/",
+            )
             if "Transformer" in context["message"]
             else IntentDraft(
                 workflow="benchmark",
