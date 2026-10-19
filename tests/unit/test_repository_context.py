@@ -1,6 +1,6 @@
 import json
 
-from openresearch.research.repository_context import repository_context
+from openresearch.research.repository_context import pytest_paths, repository_context
 
 
 def test_truncated_excerpts_still_expose_actual_module_apis_without_execution():
@@ -48,3 +48,12 @@ class Model:
         )
     )
     assert context["python_api"][0]["returns"]["Model.forward"] == ["(logits, attention)"]
+
+
+def test_suite_discovery_requires_collectible_definitions_without_importing_code():
+    files = {
+        "test_core.py": b"raise RuntimeError('never import')\ndef test_core(): assert True",
+        "test_script.py": b"print('not a test suite')",
+        "intro.ipynb": b"{}",
+    }
+    assert pytest_paths(files) == ["test_core.py"]

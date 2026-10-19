@@ -10,7 +10,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
-from openresearch.research.repository_context import repository_context
+from openresearch.research.repository_context import pytest_paths, repository_context
 from openresearch.research.source_context import document_context
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.storage.files import ArtifactStore
@@ -76,12 +76,7 @@ class ResearchDesigner:
             "provided_source": task.inputs.get("code"),
             "repository": snapshot.model_dump() if snapshot else None,
             "file_paths": list(sources)[:200],
-            "available_pytest_files": [
-                path
-                for path in sources
-                if path.endswith(".py")
-                and (path.rsplit("/", 1)[-1].startswith("test_") or path.endswith("_test.py"))
-            ][:8],
+            "available_pytest_files": pytest_paths(sources),
             "source_excerpts": repository_context(sources),
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,

@@ -2,6 +2,41 @@ import ast
 import json
 
 
+def pytest_paths(files: dict[str, bytes]) -> list[str]:
+    """按真实文件名与定义找测试候选，只解析 AST，不在宿主机导入。"""
+    paths = []
+    for path, raw in files.items():
+        name = path.rsplit("/", 1)[-1]
+        if (
+            not path.endswith(".py")
+            or not (name.startswith("test_") or name.endswith("_test.py"))
+            or len(raw) > 65536
+        ):
+            continue
+        try:
+            nodes = ast.parse(raw).body
+        except (SyntaxError, ValueError):
+            continue
+        if any(
+            (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name.startswith("test_")
+            )
+            or (
+                isinstance(node, ast.ClassDef)
+                and node.name.startswith("Test")
+                and any(
+                    isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and method.name.startswith("test_")
+                    for method in node.body
+                )
+            )
+            for node in nodes
+        ):
+            paths.append(path)
+    return paths[:8]
+
+
 def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
     """只解析有界源码，不导入仓库；补齐截断正文之外的真实调用签名。"""
     output: list[dict[str, object]] = []

@@ -193,3 +193,67 @@ async def test_failed_fixed_source_never_switches_repositories(settings, goal, r
     agent.llm.request_typed = AsyncMock(side_effect=AssertionError("must preserve source"))
     with pytest.raises(ContractError, match="exceeds budget"):
         await agent.fetch(plan(goal), RepositorySpec(url=NOTEBOOK, ref=reference))
+
+
+async def test_test_goal_prefers_a_complete_implementation_with_a_real_suite(settings):
+    agent = fitter(settings)
+    original = {"model.py": b"class CompleteModel: pass"}
+    alternate = {
+        "model.py": b"class CompleteModel: pass",
+        "test_model.py": b"def test_model(): assert True",
+    }
+    agent.llm.request_typed = AsyncMock(
+        side_effect=[
+            RepositoryAssessment(covers_architecture=True, reason="Complete original architecture"),
+            SourceSelection(choice=1, reason="Same architecture with a documented test suite"),
+            RepositoryAssessment(covers_architecture=True, reason="Complete original architecture"),
+        ]
+    )
+    agent.discovery.search = AsyncMock(
+        return_value=[
+            SearchResult(
+                title="tested implementation",
+                url=RUNNABLE,
+                source="github",
+                description="NumPy and pytest",
+            )
+        ]
+    )
+    agent.source.fetch = AsyncMock(return_value=(snapshot(RUNNABLE, alternate), alternate))
+    resolved, _ = await agent.fit(
+        plan("复现 Transformer 核心并跑通测试"), snapshot(NOTEBOOK, original), original
+    )
+    assert resolved.url == RUNNABLE
+    query = agent.discovery.search.call_args.args[0].query
+    assert '"test_transformer.py"' in query and "in:readme" in query
+
+
+async def test_suite_preference_does_not_discard_a_viable_source_during_search_failure(settings):
+    agent = fitter(settings)
+    original = {"model.py": b"class CompleteModel: pass"}
+    agent.llm.request_typed = AsyncMock(
+        return_value=RepositoryAssessment(covers_architecture=True, reason="Complete architecture")
+    )
+    agent.discovery.search = AsyncMock(side_effect=ContractError("search unavailable"))
+    source = snapshot(RUNNABLE, original)
+    assert await agent.fit(plan("复现 Transformer 核心并测试"), source, original) == (
+        source,
+        original,
+    )
+
+
+@pytest.mark.parametrize("goal", ["复现 " + RUNNABLE + " 并测试", "复现这篇论文并测试"])
+async def test_fixed_or_unnamed_sources_are_not_replaced_to_obtain_a_different_suite(
+    settings, goal
+):
+    agent = fitter(settings)
+    original = {"model.py": b"class CompleteModel: pass"}
+    agent.llm.request_typed = AsyncMock(
+        return_value=RepositoryAssessment(covers_architecture=True, reason="Complete architecture")
+    )
+    agent.discovery.search = AsyncMock(side_effect=AssertionError("must preserve human selection"))
+    source = snapshot(RUNNABLE, original)
+    assert await agent.fit(plan(goal), source, original) == (
+        source,
+        original,
+    )

@@ -10,7 +10,7 @@ from openresearch.models.discovery import SearchRequest, SearchResult
 from openresearch.models.planning import RepositoryAssessment, SourceSelection
 from openresearch.models.runtime import Plan
 from openresearch.models.sources import RepositorySnapshot, RepositorySpec
-from openresearch.research.repository_context import python_api
+from openresearch.research.repository_context import pytest_paths, python_api
 from openresearch.services.planning_inputs import repository_urls
 from openresearch.services.source_queries import named_source_query
 from openresearch.sources.discovery import SourceDiscovery
@@ -75,12 +75,38 @@ class RepositoryFitter:
     ) -> tuple[RepositorySnapshot, dict[str, bytes]]:
         assessment = await self._assess(plan.user_intent, files)
         if assessment.covers_architecture:
-            return snapshot, files
+            return await self._prefer_tested_source(plan, snapshot, files)
         if self._fixed(plan, snapshot.requested_ref):
             raise ContractError("指定来源不适合当前目标或运行环境：" + assessment.reason)
         return await self._alternatives(
             plan, [{"url": snapshot.url, "files": list(files)[:80], "reason": assessment.reason}]
         )
+
+    async def _prefer_tested_source(
+        self, plan: Plan, snapshot: RepositorySnapshot, files: dict[str, bytes]
+    ) -> tuple[RepositorySnapshot, dict[str, bytes]]:
+        if (
+            not self._wants_tests(plan)
+            or not named_source_query(plan.user_intent)
+            or pytest_paths(files)
+            or self._fixed(plan, snapshot.requested_ref)
+        ):
+            return snapshot, files
+        rejected: list[dict[str, object]] = [
+            {
+                "url": snapshot.url,
+                "reason": "No pytest suite; prefer a tested implementation of the same method.",
+            }
+        ]
+        try:
+            return await self._alternatives(plan, rejected)
+        except ContractError:
+            # 无合适测试套件时仍保留已核验的完整实现，不把偏好误当成缺失来源。
+            return snapshot, files
+
+    @staticmethod
+    def _wants_tests(plan: Plan) -> bool:
+        return bool(re.search(r"测试|\btests?\b", plan.user_intent, re.I))
 
     @staticmethod
     def _fixed(plan: Plan, reference: str) -> bool:
@@ -106,9 +132,13 @@ class RepositoryFitter:
         for number in range(2):
             # 先按用户实际名称查找小实现，避免宽泛 README 命中整本教程或大型代码集合。
             if number == 0 and name and not constrained:
-                query = SearchRequest(
-                    kind="repository", provider="github", query=name + " numpy in:name", limit=5
+                module = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:60]
+                keywords = (
+                    name + f' numpy pytest "test_{module}.py" in:readme size:<2048'
+                    if self._wants_tests(plan)
+                    else name + " numpy in:name"
                 )
+                query = SearchRequest(kind="repository", provider="github", query=keywords, limit=5)
             else:
                 query = await self._query(plan.user_intent, rejected)
             candidates = await self.discovery.search(query)
