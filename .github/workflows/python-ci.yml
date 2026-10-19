@@ -50,3 +50,52 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      OPENRESEARCH_HOST: '127.0.0.1'
+      OPENRESEARCH_PORT: '38080'
+      OPENRESEARCH_DATA_DIR: ${{ github.workspace }}/.data/ui-e2e
+      OPENRESEARCH_LLM_PROVIDER: openai
+      OPENRESEARCH_LLM_BASE_URL: http://127.0.0.1:38081/v1
+      OPENRESEARCH_LLM_MODEL: ui-intent-fixture
+      OPENRESEARCH_LLM_API_KEY: ui-test-only
+      OPENRESEARCH_LLM_STRUCTURED_OUTPUT: prompt
+      OPENRESEARCH_API_TOKEN: ''
+      OPENRESEARCH_SANDBOX_BACKEND: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --locked
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Browser, API and real Docker Worker acceptance
+        shell: bash
+        run: |
+          uv run --locked uvicorn --app-dir tests/e2e model_server:app --host 127.0.0.1 --port 38081 > "$RUNNER_TEMP/ui-model.log" 2>&1 &
+          classifier_pid=$!
+          uv run --locked openresearch worker > "$RUNNER_TEMP/ui-worker.log" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$classifier_pid" "$worker_pid" 2>/dev/null || true' EXIT
+          npm --prefix frontend run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-acceptance
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            ${{ runner.temp }}/ui-*.log
+          retention-days: 7
