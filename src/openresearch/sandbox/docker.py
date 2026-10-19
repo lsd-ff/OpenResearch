@@ -61,7 +61,7 @@ class DockerSandbox:
                     "/tmp": f"rw,noexec,nosuid,size={self.settings.sandbox_tmpfs_size_mb}m",
                     # 二进制 wheel 的扩展模块需要可执行映射；仅此内存盘允许映射。
                     "/workspace": (
-                        f"rw,nosuid,size={self.settings.sandbox_workspace_size_mb}m,mode=1777"
+                        f"rw,exec,nosuid,nodev,size={self.settings.sandbox_workspace_size_mb}m,mode=1777"
                     ),
                 },
                 user="65534:65534",

@@ -96,3 +96,31 @@ async def test_binary_installation_scratch_does_not_exhaust_the_small_input_tmpf
         assert installed["installed"] == {"scratch-probe": "1.0"}
     finally:
         await sandbox.close(identifier)
+
+
+async def test_native_extensions_can_map_from_workspace_while_tmp_stays_noexec(settings):
+    sandbox = DockerSandbox(settings)
+    identifier = await sandbox.create("native-extensions", "workspace-mapping")
+
+    async def log(stream, message):
+        pass
+
+    program = (
+        "import _csv, ctypes, json, shutil\n"
+        "results = {}\n"
+        "for directory in ['/workspace', '/tmp']:\n"
+        "    path = directory + '/native-probe.so'\n"
+        "    shutil.copyfile(_csv.__file__, path)\n"
+        "    try:\n"
+        "        ctypes.CDLL(path)\n"
+        "        results[directory] = True\n"
+        "    except OSError:\n"
+        "        results[directory] = False\n"
+        "print(json.dumps(results))\n"
+    )
+    try:
+        result = await sandbox.execute(identifier, program, log)
+        assert result.exit_code == 0, result.stderr
+        assert json.loads(result.stdout) == {"/workspace": True, "/tmp": False}
+    finally:
+        await sandbox.close(identifier)
