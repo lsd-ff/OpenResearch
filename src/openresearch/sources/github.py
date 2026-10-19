@@ -24,19 +24,21 @@ class GitHubSource:
         async with httpx.AsyncClient(
             timeout=60,
             trust_env=False,
+            proxy=self.settings.source_proxy_url.get_secret_value() or None,
             transport=self.transport,
             headers={"Accept": "application/vnd.github+json", "User-Agent": "OpenResearch-Python"},
         ) as client:
-            # 即使用户给出分支名，也先解析一次完整 SHA，之后不再读取浮动分支。
-            commit_url = (
-                f"https://api.github.com/repos/{spec.slug}/commits/{quote(spec.ref, safe='')}"
-            )
-            metadata = json.loads(await read_bounded(client, commit_url, 2 * 1024 * 1024))
-            commit = metadata.get("sha")
-            if not isinstance(commit, str) or not re.fullmatch(r"[a-f0-9]{40}", commit):
-                raise ContractError("GitHub returned an invalid commit identity")
-            if re.fullmatch(r"[a-f0-9]{40}", spec.ref) and commit != spec.ref:
-                raise ContractError("GitHub resolved a different commit")
+            commit = spec.ref
+            if not re.fullmatch(r"[a-f0-9]{40}", commit):
+                # 浮动引用必须先固定；完整 SHA 已不可变，无需额外消耗元数据 API 配额。
+                commit_url = (
+                    f"https://api.github.com/repos/{spec.slug}/commits/{quote(spec.ref, safe='')}"
+                )
+                metadata = json.loads(await read_bounded(client, commit_url, 2 * 1024 * 1024))
+                resolved = metadata.get("sha")
+                if not isinstance(resolved, str) or not re.fullmatch(r"[a-f0-9]{40}", resolved):
+                    raise ContractError("GitHub returned an invalid commit identity")
+                commit = resolved
             url = f"https://codeload.github.com/{spec.slug}/tar.gz/{commit}"
             raw = await read_bounded(client, url, self.settings.source_max_archive_bytes)
         limits = ArchiveLimits(

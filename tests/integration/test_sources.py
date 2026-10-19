@@ -32,6 +32,22 @@ async def test_github_download_uses_resolved_sha(settings) -> None:
     assert len(calls) == 2
 
 
+async def test_full_commit_uses_only_the_immutable_archive_endpoint(settings):
+    calls = []
+    commit = "b" * 40
+
+    def handle(request):
+        calls.append(str(request.url))
+        assert request.url.host == "codeload.github.com"
+        assert request.url.path.endswith(commit)
+        return httpx.Response(200, content=make_archive())
+
+    snapshot, files = await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+        RepositorySpec(url="https://github.com/example/repo", ref=commit)
+    )
+    assert snapshot.commit == commit and files and len(calls) == 1
+
+
 async def test_repository_download_size_is_bounded(settings) -> None:
     settings.source_max_archive_bytes = 10
     transport = httpx.MockTransport(
