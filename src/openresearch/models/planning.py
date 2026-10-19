@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from openresearch.models.claims import RubricDraft
 from openresearch.models.discovery import SearchResult
 from openresearch.models.research import ExperimentVariant
 from openresearch.models.runtime import ContractModel
@@ -42,6 +43,7 @@ class ExperimentDesign(ContractModel):
     ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
     rationale: str = Field(min_length=1, max_length=4000)
     limitations: list[str] = Field(default_factory=list, max_length=8)
+    rubric: RubricDraft = Field(default_factory=RubricDraft)
 
 
 class SourceSelection(ContractModel):

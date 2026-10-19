@@ -64,7 +64,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         nodes.extend([design, environment])
     freeze = research_task("claim_freeze", ["claims.freeze"], ["claim_rubric"], settings)
     freeze.inputs["rubric"] = spec.rubric.model_dump()
-    depend(freeze, [node for node in nodes if node.type == "document_extract"])
+    depend(freeze, [node for node in nodes if node.type in {"document_extract", "research_design"}])
     nodes.append(freeze)
     prepare = research_task("research_prepare", ["research.patch"], ["research_patch"], settings)
     prepare.description = submission.intent
@@ -85,6 +85,13 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     execute.inputs["research"] = spec.model_dump()
     depend(execute, [*nodes, prepare])
     nodes.extend([prepare, execute])
+    if submission.auto_design:
+        summary = research_task("chat_answer", ["chat.answer"], ["chat_answer"], settings)
+        summary.name = "实际执行报告"
+        summary.assigned_to = "chat_agent"
+        summary.description = "用中文返回本次真实测试、数值、失败与局限；不得声称未执行的论文效果。"
+        depend(summary, [execute])
+        nodes.append(summary)
     approval = Approval(
         required=settings.require_approval,
         status="pending" if settings.require_approval else "not_required",

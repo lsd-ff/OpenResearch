@@ -191,7 +191,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
             const terminal = ['completed', 'failed', 'canceled'].includes(graph.status ?? '');
             if (!terminal || session.reportedPlanId === graph.id) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
-            const analysis = graph.nodes.find(node => node.type === 'paper_analyze');
+            const analysis = graph.nodes.find(node => node.type === 'chat_answer')
+              ?? graph.nodes.find(node => node.type === 'paper_analyze');
             const text = graph.status === 'completed'
               ? analysis?.result || '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
               : graph.status === 'canceled' ? '当前计划已取消。'

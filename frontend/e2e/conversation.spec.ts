@@ -108,9 +108,9 @@ test('上传数据并在聊天补充列映射，刷新后无需重传或高级�
   expect(answer.request().postDataJSON().attachments).toEqual([]);
   const payload = await answer.json();
   expect(payload.type).toBe('plan');
-  expect(payload.plan_graph.nodes).toHaveLength(6);
-  await expect(page.locator('.react-flow__node')).toHaveCount(6);
-  await expect(page.getByText('6 个步骤', { exact: true })).toBeVisible();
+  expect(payload.plan_graph.nodes).toHaveLength(7);
+  await expect(page.locator('.react-flow__node')).toHaveCount(7);
+  await expect(page.getByText('7 个步骤', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '运行计划', exact: true })).toBeEnabled();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(uploads).toBe(1);
@@ -181,7 +181,7 @@ test('旧会话更新欢迎语并从 Transformer 推荐指令自动检索规划'
   expect(response.request().postDataJSON()).toEqual({ message, attachments: [] });
   const source = payload.plan_graph.nodes.find((node: { type: string }) => node.type === 'repository_fetch');
   expect(source.inputs.repository.url).toBe('https://github.com/harvardnlp/annotated-transformer');
-  await expect(page.locator('.react-flow__node')).toHaveCount(6);
+  await expect(page.locator('.react-flow__node')).toHaveCount(7);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.reload();
   await expect(page.getByText(oldAnswer, { exact: true })).toBeVisible();

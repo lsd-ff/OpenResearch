@@ -27,6 +27,12 @@ DESIGN_PROMPT = (
     "The sandbox is Python 3.12, Linux x86_64, CPU, no network; no shell/build scripts. "
     "Add ablations only when requested, using real arguments implemented by the adapter. "
     "Describe unavailable scientific claims honestly in limitations. Never claim a run occurred."
+    " Include rubric with 1-4 concrete user-scope functional claims and criteria, each using "
+    "required_evidence=['research_report']. Freeze what the requested tests must actually "
+    "assert and print, before generating code. Do not require full training/BLEU unless "
+    "requested. Use qualitative criteria without metric_name/expected_value for numeric "
+    "assertions printed by smoke tests. Set source=null for user-scope functional criteria. "
+    "Account for actual source imports and dependency_bytes; never add CUDA packages on CPU."
 )
 
 
@@ -52,6 +58,7 @@ class ResearchDesigner:
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,
             "sandbox_memory": self.settings.sandbox_memory,
+            "dependency_bytes": self.settings.dependency_max_bytes,
         }
         design = await self.llm.request_typed(
             [

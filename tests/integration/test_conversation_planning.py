@@ -120,7 +120,7 @@ def test_paper_reproduction_from_chat_defers_repository_discovery(
         )
         assert response.status_code == 200, response.text
         graph = response.json()["plan_graph"]
-        assert len(graph["nodes"]) == 7
+        assert len(graph["nodes"]) == 8
         document = next(node for node in graph["nodes"] if node["type"] == "document_extract")
         source = next(node for node in graph["nodes"] if node["type"] == "repository_fetch")
         assert source["dependencies"] == [document["id"]]

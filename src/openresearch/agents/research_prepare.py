@@ -21,6 +21,10 @@ PATCH_PROMPT = (
     "The Python entrypoint runs from /tmp/openresearch/repository. "
     "When spec.benchmark is null, there is NO dataset: run the requested smoke assertions once "
     "and print actual results to stdout. Do not require any benchmark input/output files. "
+    "Produce the COMPLETE runnable implementation, not placeholder, pass-only code or TODOs. "
+    "For requested tests include real assertions against independent expected behavior, "
+    "import and call actual repository components, then print each measured result and a "
+    "final test count. Use small dimensions, fixed seeds and bounded CPU work. "
     "When spec.benchmark is present, OPENRESEARCH_INPUT contains JSON [{id,inputs}]; "
     "write JSON [{id,prediction}] to OPENRESEARCH_PREDICTIONS. Targets are unavailable. "
     "Do not catch failed smoke assertions and pretend success. No downloads."
@@ -88,7 +92,17 @@ class ResearchPreparer:
         else:
             context = await asyncio.to_thread(document_context, plan, self.files)
             patch = await self.propose(
-                plan.user_intent + "\nTask: " + task.description + "\nSource data: " + context,
+                plan.user_intent
+                + "\nTask: "
+                + task.description
+                + "\nSource data: "
+                + context
+                + "\nFrozen acceptance: "
+                + (
+                    self.files.read(plan.artifacts["claim_rubric"])
+                    if "claim_rubric" in plan.artifacts
+                    else ""
+                ),
                 spec,
                 files,
             )

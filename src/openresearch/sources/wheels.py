@@ -98,6 +98,8 @@ class WheelSource:
 
     async def _asset(self, client: httpx.AsyncClient, asset: dict[str, Any]) -> bytes:
         size = asset.get("size")
+        if isinstance(size, int) and size > self.settings.dependency_max_bytes:
+            raise ContractError("dependency wheel exceeds the configured CPU experiment budget")
         if isinstance(size, int):
             try:
                 # 每次仍核验公开元数据、闭包和缓存摘要；损坏缓存不能被当作成功结果。

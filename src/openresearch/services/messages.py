@@ -1,4 +1,5 @@
 import asyncio
+import re
 from dataclasses import dataclass, field, replace
 
 from openresearch.config import Settings
@@ -67,19 +68,42 @@ class MessageService:
         if outcome.chat:
             reply, revision = await self.chat.answer(submission.identity, submission.intent)
             return MessageResult("chat", reply.response, revision, citations=reply.citations)
+        auto_run = (
+            outcome.plan is not None
+            and not outcome.plan.approval.required
+            and any(node.type == "research_design" for node in outcome.plan.nodes)
+            and bool(
+                re.search(
+                    r"跑通|执行完|直接执行|跑.{0,20}测试|run.{0,20}tests?", submission.intent, re.I
+                )
+            )
+            and not re.search(
+                r"只.{0,4}规划|先.{0,4}规划|不要执行|不执行|仅.{0,4}计划", submission.intent
+            )
+        )
+        response = (
+            "已开始执行，完成后会在当前聊天中返回实际测试报告。\n" + outcome.response
+            if auto_run
+            else outcome.response
+        )
         saved = await asyncio.to_thread(
             self.repository.sessions.publish,
             ConversationUpdate(
                 outcome.snapshot,
                 ConversationTurn(role="user", content=submission.intent),
-                ConversationTurn(role="assistant", content=outcome.response),
+                ConversationTurn(role="assistant", content=response),
                 outcome.pending,
                 outcome.plan,
             ),
         )
+        plan = outcome.plan
+        if auto_run and plan is not None:
+            # 会话与计划已同事务发布，再使用标准队列入口；关闭页面不影响 Worker 执行。
+            await asyncio.to_thread(self.repository.queue_plan, plan.id, plan.owner_id)
+            plan = await asyncio.to_thread(self.repository.get_plan, plan.id, plan.owner_id)
         return MessageResult(
-            "plan" if outcome.plan else "clarification",
-            outcome.response,
+            "plan" if plan else "clarification",
+            response,
             saved.revision,
-            outcome.plan,
+            plan,
         )
