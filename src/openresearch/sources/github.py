@@ -10,6 +10,7 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.sources import RepositorySnapshot, RepositorySpec
 from openresearch.sources.archive import ArchiveLimits, inventory, unpack_repository
+from openresearch.sources.git_refs import advertised_head
 from openresearch.sources.http import read_bounded
 
 
@@ -34,8 +35,27 @@ class GitHubSource:
                 commit_url = (
                     f"https://api.github.com/repos/{spec.slug}/commits/{quote(spec.ref, safe='')}"
                 )
-                metadata = json.loads(await read_bounded(client, commit_url, 2 * 1024 * 1024))
-                resolved = metadata.get("sha")
+                try:
+                    metadata = json.loads(await read_bounded(client, commit_url, 2 * 1024 * 1024))
+                    resolved = metadata.get("sha")
+                except ContractError as exc:
+                    cause = exc.__cause__
+                    limited = isinstance(cause, httpx.HTTPStatusError) and (
+                        cause.response.status_code == 429
+                        or (
+                            cause.response.status_code == 403
+                            and cause.response.headers.get("x-ratelimit-remaining") == "0"
+                        )
+                    )
+                    if spec.ref != "HEAD" or not limited:
+                        raise
+                    # API 配额耗尽时走 Git 官方只读引用发现；仍固定真实 SHA，不猜分支。
+                    refs_url = (
+                        f"https://github.com/{spec.slug}.git/info/refs?service=git-upload-pack"
+                    )
+                    resolved = advertised_head(
+                        await read_bounded(client, refs_url, 2 * 1024 * 1024)
+                    )
                 if not isinstance(resolved, str) or not re.fullmatch(r"[a-f0-9]{40}", resolved):
                     raise ContractError("GitHub returned an invalid commit identity")
                 commit = resolved

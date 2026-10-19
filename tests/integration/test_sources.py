@@ -12,6 +12,47 @@ from openresearch.sources.github import GitHubSource
 from openresearch.sources.wheels import WheelSource
 
 
+async def test_default_head_can_use_read_only_git_discovery_when_api_quota_is_exhausted(settings):
+    calls = []
+    head = b"a" * 40 + b" HEAD\0symref=HEAD:refs/heads/main\n"
+    advertisement = (
+        b"001e# service=git-upload-pack\n0000" + f"{len(head) + 4:04x}".encode() + head + b"0000"
+    )
+
+    def handle(request):
+        calls.append(request.url.host)
+        if request.url.host == "api.github.com":
+            return httpx.Response(403, headers={"x-ratelimit-remaining": "0"})
+        if request.url.host == "github.com":
+            assert request.url.path.endswith(".git/info/refs")
+            assert dict(request.url.params) == {"service": "git-upload-pack"}
+            return httpx.Response(200, content=advertisement)
+        assert request.url.path.endswith("a" * 40)
+        return httpx.Response(200, content=make_archive())
+
+    snapshot, _ = await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+        RepositorySpec(url="https://github.com/example/repo")
+    )
+    assert snapshot.commit == "a" * 40
+    assert calls == ["api.github.com", "github.com", "codeload.github.com"]
+
+
+@pytest.mark.parametrize(
+    "reference,headers", [("main", {"x-ratelimit-remaining": "0"}), ("HEAD", {})]
+)
+async def test_explicit_refs_and_non_rate_access_denials_never_switch_resolution(
+    settings, reference, headers
+):
+    def handle(request):
+        assert request.url.host == "api.github.com"
+        return httpx.Response(403, headers=headers)
+
+    with pytest.raises(ContractError):
+        await GitHubSource(settings, httpx.MockTransport(handle)).fetch(
+            RepositorySpec(url="https://github.com/example/repo", ref=reference)
+        )
+
+
 async def test_github_download_uses_resolved_sha(settings) -> None:
     commit = "a" * 40
     calls = []
