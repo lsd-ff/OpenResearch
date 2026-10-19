@@ -1,5 +1,6 @@
 """真实 Docker 验收与离线协议测试分开，保留唯一模块名。"""
 
+import hashlib
 import json
 import os
 
@@ -31,8 +32,19 @@ async def test_python_service_runs_real_python_commands_files_and_cleanup(settin
         logs.append(text)
 
     try:
-        await adapter.put_files(identifier, {"probe.txt": b"actual sandbox file"})
-        assert await adapter.get_file(identifier, "probe.txt", 1024) == b"actual sandbox file"
+        payload = b"actual sandbox file" * 100000
+        await adapter.put_files(identifier, {"probe.txt": payload})
+        await adapter.put_files(identifier, {"small.txt": b"actual sandbox file"})
+        assert await adapter.get_file(identifier, "small.txt", 1024) == b"actual sandbox file"
+        result = await adapter.execute(
+            identifier,
+            "from pathlib import Path; import hashlib; "
+            "print(hashlib.sha256(Path('/tmp/openresearch/probe.txt').read_bytes()).hexdigest())",
+            on_log,
+        )
+        assert (
+            result.stdout.strip() == hashlib.sha256(payload).hexdigest() and result.exit_code == 0
+        )
         assert (await adapter.image_identity(identifier)).startswith("sha256:")
         result = await adapter.execute(identifier, "print(6 * 7)", on_log)
         assert result.stdout.strip() == "42" and result.exit_code == 0

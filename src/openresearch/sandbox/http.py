@@ -6,6 +6,7 @@ from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
 from openresearch.sandbox.base import LogCallback
+from openresearch.sandbox.file_transfer import archive_files
 from openresearch.sandbox.streams import stream_events
 
 
@@ -72,6 +73,15 @@ class HttpSandbox:
             response.raise_for_status()
 
     async def put_files(self, sandbox_id: str, files: dict[str, bytes]) -> None:
+        response = await self.client.put(
+            f"/api/v1/sandboxes/{sandbox_id}/files",
+            content=archive_files(files),
+            headers={"Content-Type": "application/x-tar"},
+        )
+        if response.status_code not in {404, 405}:
+            response.raise_for_status()
+            return
+        # 旧 Go 服务没有批量接口；仅对明确的不支持保留逐块协议。
         await python_files.put_files(self.execute, sandbox_id, files)
 
     async def get_file(self, sandbox_id: str, path: str, max_bytes: int) -> bytes:

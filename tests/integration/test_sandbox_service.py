@@ -10,6 +10,7 @@ from pydantic import SecretStr
 from openresearch.errors import SandboxError
 from openresearch.models.resources import ManagedSandbox
 from openresearch.sandbox.fallback import FallbackSandbox
+from openresearch.sandbox.file_transfer import archive_files
 from openresearch.sandbox.http import HttpSandbox
 from openresearch.sandbox.service import create_sandbox_app
 
@@ -73,6 +74,28 @@ def test_sandbox_service_enforces_auth_image_and_namespace(settings):
                 "/api/v1/sandboxes", json={"mount_path": "C:/"}, headers=headers
             ).status_code
             == 422
+        )
+
+
+def test_bulk_files_preserve_ownership_and_have_a_separate_bounded_body(settings):
+    settings.source_max_bytes = settings.dependency_max_bytes = 1024
+    app = create_sandbox_app(settings, FallbackSandbox(InventorySandbox()))
+    raw = archive_files({"input.txt": b"x" * 3000})
+    with TestClient(app) as client:
+        identifier = client.post("/api/v1/sandboxes", json={}).json()["sandbox_id"]
+        assert client.put("/api/v1/sandboxes/dk-foreign/files", content=raw).status_code == 404
+        assert client.put(f"/api/v1/sandboxes/{identifier}/files", content=raw).status_code == 422
+        assert (
+            client.put(
+                f"/api/v1/sandboxes/{identifier}/files", content=b"x" * (5 * 1024 * 1024)
+            ).status_code
+            == 413
+        )
+        assert (
+            client.post(
+                f"/api/v1/sandboxes/{identifier}/python", content=b"x" * (2 * 1024 * 1024)
+            ).status_code
+            == 413
         )
 
 

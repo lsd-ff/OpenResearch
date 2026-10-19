@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
@@ -17,6 +17,7 @@ from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.commands import command_program
 from openresearch.sandbox.docker import DockerSandbox
 from openresearch.sandbox.fallback import FallbackSandbox
+from openresearch.sandbox.input_bundle import bundle_limit, unpack_bundle
 from openresearch.sandbox.opensandbox import OpenSandbox
 from openresearch.sandbox.service_stream import execution_stream
 
@@ -55,7 +56,11 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     install_middleware(
         app, configuration.model_copy(update={"api_token": configuration.sandbox_token})
     )
-    app.add_middleware(BodyLimitMiddleware, max_bytes=1024 * 1024)
+    app.add_middleware(
+        BodyLimitMiddleware,
+        max_bytes=1024 * 1024,
+        path_limits={r"/api/v1/sandboxes/[^/]+/files": bundle_limit(configuration)},
+    )
 
     async def owned(identifier: str) -> None:
         if identifier not in {item.id for item in await engine.inventory()}:
@@ -90,6 +95,14 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     async def image(identifier: str) -> dict[str, str | None]:
         await owned(identifier)
         return {"image_identity": await engine.image_identity(identifier)}
+
+    @app.put("/api/v1/sandboxes/{identifier}/files")
+    async def put_files(identifier: str, request: Request) -> dict[str, int]:
+        await owned(identifier)
+        raw = await request.body()
+        files = await asyncio.to_thread(unpack_bundle, raw, configuration)
+        await engine.put_files(identifier, files)
+        return {"files": len(files), "bytes": sum(map(len, files.values()))}
 
     @app.post("/api/v1/sandboxes/{identifier}/python/stream")
     async def execute(identifier: str, payload: PythonExecution) -> StreamingResponse:
