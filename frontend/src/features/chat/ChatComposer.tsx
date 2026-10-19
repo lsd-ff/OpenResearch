@@ -15,6 +15,7 @@ interface ChatComposerProps {
   onSendMessage: () => void;
 	onAttachFiles: (files: File[]) => void;
 	onRemoveAttachment: (uploadId: string) => void;
+  onReadPaper: (attachment: UploadedFile) => void;
 }
 
 const suggestions = [
@@ -28,7 +29,7 @@ const suggestions = [
 export function ChatComposer(props: ChatComposerProps) {
   const {
 		prompt, loading, isLoggedIn, showSuggestions, pendingAttachments, uploadingAttachments, attachmentError,
-		setPrompt, setShowSuggestions, onSendMessage, onAttachFiles, onRemoveAttachment,
+		setPrompt, setShowSuggestions, onSendMessage, onAttachFiles, onRemoveAttachment, onReadPaper,
 	} = props;
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,6 +67,9 @@ export function ChatComposer(props: ChatComposerProps) {
 						<FileText className="h-3.5 w-3.5 shrink-0 text-blue-600" />
 						<span className="max-w-48 truncate">{attachment.name}</span>
 						<span className="shrink-0 text-gray-400">{Math.max(1, Math.round(attachment.size / 1024))}KB</span>
+            {attachment.content_type === 'application/pdf' && <button type="button"
+              className="shrink-0 text-blue-700 underline" aria-label={`阅读 ${attachment.name}`}
+              onClick={() => onReadPaper(attachment)}>阅读</button>}
 						<button type="button" onClick={() => onRemoveAttachment(attachment.id)} className="rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-700" title="移除附件" aria-label={`移除 ${attachment.name}`}>
 							<X className="h-3.5 w-3.5" />
 						</button>

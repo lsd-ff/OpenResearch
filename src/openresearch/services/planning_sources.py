@@ -173,7 +173,11 @@ class PlanningSources:
 
     async def download(self, snapshot: Conversation, url: str) -> tuple[str, Conversation]:
         location = arxiv_pdf_url(url)
-        async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+        async with httpx.AsyncClient(
+            timeout=60,
+            trust_env=True,
+            proxy=self.settings.source_proxy_url.get_secret_value() or None,
+        ) as client:
             raw = await read_bounded(client, location, self.settings.upload_max_bytes)
         identity = Identity(snapshot.owner_id, snapshot.session_id)
         record = await asyncio.to_thread(

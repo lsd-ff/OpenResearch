@@ -1,4 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
+import { pdfFixture } from './pdfFixture';
+
+test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'reader.pdf', mimeType: 'application/pdf', buffer: pdfFixture(),
+  });
+  await page.getByRole('button', { name: '阅读 reader.pdf', exact: true }).click();
+  await expect(page.getByText('论文阅读 · 当前文档', { exact: true })).toBeVisible();
+  await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('pdf-reader.png'), fullPage: true });
+});
 
 test('代码产出 SVG 后可查看、下载并在刷新后恢复图像', async ({ page }, testInfo) => {
   await page.goto('/');
@@ -12,6 +25,15 @@ test('代码产出 SVG 后可查看、下载并在刷新后恢复图像', async 
   const image = page.getByAltText('Generated Plot');
   await expect(image).toBeVisible();
   await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(160);
+  await expect.poll(async () => {
+    const canvas = await page.locator('.react-flow').boundingBox();
+    if (!canvas) return false;
+    for (const node of await page.locator('.react-flow__node').all()) {
+      const bounds = await node.boundingBox();
+      if (!bounds || bounds.x < canvas.x - 1 || bounds.x + bounds.width > canvas.x + canvas.width + 1) return false;
+    }
+    return true;
+  }).toBe(true);
   const downloaded = page.waitForEvent('download');
   await page.getByRole('link', { name: /下载 demo.svg/ }).click();
   expect((await downloaded).suggestedFilename()).toBe('demo.svg');

@@ -40,9 +40,18 @@ async def test_python_service_runs_real_python_commands_files_and_cleanup(settin
             f"/api/v1/sandboxes/{identifier}/commands",
             json={"cmd": ["python", "-c", "import sys; print('command-output'); sys.exit(7)"]},
         )
-        events = [json.loads(line) for line in response.text.splitlines()]
-        final = events[-1]["response"]
+        final = response.json()
         assert final["stdout"].strip() == "command-output" and final["exit_code"] == 7
+        streamed = await client.post(
+            f"/api/v1/sandboxes/{identifier}/commands/stream",
+            json={"cmd": ["python", "-c", "print('stream-command')"]},
+        )
+        events = [json.loads(line) for line in streamed.text.splitlines()]
+        assert events[-1]["response"]["stdout"].strip() == "stream-command"
+        direct = await client.post(
+            f"/api/v1/sandboxes/{identifier}/python", json={"code": "print('direct-python')"}
+        )
+        assert direct.json()["stdout"].strip() == "direct-python"
         assert (await adapter.inventory())[0].id == identifier
     finally:
         await adapter.close(identifier)

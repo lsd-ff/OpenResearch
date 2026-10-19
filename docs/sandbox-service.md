@@ -17,7 +17,9 @@ Compose 默认启动 API、Worker、Sandbox 三个进程。只有 Sandbox 服务
 | `GET /api/v1/sandboxes` | 当前命名空间的容器清单 |
 | `GET /api/v1/sandboxes/{id}/image` | 实际 Docker 镜像摘要；后端无法提供时返回 null |
 | `POST /api/v1/sandboxes/{id}/python/stream` | 接受 `{code}`，返回 NDJSON 日志和 final 执行结果 |
-| `POST /api/v1/sandboxes/{id}/commands` | 接受 `{cmd: [程序, 参数...]}`，返回相同 NDJSON 契约 |
+| `POST /api/v1/sandboxes/{id}/python` | 接受 `{code}`，返回 JSON stdout/stderr/exit_code |
+| `POST /api/v1/sandboxes/{id}/commands` | 接受 `{cmd: [程序, 参数...]}`，返回相同 JSON 执行结果 |
+| `POST /api/v1/sandboxes/{id}/commands/stream` | 接受相同参数，返回 NDJSON 日志和 final 执行结果 |
 | `DELETE /api/v1/sandboxes/{id}` | 回收命名空间内的容器 |
 
 命令参数按字面值传入容器内的 subprocess，不经过宿主机或隐式 shell。Python 文件传输也在同一个受管容器内完成。客户端不能指定宿主机挂载或替换服务配置的镜像。执行超时、流中断和清理失败会保留明确失败状态。

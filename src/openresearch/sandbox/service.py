@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -11,7 +12,7 @@ from pydantic import Field
 from openresearch.api.body_limit import BodyLimitMiddleware
 from openresearch.api.middleware import install_error_handlers, install_middleware
 from openresearch.config import Settings
-from openresearch.models.runtime import ContractModel, new_id
+from openresearch.models.runtime import ContractModel, ExecutionResult, new_id
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.commands import command_program
 from openresearch.sandbox.docker import DockerSandbox
@@ -99,7 +100,23 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
         )
 
     @app.post("/api/v1/sandboxes/{identifier}/commands")
-    async def command(identifier: str, payload: CommandExecution) -> StreamingResponse:
+    async def command(identifier: str, payload: CommandExecution) -> ExecutionResult:
+        return await completed_execution(identifier, command_program(payload.cmd))
+
+    @app.post("/api/v1/sandboxes/{identifier}/python")
+    async def python(identifier: str, payload: PythonExecution) -> ExecutionResult:
+        return await completed_execution(identifier, payload.code)
+
+    async def completed_execution(identifier: str, code: str) -> ExecutionResult:
+        await owned(identifier)
+        async for record in execution_stream(engine, identifier, code, configuration):
+            event = json.loads(record)
+            if event["type"] == "final":
+                return ExecutionResult.model_validate(event["response"])
+        raise HTTPException(502, "sandbox execution failed")
+
+    @app.post("/api/v1/sandboxes/{identifier}/commands/stream")
+    async def stream_command(identifier: str, payload: CommandExecution) -> StreamingResponse:
         await owned(identifier)
         return StreamingResponse(
             execution_stream(engine, identifier, command_program(payload.cmd), configuration),

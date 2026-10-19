@@ -1,4 +1,6 @@
+import base64
 import json
+import shlex
 
 import httpx
 import pytest
@@ -7,7 +9,7 @@ from openresearch.errors import SandboxError
 from openresearch.sandbox.opensandbox import OpenSandbox
 
 
-def lifecycle(settings, mode="success"):
+def lifecycle(settings, mode="success", bare_json=False):
     calls = []
     metadata = {}
 
@@ -37,17 +39,19 @@ def lifecycle(settings, mode="success"):
             )
         if path.endswith("/command"):
             arguments = json.loads(request.content)
-            assert arguments["argv"][0] == "python" and arguments["uid"] == 65534
+            assert shlex.split(arguments["command"])[0] == "python" and arguments["uid"] == 65534
+            frame = "OPENRESEARCH_STREAM_V1:stdout:" + base64.b64encode(b"actual-stream\n").decode()
             events = [
                 {"type": "init", "text": "cmd-1"},
-                {"type": "stdout", "text": "actual-stream\n"},
+                {"type": "stdout", "text": frame if bare_json else frame + "\n"},
             ]
             if mode == "exit":
                 events.append({"type": "error", "error": {"ename": "CommandExecError"}})
-            if mode != "truncated":
+            if mode != "truncated" and not (mode == "exit" and bare_json):
                 events.append({"type": "execution_complete"})
+            prefix = "" if bare_json else "data: "
             return httpx.Response(
-                200, text="".join("data: " + json.dumps(e) + "\n\n" for e in events)
+                200, text="".join(prefix + json.dumps(e) + "\n\n" for e in events)
             )
         if path == "/v1/sandboxes":
             return httpx.Response(200, json={"items": [{"id": "test-id", "metadata": metadata}]})
@@ -60,8 +64,11 @@ def lifecycle(settings, mode="success"):
 
 
 @pytest.mark.parametrize("mode", ["success", "exit"])
-async def test_lifecycle_and_execd_use_real_contract_and_terminal_exit_code(settings, mode):
-    adapter, calls = lifecycle(settings, mode)
+@pytest.mark.parametrize("bare_json", [False, True])
+async def test_lifecycle_and_execd_use_real_contract_and_terminal_exit_code(
+    settings, mode, bare_json
+):
+    adapter, calls = lifecycle(settings, mode, bare_json)
     logs = []
 
     async def on_log(stream, text):

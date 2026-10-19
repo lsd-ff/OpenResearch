@@ -179,6 +179,7 @@ function ScholarWorkspaceContent(props: ScholarWorkspaceContentProps) {
 		onRemoveAttachment: chatFlow.handleRemoveAttachment,
       }}
       pdfActions={{
+        onReadPaper: attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`),
         onOpenPdf: () => pdfFlow.setPdfUrl(getPdfProxyUrl('https://arxiv.org/pdf/1706.03762.pdf')),
         onClosePdf: () => pdfFlow.setPdfUrl(null),
         onFullTranslation: pdfFlow.handleFullTranslation,

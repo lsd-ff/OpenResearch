@@ -1,6 +1,8 @@
 import asyncio
 import re
+import shlex
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -13,6 +15,7 @@ from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
 from openresearch.sandbox.base import LogCallback
+from openresearch.sandbox.command_output import CommandOutput
 from openresearch.sandbox.namespace import runtime_namespace
 from openresearch.sandbox.streams import stream_events
 
@@ -120,7 +123,11 @@ class OpenSandbox:
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult:
         endpoint, headers = await self.endpoint(sandbox_id)
-        output: dict[str, list[str]] = {"stdout": [], "stderr": []}
+        output = CommandOutput(self.settings.max_output_bytes)
+        source = (Path(__file__).parent / "programs" / "stream_python.py").read_text(
+            encoding="utf-8"
+        )
+        program = source + f"\nsys.exit(run_python({code!r}))\n"
         completed = False
         failed = False
         execution_id = ""
@@ -130,7 +137,8 @@ class OpenSandbox:
                 endpoint + "/command",
                 headers=headers,
                 json={
-                    "argv": ["python", "-I", "-u", "-c", code],
+                    # 发布版 execd 使用 command；逐参数引用，仅在容器内解释该命令。
+                    "command": shlex.join(["python", "-I", "-u", "-c", program]),
                     "background": False,
                     "timeout": self.settings.task_timeout_seconds * 1000,
                     "uid": 65534,
@@ -145,12 +153,14 @@ class OpenSandbox:
                     kind = event.get("type")
                     if not isinstance(kind, str):
                         raise SandboxError("invalid OpenSandbox event type")
-                    if kind in output:
+                    if kind == "stdout":
                         text = event.get("text", "")
                         if not isinstance(text, str):
                             raise SandboxError("invalid OpenSandbox output event")
-                        output[kind].append(text)
-                        await on_log(kind, text)
+                        await output.feed(text, event.get("_bare_json") is True, on_log)
+                    elif kind == "stderr":
+                        failed = True
+                        await on_log("stderr", str(event.get("text", ""))[:2000])
                     elif kind == "error":
                         failed = True
                     elif kind == "init":
@@ -161,20 +171,18 @@ class OpenSandbox:
                         completed = True
         except httpx.HTTPError:
             raise SandboxError("OpenSandbox execution stream failed") from None
-        if not completed or not execution_id:
+        if not execution_id:
             raise SandboxError("OpenSandbox stream ended without completion")
-        stdout, stderr = "".join(output["stdout"]), "".join(output["stderr"])
-        if len((stdout + stderr).encode()) > self.settings.max_output_bytes:
-            raise SandboxError("sandbox output exceeds configured size limit")
         status = await self.request(
             "GET", endpoint + "/command/status/" + execution_id, headers=headers
         )
         exit_code = status.get("exit_code")
         if status.get("running") or type(exit_code) is not int:
             raise SandboxError("OpenSandbox did not return a terminal exit code")
-        return ExecutionResult(
-            stdout=stdout, stderr=stderr, exit_code=exit_code if exit_code else int(failed)
-        )
+        if not completed and exit_code == 0:
+            raise SandboxError("OpenSandbox stream ended without completion")
+        # 发布版的非零退出只发 error；须由终态状态接口证明失败，不能误报为成功。
+        return output.result(exit_code if exit_code else int(failed))
 
     async def put_files(self, sandbox_id: str, files: dict[str, bytes]) -> None:
         await python_files.put_files(self.execute, sandbox_id, files)
@@ -227,9 +235,10 @@ class OpenSandbox:
 
     async def health(self) -> bool:
         try:
-            await self.request("GET", "v1/sandboxes", params={"pageSize": 1})
+            async with asyncio.timeout(3):
+                await self.request("GET", "v1/sandboxes", params={"pageSize": 1})
             return True
-        except SandboxError:
+        except (SandboxError, TimeoutError):
             return False
 
     async def shutdown(self) -> None:

@@ -42,9 +42,19 @@ async def test_real_opensandbox_fallback_python_files_exit_status_and_cleanup(se
         identifier = await adapter.create("a" * 32, "b" * 32)
         assert identifier.startswith("os-")
         result = await adapter.execute(
-            identifier, "print('actual-opensandbox-' + str(5 * 9))", on_log
+            identifier,
+            "import os; print('actual-opensandbox-' + str(5 * 9)); "
+            "print('uid=' + str(os.getuid()))",
+            on_log,
         )
-        assert result.stdout.strip() == "actual-opensandbox-45" and result.exit_code == 0
+        assert result.stdout.splitlines() == ["actual-opensandbox-45", "uid=65534"]
+        assert result.exit_code == 0
+        exact = await adapter.execute(
+            identifier,
+            "import sys; sys.stdout.write('head\\n\\n尾部'); sys.stderr.write('err\\nlast')",
+            on_log,
+        )
+        assert exact.stdout == "head\n\n尾部" and exact.stderr == "err\nlast"
         await adapter.put_files(identifier, {"probe.txt": b"real fallback file"})
         assert await adapter.get_file(identifier, "probe.txt", 1024) == b"real fallback file"
         result = await adapter.execute(identifier, "raise SystemExit(7)", on_log)

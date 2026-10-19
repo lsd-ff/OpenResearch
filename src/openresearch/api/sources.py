@@ -24,7 +24,11 @@ async def pdf_proxy(
     url: Annotated[str, Query(max_length=500)], runtime: RuntimeDep, identity: IdentityDep
 ) -> Response:
     location = arxiv_pdf_url(url)
-    async with httpx.AsyncClient(timeout=60, trust_env=False) as client:
+    async with httpx.AsyncClient(
+        timeout=60,
+        trust_env=True,
+        proxy=runtime.settings.source_proxy_url.get_secret_value() or None,
+    ) as client:
         raw = await read_bounded(client, location, runtime.settings.upload_max_bytes)
     if not raw.startswith(b"%PDF-"):
         raise ContractError("remote response is not a PDF")

@@ -31,9 +31,11 @@ async def stream_events(
 def parse_event(line: bytes, sse: bool) -> dict[str, Any] | None:
     line = line.strip()
     if sse:
-        if not line.startswith(b"data:"):
+        bare_json = line.startswith(b"{")
+        if not line.startswith(b"data:") and not bare_json:
             return None
-        line = line[5:].strip()
+        if not bare_json:
+            line = line[5:].strip()
     if not line:
         return None
     try:
@@ -42,4 +44,6 @@ def parse_event(line: bytes, sse: bool) -> dict[str, Any] | None:
         raise SandboxError("invalid sandbox event") from exc
     if not isinstance(value, dict):
         raise SandboxError("invalid sandbox event")
+    if sse and bare_json:
+        value["_bare_json"] = True  # 部分发布版标记为 SSE，却发送逐行 JSON。
     return value
