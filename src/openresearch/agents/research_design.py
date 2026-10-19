@@ -1,6 +1,8 @@
 import asyncio
 import json
 
+from packaging.requirements import Requirement
+
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
@@ -46,6 +48,13 @@ DESIGN_PROMPT = (
     " Ground API behavior in the actual return expressions; do not guess that forward returns "
     "a loss. For architecture core tests, prioritize component invariants and the complete "
     "architecture forward pass; add training or optimizer criteria only when requested."
+    " If the repository already has a runnable pytest suite that covers the user's goal, "
+    "PREFER test_paths with the actual .py test filenames. The server will generate a small "
+    "immutable pytest launcher and execute the complete selected files with -v -s. "
+    "For test_paths mode, freeze only assertions covered by those actual tests; do not "
+    "require additional adapter-generated checks or printed tensors absent from the suite. "
+    "Keep entrypoint a NEW adapter path, arguments/ablations empty, and include pytest in "
+    "dependencies. Use an empty test_paths list for benchmarks or goals needing custom code."
 )
 
 
@@ -67,6 +76,12 @@ class ResearchDesigner:
             "provided_source": task.inputs.get("code"),
             "repository": snapshot.model_dump() if snapshot else None,
             "file_paths": list(sources)[:200],
+            "available_pytest_files": [
+                path
+                for path in sources
+                if path.endswith(".py")
+                and (path.rsplit("/", 1)[-1].startswith("test_") or path.endswith("_test.py"))
+            ][:8],
             "source_excerpts": repository_context(sources),
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,
@@ -80,6 +95,18 @@ class ResearchDesigner:
             ],
             ExperimentDesign,
         )
+        test_paths = spec.test_paths or design.test_paths
+        if test_paths:
+            if spec.benchmark or task.inputs.get("code"):
+                raise ContractError(
+                    "existing pytest suites cannot replace supplied code or benchmarks"
+                )
+            if any(path not in sources for path in test_paths):
+                raise ContractError(
+                    "selected pytest source does not exist in the pinned repository"
+                )
+            if not any(Requirement(item).name.lower() == "pytest" for item in design.dependencies):
+                design.dependencies.append("pytest>=7,<10")
         if design.entrypoint not in sources and design.entrypoint not in design.patch_paths:
             raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         resolved = ResearchSpec(
@@ -91,6 +118,7 @@ class ResearchDesigner:
                 "entrypoint": design.entrypoint,
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
+                "test_paths": test_paths,
                 "ablations": [variant.model_dump() for variant in design.ablations],
                 "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),

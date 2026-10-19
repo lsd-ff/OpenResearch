@@ -37,7 +37,18 @@ def apply_patch(
     merged = files | changed
     if spec.entrypoint not in merged:
         raise ContractError("research entrypoint does not exist after applying the patch")
+    if spec.test_paths:
+        if any(path not in files for path in spec.test_paths):
+            raise ContractError("selected pytest source does not exist in the pinned repository")
+        if merged[spec.entrypoint] != pytest_launcher(spec.test_paths).encode():
+            raise ContractError("the selected pytest launcher must not be replaced or filtered")
     return merged
+
+
+def pytest_launcher(paths: list[str]) -> str:
+    # 只生成测试启动器；测试内容来自固定仓库，退出码原样传给真实沙箱执行结果。
+    arguments = ["-v", "-s", "--tb=short", "--", *paths]
+    return "import pytest\n\nraise SystemExit(pytest.main(" + repr(arguments) + "))\n"
 
 
 def cumulative_patch(

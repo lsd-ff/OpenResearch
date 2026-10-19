@@ -46,6 +46,7 @@ class ResearchSpec(ContractModel):
     entrypoint: str = "openresearch_run.py"
     arguments: list[str] = Field(default_factory=list, max_length=16)
     patch_paths: list[str] = Field(default_factory=lambda: ["openresearch_run.py"], max_length=3)
+    test_paths: list[str] = Field(default_factory=list, max_length=8)
     max_repairs: int = Field(default=1, ge=0, le=2)
     benchmark: BenchmarkSpec | None = None
     ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
@@ -59,7 +60,7 @@ class ResearchSpec(ContractModel):
             raise ValueError("research entrypoint must be a Python file")
         return path
 
-    @field_validator("patch_paths")
+    @field_validator("patch_paths", "test_paths")
     @classmethod
     def bounded_python_paths(cls, values: list[str]) -> list[str]:
         result = [cls.python_entrypoint(value) for value in values]
@@ -69,6 +70,11 @@ class ResearchSpec(ContractModel):
 
     @model_validator(mode="after")
     def unique_variants(self) -> "ResearchSpec":
+        if self.test_paths:
+            if self.benchmark or self.arguments or self.ablations:
+                raise ValueError("pytest suites cannot replace benchmarks or custom arguments")
+            if set(self.test_paths) & {*self.patch_paths, self.entrypoint}:
+                raise ValueError("selected pytest sources must remain unmodified")
         names = [variant.name for variant in self.ablations]
         if "baseline" in names or len(set(names)) != len(names):
             raise ValueError("ablation names must be unique and exclude baseline")

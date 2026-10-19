@@ -48,6 +48,9 @@ class ExperimentDesign(ContractModel):
         default_factory=lambda: ["openresearch_run.py"], max_length=3
     )
     dependencies: list[str] = Field(default_factory=list, max_length=32)
+    test_paths: list[Annotated[str, Field(pattern=r"\.py$")]] = Field(
+        default_factory=list, max_length=8
+    )
     ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
     rationale: str = Field(min_length=1, max_length=4000)
     limitations: list[str] = Field(default_factory=list, max_length=8)
@@ -58,7 +61,7 @@ class ExperimentDesign(ContractModel):
     def valid_entrypoint(cls, value: str) -> str:
         return ResearchSpec.python_entrypoint(value)
 
-    @field_validator("patch_paths")
+    @field_validator("patch_paths", "test_paths")
     @classmethod
     def valid_patch_paths(cls, values: list[str]) -> list[str]:
         return ResearchSpec.bounded_python_paths(values)
@@ -70,6 +73,10 @@ class ExperimentDesign(ContractModel):
             if len(self.patch_paths) == 3:
                 raise ValueError("reserve the entrypoint within the three allowed Python paths")
             self.patch_paths = [*self.patch_paths, self.entrypoint]
+        if self.test_paths and (self.arguments or self.ablations):
+            raise ValueError("pytest suites run complete files without custom filters or variants")
+        if set(self.test_paths) & set(self.patch_paths):
+            raise ValueError("selected original test files must remain unmodified")
         return self
 
 

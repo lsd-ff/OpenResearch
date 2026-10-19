@@ -8,7 +8,12 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.research import FilePatch, ResearchPatch, ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySnapshot
-from openresearch.research.patches import apply_patch, load_sources, validate_generated_tests
+from openresearch.research.patches import (
+    apply_patch,
+    load_sources,
+    pytest_launcher,
+    validate_generated_tests,
+)
 from openresearch.research.repository_context import repository_context
 from openresearch.research.source_context import document_context
 from openresearch.research.specifications import resolved_research
@@ -104,6 +109,13 @@ class ResearchPreparer:
             )
             patch = ResearchPatch(
                 files=[FilePatch(path=spec.entrypoint, base_sha256=base, content=code)]
+            )
+        elif spec.test_paths:
+            if spec.entrypoint in files:
+                raise ContractError("pytest launcher must use a new adapter path")
+            patch = ResearchPatch(
+                files=[FilePatch(path=spec.entrypoint, content=pytest_launcher(spec.test_paths))],
+                rationale="Run the complete selected original pytest files in the sandbox.",
             )
         elif spec.entrypoint in files:
             patch = ResearchPatch(
