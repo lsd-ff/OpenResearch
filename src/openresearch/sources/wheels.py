@@ -113,7 +113,12 @@ class WheelSource:
                 validate_package(metadata, name, version)
                 validate_closure(metadata, pins)
                 asset = choose_wheel(metadata)
-                raw = await read_bounded(client, asset["url"], self.settings.dependency_max_bytes)
+                raw = await read_bounded(
+                    client,
+                    asset["url"],
+                    self.settings.dependency_max_bytes,
+                    timeout_seconds=self.settings.source_download_timeout_seconds,
+                )
                 digest = hashlib.sha256(raw).hexdigest()
                 if digest != asset["digests"]["sha256"]:
                     raise ContractError("wheel checksum mismatch")

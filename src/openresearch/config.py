@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     source_max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
     source_max_files: int = Field(default=2000, ge=1, le=10000)
     source_proxy_url: SecretStr = SecretStr("")
+    source_download_timeout_seconds: int = Field(default=60, ge=10, le=600)
     dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
     planner_mode: Literal["llm", "template"] = "llm"
