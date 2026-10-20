@@ -6,6 +6,7 @@ from openresearch.agents.claim_assess import ClaimAssessor, verification_markdow
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
+from openresearch.models.ablation import AblationPlan
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.research import (
     BenchmarkPreflightReport,
@@ -131,6 +132,11 @@ class ResearchExecutor:
             ).hexdigest(),
             entrypoint=request.spec.entrypoint,
             preflight=preflight,
+            ablation_plan=AblationPlan.model_validate_json(
+                self.files.read(plan.artifacts["ablation_plan"])
+            )
+            if "ablation_plan" in task.required_artifacts
+            else None,
         )
         result = research_result(report, request.patch, predictions)
         graph = await self.claims.assess(plan, report, result.outputs)

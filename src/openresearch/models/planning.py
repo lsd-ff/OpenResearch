@@ -51,7 +51,7 @@ class ExperimentDesign(ContractModel):
     test_paths: list[Annotated[str, Field(pattern=r"\.py$")]] = Field(
         default_factory=list, max_length=8
     )
-    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
+    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=6)
     rationale: str = Field(min_length=1, max_length=4000)
     limitations: list[str] = Field(default_factory=list, max_length=8)
     rubric: RubricDraft = Field(default_factory=RubricDraft)

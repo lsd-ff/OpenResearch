@@ -4,6 +4,7 @@ ROLES: dict[str, set[str]] = {
     "chat_answer": {"chat_agent"},
     "source_discover": {"librarian_agent"},
     "data_analyze": {"data_agent"},
+    "ablation_design": {"data_agent"},
     "code_generate": {"coder_agent", "research_coding_agent"},
     "code_execute": {"sandbox_agent", "coder_agent"},
     "document_extract": {"librarian_agent", "data_agent"},

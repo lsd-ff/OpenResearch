@@ -4,6 +4,7 @@ from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task, TaskContract
 from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.documents import document_task
+from openresearch.research.ablation import requested_ablation_budget
 
 
 def research_task(kind: str, tools: list[str], outputs: list[str], settings: Settings) -> Task:
@@ -47,6 +48,10 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
 
 def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     spec = submission.research or ResearchSpec()
+    if not spec.ablations and not spec.ablation_search:
+        budget = requested_ablation_budget(submission.intent)
+        if budget:
+            spec = ResearchSpec(**{**spec.model_dump(), "ablation_search": budget.model_dump()})
     if submission.workflow == "benchmark" and spec.benchmark is None:
         raise ContractError("benchmark requires an uploaded dataset and explicit column mapping")
     if spec.repository is None and not submission.attachments and submission.code is None:
@@ -62,9 +67,39 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         depend(design, nodes)
         depend(environment, [design])
         nodes.extend([design, environment])
+    if spec.ablation_search:
+        search = research_task(
+            "ablation_design",
+            ["ablation.design"],
+            [
+                "ablation_plan",
+                "selected_ablation_configs",
+                "ablation_selection_report",
+                "ablation_research_spec",
+            ],
+            settings,
+        )
+        search.assigned_to = "data_agent"
+        search.name = "ToT 消融候选评估与预算筛选"
+        search.inputs["research"] = spec.model_dump()
+        search.inputs["code"] = submission.code
+        depend(search, [node for node in nodes if node.type != "environment_lock"])
+        nodes.append(search)
     freeze = research_task("claim_freeze", ["claims.freeze"], ["claim_rubric"], settings)
     freeze.inputs["rubric"] = spec.rubric.model_dump()
-    depend(freeze, [node for node in nodes if node.type in {"document_extract", "research_design"}])
+    depend(
+        freeze,
+        [
+            node
+            for node in nodes
+            if node.type
+            in {
+                "document_extract",
+                "research_design",
+                "ablation_design",
+            }
+        ],
+    )
     nodes.append(freeze)
     prepare = research_task("research_prepare", ["research.patch"], ["research_patch"], settings)
     prepare.description = submission.intent

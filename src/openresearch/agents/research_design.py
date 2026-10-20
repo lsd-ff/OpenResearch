@@ -28,6 +28,8 @@ DESIGN_PROMPT = (
     "and stdout, not a prediction loop. Keep the adapter small and focused on the requested goal. "
     "The sandbox is Python 3.12, Linux x86_64, CPU, no network; no shell/build scripts. "
     "Add ablations only when requested, using real arguments implemented by the adapter. "
+    "If ablation_search is set, a later ToT stage will select variants; keep rubric checks "
+    "about baseline/source behavior and do not require unknown future variant IDs. "
     "Describe unavailable scientific claims honestly in limitations. Never claim a run occurred."
     " Include rubric with 1-4 concrete user-scope functional claims and criteria, each using "
     "required_evidence=['research_report']. Freeze what the requested tests must actually "
@@ -80,6 +82,7 @@ class ResearchDesigner:
             "source_excerpts": repository_context(sources),
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,
+            "ablation_search": spec.ablation_search.model_dump() if spec.ablation_search else None,
             "sandbox_memory": self.settings.sandbox_memory,
             "dependency_bytes": self.settings.dependency_max_bytes,
         }
@@ -91,6 +94,9 @@ class ResearchDesigner:
             ExperimentDesign,
         )
         test_paths = spec.test_paths or design.test_paths
+        if spec.ablation_search:
+            # ToT 尚未筛选，不能让设计模型提前固定变体或以 pytest 模式跳过消融。
+            test_paths = []
         if test_paths:
             if spec.benchmark or task.inputs.get("code"):
                 raise ContractError(
@@ -114,7 +120,9 @@ class ResearchDesigner:
                 "arguments": design.arguments,
                 "patch_paths": design.patch_paths,
                 "test_paths": test_paths,
-                "ablations": [variant.model_dump() for variant in design.ablations],
+                "ablations": []
+                if spec.ablation_search
+                else [variant.model_dump() for variant in design.ablations],
                 "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
                 "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
             }

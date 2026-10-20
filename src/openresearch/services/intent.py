@@ -10,6 +10,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.context import Conversation
 from openresearch.models.intent import IntentRequest
 from openresearch.models.planning import IntentDraft
+from openresearch.research.ablation import requested_ablation_budget
 from openresearch.services.remote_intent import RemoteIntentClient
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,8 @@ class IntentParser:
     ) -> IntentDraft:
         if snapshot.pending_planning is None and not attachments:
             if (
-                "```" in message and not re.search(r"复现|benchmark|reproduce", message, re.I)
+                "```" in message
+                and not re.search(r"复现|benchmark|reproduce|消融|ablation", message, re.I)
             ) or re.fullmatch(r"(?:运行)?\s*(?:smoke|冒烟(?:实验|测试)?)", message, re.IGNORECASE):
                 return IntentDraft(workflow="code")
             if not looks_like_task(message):
@@ -120,6 +122,8 @@ class IntentParser:
         action = re.search(r"跑|运行|执行|评估|评测|对比|比较|测试|\brun\b", goal, re.I)
         if draft.workflow in {"code", "reproduce"} and evaluation and action:
             draft.workflow = "benchmark"
+        if draft.workflow == "code" and requested_ablation_budget(goal):
+            draft.workflow = "reproduce"
         return draft
 
     async def _classify(self, request: IntentRequest, context: dict[str, Any]) -> IntentDraft:

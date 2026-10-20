@@ -127,6 +127,12 @@ class ResearchPreparer:
                 plan.user_intent
                 + "\nTask: "
                 + task.description
+                + "\nSelected ablation changes to implement using actual source:\n"
+                + (
+                    self.files.read(plan.artifacts["selected_ablation_configs"])
+                    if "selected_ablation_configs" in plan.artifacts
+                    else ""
+                )
                 + "\nSource data: "
                 + context
                 + "\nFrozen acceptance: "

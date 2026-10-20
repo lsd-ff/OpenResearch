@@ -19,6 +19,7 @@ TaskKind = Literal[
     "chat_answer",
     "source_discover",
     "data_analyze",
+    "ablation_design",
 ]
 
 

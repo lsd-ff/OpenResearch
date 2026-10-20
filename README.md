@@ -63,7 +63,7 @@ uv run --locked python scripts/verify_deployment.py
 
 OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换取 HttpOnly Cookie，供 REST、SSE、PDF 与产物读取使用。用户 ID 是可信本地客户端声明的资源归属标识，没有独立账号认证；当前面向单机可信使用者。
 
-原生 Docker 默认：1 CPU、256 MiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 64 MiB 不可执行内存盘；/workspace 为 256 MiB 内存盘，支持 wheel 扩展模块。任务 120 秒、计划 600 秒、最多 10 次节点尝试；研究修复最多 2 次、消融最多 3 组。部分上限可配置。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
+原生 Docker 默认：1 CPU、256 MiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 64 MiB 不可执行内存盘；/workspace 为 256 MiB 内存盘，支持 wheel 扩展模块。任务 120 秒、计划 600 秒、最多 10 次节点尝试；研究修复最多 2 次、消融最多 6 组，自动 ToT 默认选择最多 3 组。部分上限可配置。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
 
 仓库仅支持 HTTPS GitHub；分支在获取时解析为完整提交 SHA，拒绝链接、特殊文件及越界归档。依赖最终必须完整 name==version 固定，限定 PyPI 上适配 CPython 3.12 / Linux x86_64 的 wheel，校验哈希后在容器中离线安装。自动规划先将模型建议的版本范围解析成固定版本；不执行源码包构建或仓库安装脚本。
 

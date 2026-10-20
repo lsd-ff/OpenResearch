@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 
+from openresearch.agents.ablation import AblationDesigner
 from openresearch.agents.claim_freeze import ClaimFreezer
 from openresearch.agents.context import AgentContext
 from openresearch.agents.librarian import LibrarianAgent
@@ -25,10 +26,13 @@ class DataAgent:
         self.settings = settings
         self.uploads = UploadService(settings, repository)
         self.claims = ClaimFreezer(settings, files)
+        self.ablations = AblationDesigner(settings, files)
         self.librarian = librarian
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task = context.plan, context.task
+        if task.type == "ablation_design":
+            return await self.ablations.execute(plan, task)
         if task.type == "claim_freeze":
             return await self.claims.execute(plan, task)
         if task.type in {"document_extract", "paper_analyze"}:

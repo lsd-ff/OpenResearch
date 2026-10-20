@@ -191,7 +191,10 @@ class AutoPlanner:
         benchmark, question = await self._benchmark(snapshot, state, draft)
         if question:
             return planning_question(snapshot, state, question)
+        fenced = re.search(r"```(?:python|py)?\s*\n(.*?)```", state.intent, re.DOTALL)
         code = submission.code or self._uploaded_code(state, snapshot.owner_id)
+        if code is None and fenced:
+            code = fenced[1]
         repository, question = await self.sources.repository(
             state, draft, bool(documents) or bool(code)
         )
@@ -217,7 +220,7 @@ class AutoPlanner:
         source_text = (
             f"\n仓库：{repository.url}"
             if repository
-            else ("\n使用上传的 Python 源码。" if code else "\n将从论文中发现并核验仓库。")
+            else ("\n使用提供的 Python 源码。" if code else "\n将从论文中发现并核验仓库。")
         )
         mapping = (
             f"\n输入：{', '.join(benchmark.input_columns)}；目标：{benchmark.target_column}。"

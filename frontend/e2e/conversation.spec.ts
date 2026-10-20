@@ -134,9 +134,10 @@ test('上传数据并在聊天补充列映射，刷新后无需重传或高级�
   expect(answer.request().postDataJSON().attachments).toEqual([]);
   const payload = await answer.json();
   expect(payload.type).toBe('plan');
-  expect(payload.plan_graph.nodes).toHaveLength(7);
-  await expect(page.locator('.react-flow__node')).toHaveCount(7);
-  await expect(page.getByText('7 个步骤', { exact: true })).toBeVisible();
+  expect(payload.plan_graph.nodes).toHaveLength(8);
+  expect(payload.plan_graph.nodes.some((node: { type: string }) => node.type === 'benchmark_preflight')).toBe(true);
+  await expect(page.locator('.react-flow__node')).toHaveCount(8);
+  await expect(page.getByText('8 个步骤', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '运行计划', exact: true })).toBeEnabled();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(uploads).toBe(1);

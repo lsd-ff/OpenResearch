@@ -49,6 +49,7 @@ def benchmark_plan(
     repairs=0,
     ablations=True,
     data=b"id,x,y\na,1,yes\nb,0,no\nc,1,yes\n",
+    search=None,
 ):
     identity = Identity("research-user", "research-session")
     upload = UploadService(settings, repository).create(
@@ -62,6 +63,7 @@ def benchmark_plan(
             workflow="benchmark",
             research=ResearchSpec(
                 max_repairs=repairs,
+                ablation_search=search,
                 rubric=RubricDraft(
                     claims=[
                         ClaimDraft(

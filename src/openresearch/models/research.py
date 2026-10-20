@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from openresearch.models.ablation import AblationBudget, AblationPlan
 from openresearch.models.claims import RubricDraft
 from openresearch.models.runtime import ContractModel
 from openresearch.models.sources import EnvironmentSpec, RepositorySpec
@@ -49,7 +50,8 @@ class ResearchSpec(ContractModel):
     test_paths: list[str] = Field(default_factory=list, max_length=8)
     max_repairs: int = Field(default=1, ge=0, le=2)
     benchmark: BenchmarkSpec | None = None
-    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
+    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=6)
+    ablation_search: AblationBudget | None = None
     rubric: RubricDraft = Field(default_factory=RubricDraft)
 
     @field_validator("entrypoint")
@@ -70,6 +72,8 @@ class ResearchSpec(ContractModel):
 
     @model_validator(mode="after")
     def unique_variants(self) -> "ResearchSpec":
+        if self.ablation_search and (self.ablations or self.test_paths):
+            raise ValueError("choose automatic ablation search or fixed variants/pytest suites")
         if self.test_paths:
             if self.benchmark or self.arguments or self.ablations:
                 raise ValueError("pytest suites cannot replace benchmarks or custom arguments")
@@ -145,3 +149,4 @@ class ResearchReport(ContractModel):
     environment_lock_sha256: str = ""
     entrypoint: str = ""
     preflight: BenchmarkPreflightReport | None = None
+    ablation_plan: AblationPlan | None = None
