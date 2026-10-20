@@ -22,7 +22,29 @@ class FrameworkDesigner:
         protocol = read_protocol(plan, self.files)
         if protocol.benchmark is None:
             raise ContractError("framework execution requires a shared benchmark protocol")
-        environment, lock, source = await self.sources.lock(target)
+        outputs = {}
+        if "environment_preparation_report" in task.output_artifacts:
+            prepared = await self.sources.prepare(
+                target,
+                plan.user_intent,
+                2 if "environment.repair" in task.contract.allowed_tools else 0,
+            )
+            outputs["environment_preparation_report"] = prepared.report.model_dump_json()
+            if (
+                not prepared.report.success
+                or prepared.environment is None
+                or prepared.lock is None
+                or prepared.source is None
+            ):
+                return TaskResult(
+                    success=False,
+                    error=prepared.report.attempts[-1].error,
+                    result="Framework environment failed; actual diagnostics preserved.",
+                    outputs=outputs,
+                )
+            environment, lock, source = prepared.environment, prepared.lock, prepared.source
+        else:
+            environment, lock, source = await self.sources.lock(target)
         rubric = RubricDraft(
             paper_title="Actual framework execution protocol",
             claims=[
@@ -53,6 +75,7 @@ class FrameworkDesigner:
         return TaskResult(
             result=design.rationale,
             outputs={
+                **outputs,
                 "research_spec": spec.model_dump_json(),
                 "experiment_design": design.model_dump_json(),
                 "environment_lock": lock.model_dump_json(),

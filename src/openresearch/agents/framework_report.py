@@ -38,6 +38,8 @@ def branch_row(plan: Plan, files: ArtifactStore, index: int, name: str) -> dict[
     source = read("framework_source")
     if source:
         row["source"] = FrameworkSource.model_validate_json(source).model_dump()
+    if preparation := read("environment_preparation_report"):
+        row["environment_preparation"] = json.loads(preparation)
     report_raw = read("research_report")
     if report_raw:
         report = ResearchReport.model_validate_json(report_raw)
@@ -92,6 +94,14 @@ def framework_report(plan: Plan, task: Task, files: ArtifactStore) -> TaskResult
                 f"[PyPI 元数据]({package['metadata_url']})，"
                 f"SHA-256 `{package['metadata_sha256']}`。"
             )
+        if preparation := row.get("environment_preparation"):
+            lines.append(
+                f"- 环境准备尝试：{len(preparation['attempts'])} 次；采用修复："
+                f"{sum(item['accepted'] for item in preparation['decisions'])} 次。"
+            )
+            for attempt in preparation["attempts"]:
+                if attempt["error"]:
+                    lines.append("- 历史准备失败：" + cell(attempt["error"][-1000:]))
         if "metrics" in row:
             lines.append("- 实际指标：" + json.dumps(row["metrics"], ensure_ascii=False))
             lines.append(

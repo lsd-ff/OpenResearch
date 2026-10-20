@@ -23,12 +23,16 @@ def benchmark_branch(
     target = spec.targets[index]
     design = research_task(
         "framework_design",
-        ["framework.design"],
+        [
+            "framework.design",
+            *(["environment.repair"] if "environment.repair" in repair_tools(intent) else []),
+        ],
         [
             "research_spec",
             "experiment_design",
             "environment_lock",
             "framework_source",
+            "environment_preparation_report",
         ],
         settings,
     )

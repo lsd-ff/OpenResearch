@@ -16,7 +16,7 @@ from openresearch.models.environment_repair import (
 )
 from openresearch.models.research import RunAttempt
 from openresearch.models.sources import EnvironmentLock
-from openresearch.research.dependency_recovery import DependencyRecovery
+from openresearch.research.dependency_recovery import DependencyRecovery, protected_requests
 from openresearch.research.runner import ExperimentInput
 
 
@@ -95,6 +95,10 @@ class ResearchEnvironmentRepairer:
                         "Diagnose this actual research environment failure. "
                         "Return EnvironmentRepairProposal: dependencies with up to 8 public PyPI "
                         "names/version ranges to add or update, or stop. "
+                        "Use remove_requirements for obsolete direct packages to remove; "
+                        "at most 8 total additions/updates/removals. A rename uses an explicit "
+                        "old package removal plus actual replacement requirement. "
+                        "Do not remove constrained or explicitly requested packages. "
                         "Preserve the scientific goal, existing packages and user constraints. "
                         "Exact user constraints cannot be changed. "
                         "Verified public package metadata "
@@ -138,19 +142,29 @@ class ResearchEnvironmentRepairer:
             proposal = await self.propose(intent, request, failure)
             decision.proposal = proposal
             if proposal.action == "stop":
-                if proposal.requirements:
+                if proposal.requirements or proposal.remove_requirements:
                     raise ContractError("a stop proposal cannot change dependencies")
                 return EnvironmentRevision(decision, lock, requests)
             constraints = list(request.dependency_constraints)
+            constraints.extend(protected_requests(intent, list(requests)))
             constraints.extend(
                 constraint
                 for value in [*requests, *proposal.requirements]
                 if (constraint := dependency_constraint(intent, Requirement(value).name))
             )
-            revised = await self.dependencies.resolve(
-                list(requests), proposal.requirements, missing_module(failure.stderr), constraints
+            arguments = (
+                {"removals": proposal.remove_requirements} if proposal.remove_requirements else {}
             )
-            before = {canonicalize_name(Requirement(item.requirement).name) for item in lock.wheels}
+            revised = await self.dependencies.resolve(
+                list(requests),
+                proposal.requirements,
+                missing_module(failure.stderr),
+                constraints,
+                **arguments,
+            )
+            before = {canonicalize_name(Requirement(item).name) for item in requests} - set(
+                proposal.remove_requirements
+            )
             after = {
                 canonicalize_name(Requirement(item.requirement).name)
                 for item in revised.lock.wheels
@@ -163,6 +177,8 @@ class ResearchEnvironmentRepairer:
                 raise ContractError("environment repair did not change the frozen wheel lock")
             lock, requests = revised.lock, tuple(revised.requests)
             decision.after_sha256, decision.accepted = lock_digest(lock), True
+            # 每次采用的完整锁单独保存，连续两次修复时仍能回放中间环境而非只有摘要。
+            decision.environment_lock = lock
         except (ContractError, ModelError, ValueError) as exc:
             decision.error = str(exc)
         return EnvironmentRevision(decision, lock, requests)

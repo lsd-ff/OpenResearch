@@ -111,6 +111,7 @@ async def test_recovery_keeps_user_constraints_and_records_rejected_proposals(
     assert "PyYAML==6.0.3" in constraints
     assert revised.decision.accepted == (mode == "accepted")
     assert revised.decision.proposal.requirements == ["PyYAML>=6"]
+    assert revised.decision.environment_lock == (revised.lock if mode == "accepted" else None)
     if mode != "accepted":
         assert revised.lock == current.lock and revised.decision.error
 

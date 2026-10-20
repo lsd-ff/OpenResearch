@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 from dataclasses import dataclass
 
 from packaging.requirements import Requirement
@@ -19,7 +20,7 @@ from openresearch.models.environment_preparation import (
     EnvironmentPreparationReport,
 )
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec
-from openresearch.research.dependency_recovery import merge_requests
+from openresearch.research.dependency_recovery import merge_requests, protected_requests
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
@@ -98,6 +99,17 @@ class EnvironmentPreparation:
             )
             report.attempts.append(attempt)
             try:
+                standard = [
+                    Requirement(value).name
+                    for value in current
+                    if Requirement(value).name.casefold().replace("-", "_")
+                    in sys.stdlib_module_names
+                ]
+                if standard:
+                    raise EnvironmentLockError(
+                        "Python standard library modules are not PyPI dependencies: "
+                        + ", ".join(standard)
+                    )
                 # 第一轮锁定使用已有精确版本，避免无故换版本；修复后才重新解析完整闭包。
                 spec = (
                     initial_spec
@@ -150,6 +162,7 @@ class EnvironmentPreparation:
         decision = EnvironmentPreparationDecision(before_requests=current)
         report.decisions.append(decision)
         try:
+            constraints = list(constraints) + protected_requests(intent, current)
             decision.package_evidence = await self._package_evidence(current, constraints)
             diagnostic = (
                 attempt.diagnostic
@@ -167,10 +180,10 @@ class EnvironmentPreparation:
             )
             decision.proposal = proposal
             if proposal.action == "stop":
-                if proposal.requirements:
+                if proposal.requirements or proposal.remove_requirements:
                     raise ContractError("a stop proposal cannot change dependencies")
                 return False
-            if not proposal.requirements:
+            if not proposal.requirements and not proposal.remove_requirements:
                 raise ContractError("dependency repair must name an actual package")
             limits = list(constraints)
             limits.extend(
@@ -193,7 +206,9 @@ class EnvironmentPreparation:
                         raise ContractError(
                             "dependency proposal violates an explicit fixed version"
                         )
-            revised = merge_requests(current, proposal.requirements, limits)
+            revised = merge_requests(
+                current, proposal.requirements, limits, proposal.remove_requirements
+            )
             if revised == current:
                 raise ContractError("dependency repair did not change the requested environment")
             decision.after_requests, decision.accepted = revised, True
@@ -208,6 +223,8 @@ class EnvironmentPreparation:
         for value in [*constraints, *requests]:
             requirement = Requirement(value)
             name = canonicalize_name(requirement.name)
+            if name.replace("-", "_") in sys.stdlib_module_names:
+                continue
             if name in selected:
                 continue
             pins = list(requirement.specifier)
