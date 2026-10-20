@@ -38,7 +38,6 @@ interface ChatActions {
 
 interface PdfActions {
   onReadPaper: (attachment: UploadedFile) => void;
-  onOpenPdf: () => void;
   onClosePdf: () => void;
   onFullTranslation: () => void;
 }

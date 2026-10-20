@@ -391,7 +391,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
       }
       appendMessageToSession(requestSessionId, {
         role: 'system', text: response.response,
-        actions: response.plan_graph?.attachments?.length ? ['open_pdf'] : undefined,
+        actions: response.papers?.length ? ['open_pdf'] : undefined,
+        papers: response.papers,
       });
       // 后端已持久化追问所需附件，简短回复不必重新上传或再次选择材料。
       setPendingAttachments([]);
@@ -414,7 +415,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
         planGraph: response.plan_graph,
       });
       setPendingAttachments([]);
-      appendChatMessage({ role: 'system', text: '实验计划已生成，可在右侧执行并查看证据。' });
+      appendChatMessage({ role: 'system', text: '实验计划已生成，可在右侧执行并查看证据。',
+        actions: response.papers?.length ? ['open_pdf'] : undefined, papers: response.papers });
     },
     prompt,
     setPrompt,

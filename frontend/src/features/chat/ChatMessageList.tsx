@@ -1,10 +1,10 @@
 import { Bot, FileText, Languages, Maximize2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatMessage } from '../../contracts/api';
+import type { ChatMessage, UploadedFile } from '../../contracts/api';
 
 interface PdfActions {
-  onOpenPdf: () => void;
+  onReadPaper: (attachment: UploadedFile) => void;
   onClosePdf: () => void;
   onFullTranslation: () => void;
 }
@@ -48,17 +48,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
               )}
             </div>
 
-            {msg.actions && msg.actions.length > 0 && (
+            {msg.actions && (msg.actions.some(action => action !== 'open_pdf') || Boolean(msg.papers?.length)) && (
               <div className="flex gap-2 mt-1 animate-in fade-in slide-in-from-top-1 duration-300">
-                {msg.actions.includes('open_pdf') && (
+                {msg.actions.includes('open_pdf') && msg.papers?.map(paper => (
                   <button
-                    onClick={pdfActions.onOpenPdf}
+                    key={paper.id}
+                    onClick={() => pdfActions.onReadPaper(paper)}
                     className="flex items-center gap-1 text-xs bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded-full hover:bg-blue-50 shadow-sm transition-all active:scale-95"
                   >
                     <FileText className="w-3 h-3" />
-                    打开论文原文
+                    阅读 {paper.name}
                   </button>
-                )}
+                ))}
                 {msg.actions.includes('translate_full') && (
                   <button
                     onClick={pdfActions.onFullTranslation}

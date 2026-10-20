@@ -1,9 +1,10 @@
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter
 
 from openresearch.api.dependencies import IdentityDep, RuntimeDep
-from openresearch.api.payloads import message_payload
+from openresearch.api.payloads import message_payload, papers_payload
 from openresearch.api.schemas import ChatRequest, MessageRequest
 from openresearch.models.submissions import PlanSubmission
 
@@ -30,4 +31,5 @@ async def send_message(
     result = await runtime.messages.send(
         PlanSubmission(intent=payload.message, identity=identity, attachments=payload.attachments)
     )
-    return message_payload(result)
+    papers = await asyncio.to_thread(papers_payload, result.plan, runtime.repository)
+    return {**message_payload(result), "papers": papers}

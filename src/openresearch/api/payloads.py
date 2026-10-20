@@ -1,7 +1,27 @@
 from typing import Any
 
+from openresearch.models.documents import UploadRecord
 from openresearch.models.runtime import Plan
 from openresearch.services.messages import MessageResult
+from openresearch.storage.repository import Repository
+
+
+def upload_payload(record: UploadRecord) -> dict[str, Any]:
+    return {
+        **record.source().model_dump(),
+        "size": record.size,
+        "content_url": f"/api/uploads/{record.id}/content",
+        "created_at": record.created_at.isoformat(),
+    }
+
+
+def papers_payload(plan: Plan | None, repository: Repository) -> list[dict[str, Any]]:
+    if plan is None:
+        return []
+    records = [repository.uploads.get(identifier, plan.owner_id) for identifier in plan.attachments]
+    return [
+        upload_payload(record) for record in records if record.content_type == "application/pdf"
+    ]
 
 
 def plan_payload(plan: Plan) -> dict[str, Any]:

@@ -75,6 +75,7 @@ def looks_like_task(message: str) -> bool:
     return bool(
         re.search(
             r"复现|实验|benchmark|reproduce|smoke|冒烟|消融|对比|比较|\bcompare\b|```|"
+            r"(?:阅读|翻译|总结|分析|read|translate|summarize|analyse|analyze).{0,80}https?://|"
             r"(?:执行|运行|画|绘制|生成|对比|比较|评测|评估|分析|阅读|翻译|总结).{0,80}(?:代码|程序|论文|数据|图|仓库|框架|性能|准确率|RAG)|"
             r"(?:run|execute|implement|plot|translate|summarize|analyse|analyze)\b",
             message,

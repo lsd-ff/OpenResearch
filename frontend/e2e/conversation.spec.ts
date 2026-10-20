@@ -57,6 +57,37 @@ test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', 
   await page.screenshot({ path: testInfo.outputPath('pdf-reader.png'), fullPage: true });
 });
 
+test('状态夹具：远程 PDF 消息打开实际所属附件，刷新后仍是该文档', async ({ page }) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const upload = await page.request.post('/api/uploads', { headers, multipart: {
+    file: { name: 'remote-source.pdf', mimeType: 'application/pdf', buffer: pdfFixture() },
+  } });
+  expect(upload.status()).toBe(201);
+  const source = await upload.json();
+  const created = await page.request.post('/api/plan', { headers, data: {
+    intent: '阅读远程 PDF 附件', workflow: 'paper', attachments: [source.id],
+  } });
+  expect(created.status()).toBe(200);
+  const plan = await created.json();
+  expect(plan.papers[0].id).toBe(source.id);
+  // 仅消息分类/下载状态使用夹具；附件保存、归属读取和 PDF 渲染使用真实 API。
+  await page.route('**/api/messages', route => route.fulfill({ json: {
+    type: 'plan', response: '状态夹具：当前 PDF 已保存为会话附件。', context_revision: 2,
+    plan_graph: plan.plan_graph, papers: plan.papers,
+  } }));
+  await send(page, '阅读 https://paper.example/remote-source.pdf');
+  await page.getByRole('button', { name: '阅读 remote-source.pdf', exact: true }).click();
+  await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
+  await page.reload();
+  const received = page.waitForResponse(response => response.url().endsWith(`/api/uploads/${source.id}/content`));
+  await page.getByRole('button', { name: '阅读 remote-source.pdf', exact: true }).click();
+  await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
+  expect((await received).status()).toBe(200);
+});
+
 test('代码产出 SVG 后可查看、下载并在刷新后恢复图像', async ({ page }, testInfo) => {
   await page.goto('/');
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#2563eb"/></svg>';

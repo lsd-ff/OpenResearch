@@ -19,7 +19,6 @@ import { ExecutionSidebar } from '../features/execution/ExecutionSidebar';
 import { GraphPanel } from '../features/plan-graph/GraphPanel';
 import { buildGraphLayout } from '../features/plan-graph/buildGraphLayout';
 import type { IntentContext } from '../contracts/api';
-import { getPdfProxyUrl } from '../services/api/scholarApi';
 import { ResearchWorkspace } from '../features/research/ResearchWorkspace';
 import { ApiConnection } from '../features/research/ApiConnection';
 import '../features/research/research.css';
@@ -180,7 +179,6 @@ function ScholarWorkspaceContent(props: ScholarWorkspaceContentProps) {
       }}
       pdfActions={{
         onReadPaper: attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`),
-        onOpenPdf: () => pdfFlow.setPdfUrl(getPdfProxyUrl('https://arxiv.org/pdf/1706.03762.pdf')),
         onClosePdf: () => pdfFlow.setPdfUrl(null),
         onFullTranslation: pdfFlow.handleFullTranslation,
       }}

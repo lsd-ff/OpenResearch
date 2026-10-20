@@ -10,6 +10,7 @@ export interface ChatMessage {
   text: string;
   actions?: ChatAction[];
   taskId?: string;
+  papers?: UploadedFile[];
 }
 
 export interface UploadedFile {
@@ -172,6 +173,7 @@ export interface PlanClarification {
 }
 
 export interface PlanResponse {
+  papers?: UploadedFile[];
   message: string;
   plan_graph: PlanGraph;
   clarification?: PlanClarification;
@@ -182,6 +184,7 @@ export interface PlanResponse {
 }
 
 export interface MessageResponse {
+  papers?: UploadedFile[];
   type: 'chat' | 'plan' | 'clarification';
   response: string;
   context_revision: number;

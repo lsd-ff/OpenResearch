@@ -70,7 +70,7 @@ OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换�
 
 仓库仅支持 HTTPS GitHub；分支在获取时解析为完整提交 SHA，拒绝链接、特殊文件及越界归档。依赖最终必须完整 name==version 固定，限定 PyPI 上适配所选 CPython / Linux x86_64 的 wheel，默认目标为 3.12，命名配置支持 3.11/3.12/3.13，校验哈希后在容器中离线安装。自动规划先将模型建议的版本范围解析成固定版本；不执行源码包构建或仓库安装脚本。
 
-目前没有 OCR，扫描件保留缺失文本状态。检索优先使用 HuggingFace Papers（原 Go 中的 Papers with Code 来源），空结果或失败时回退 GitHub / arXiv；支持单独指定检索来源，并保留论文出处。公开检索和 arXiv PDF 下载支持环境代理或 OPENRESEARCH_SOURCE_PROXY_URL；不把代理设置或模型凭据送入实验容器。语义判断是受证据引用约束的辅助评估，数值验收由服务端重算。成功运行、空验收规则和示例正确率均不能自动等同于论文主张已复现。
+目前没有 OCR，扫描件保留缺失文本状态。检索优先使用 HuggingFace Papers（原 Go 中的 Papers with Code 来源），空结果或失败时回退 GitHub / arXiv；支持单独指定检索来源，并保留论文出处。公共 HTTP/HTTPS PDF 可在聊天中提供链接，也可通过 PDF 代理读取；下载会校验全部 DNS 地址并固定实际连接 IP，逐次校验重定向、类型、签名和大小。网页按钮打开本次实际保存的附件并支持刷新恢复。公开检索支持环境代理或 OPENRESEARCH_SOURCE_PROXY_URL；PDF 下载使用显式 OPENRESEARCH_SOURCE_PROXY_URL，否则直接连接，不自动继承系统代理。不把代理设置或模型凭据送入实验容器。详情与验收见 [公共 PDF](docs/remote-pdf.md)。语义判断是受证据引用约束的辅助评估，数值验收由服务端重算；示例指标不等于论文效果。
 
 独立运行时可选择 docker、http、opensandbox 或 auto 后端。http 既支持本项目 Python 服务，也兼容原 Go NDJSON 协议；仅旧 Go 服务缺少清单和镜像摘要。Python HTTP 服务可对账容器并返回原生 Docker 的实际镜像摘要。
 

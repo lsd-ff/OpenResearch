@@ -20,7 +20,7 @@
 | POST | /api/uploads | multipart file，201；返回 id、name、sha256、size、content_url |
 | GET | /api/uploads/{id}、/api/uploads/{id}/content | 元数据、原文件与 SHA ETag |
 | POST | /api/sources/search | kind=paper/repository、query、limit；返回来源元数据 |
-| GET | /api/pdf-proxy?url=... | 受限 arXiv PDF；其他来源请上传 |
+| GET | /api/pdf-proxy?url=... | 公共 HTTP/HTTPS PDF，校验 DNS、实际连接及重定向；支持 arXiv |
 | POST | /api/plan | 创建图，不自动执行 |
 | GET | /api/plans/{id} | plan_graph 包含状态、节点和产物索引 |
 | POST | /api/plans/{id}/execute | 202，整图排队 |
@@ -42,6 +42,8 @@
 ```
 
 workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已上传文件的 ID，最多 8 个。默认 auto 且无显式 research/code 时使用统一会话规划；显式工作流仍支持高级参数。显式 paper 只解析文档。
+
+`/api/messages` 与 `/api/plan` 的 `papers` 列表只包含本次计划实际所属的 PDF 元数据及内容地址，不包含内部文件路径或所有者字段。网页阅读按钮绑定这个列表，打开已保存的原始附件；CSV 等非 PDF 附件不显示论文入口。远程链接下载同样先保存为有归属及 SHA-256 的附件，随后才进入沙箱解析。网络、代理及大小边界见 [公共 PDF](remote-pdf.md)。
 
 工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。生成图后仍由 `/execute` 排队，生成计划本身不执行代码。
 

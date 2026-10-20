@@ -4,19 +4,10 @@ from urllib.parse import quote
 from fastapi import APIRouter, Response, UploadFile
 
 from openresearch.api.dependencies import IdentityDep, RuntimeDep
-from openresearch.models.documents import UploadRecord
+from openresearch.api.payloads import upload_payload
 from openresearch.storage.upload_files import UploadSubmission
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
-
-
-def upload_payload(record: UploadRecord) -> dict[str, Any]:
-    return {
-        **record.source().model_dump(),
-        "size": record.size,
-        "content_url": f"/api/uploads/{record.id}/content",
-        "created_at": record.created_at.isoformat(),
-    }
 
 
 @router.post("", status_code=201)
