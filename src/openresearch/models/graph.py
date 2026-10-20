@@ -8,6 +8,23 @@ if TYPE_CHECKING:
 def artifact_producers(nodes: dict[str, "Task"]) -> dict[str, str]:
     producers: dict[str, str] = {}
     for node in nodes.values():
+        optional = set(node.contract.optional_output_artifacts)
+        if optional and (
+            node.type != "research_gap_repair"
+            or node.artifact_scope is not None
+            or not optional.issubset(node.output_artifacts)
+            or optional
+            - {
+                "research_report",
+                "benchmark_predictions",
+                "final_patch",
+                "claim_evidence_graph",
+                "claim_verification_report",
+                "benchmark_preflight_report",
+                "benchmark_preflight_patch",
+            }
+        ):
+            raise ValueError("optional execution receipts are restricted to result-gap tasks")
         if node.trigger_rule == "all_done" and (
             node.type not in {"framework_report", "chat_answer"}
             or node.assigned_to not in {"chat_agent", "data_agent"}

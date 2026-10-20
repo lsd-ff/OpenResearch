@@ -81,7 +81,7 @@ async def legacy_result(
                 "source_workflow_ref": "openresearch:"
                 + ReviewSnapshot.model_validate(node.inputs["snapshot"]).source_plan_id
             }
-            if node.type == "result_audit"
+            if node.type in {"result_audit", "research_gap_repair"}
             else {}
         ),
     }

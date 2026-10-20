@@ -77,6 +77,8 @@ repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来�
 
 `repo_discovery` 在同一科研图中保存实际发现及候选，支持明确首选仓库、所属文档链接和 HF/GitHub 查询；默认只执行发现阶段，后续通过同一引用准备和运行。发现、内置参考声明、实际下载、固定提交及程序执行分别保留证据，无选中仓库时阻止后续环境与程序。`general_research` / `general_synthesis` 同图收集并汇总实际检索记录或所属文档，服务器核验来源编号与 PDF 原文引文；`general_process` 是明确未执行实验的只读回答。新任务保存有界引用纠正与拒绝回执，旧任务不扩权，审批及累计预算保持。来源范围、字段及限制见 [仓库发现](legacy-api.md#仓库发现) 和 [通用研究与回答](legacy-api.md#通用研究与回答)。
 
+`fix_and_rerun` 从所属实际科研运行或其审核引用创建独立结果差距修复，固定原来源、测试及验收规则，并沿用累计预算和首次起算时间。有据补丁才重新预检和实际重跑；无据时只完成诊断，不生成实验回执。程序完成与主张达标分别报告，原实验记录不改写。字段、补丁限制和回执见 [独立结果差距修复](legacy-api.md#独立结果差距修复)。
+
 兼容入口 SSE 输出 log、result、error；流响应头 `X-OpenResearch-Plan-Id`、`X-OpenResearch-Task-Id` 返回实际 ID。开启审批时先返回 202 JSON（`approval_required`、`plan_id`、`task_id`、`plan_graph`），审批后以实际 ID 再次调用。已保存的兼容计划重读结果不会重新执行，也不会采用新提交的源码；未保存的新请求会创建新计划。首次匿名响应保留身份 Cookie。结果兼容 Go 的 `image_base_64` 并保留原 `image_base64`，`outputs` 包含本阶段实际产物。环境引用是所属配置和锁的回执，每次实际执行仍创建受管容器。该 POST 流没有游标续传；要按游标读取持久事件使用整图 GET 流。
 
 整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。

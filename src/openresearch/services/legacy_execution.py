@@ -16,6 +16,7 @@ from openresearch.services.legacy_frameworks import (
     framework_stage,
     select_framework_stage,
 )
+from openresearch.services.legacy_gaps import build_gap_plan
 from openresearch.services.legacy_inputs import text_input, uploaded_inputs
 from openresearch.services.legacy_knowledge import build_knowledge_stage, select_knowledge_stage
 from openresearch.services.legacy_plans import (
@@ -73,7 +74,7 @@ class LegacyExecutionService:
         if not payload.task_description.strip():
             raise ContractError("provide a saved task_id or a legacy task_description")
         kind = validate_legacy_request(payload)
-        if kind in AUDIT_ROLES:
+        if kind in AUDIT_ROLES or kind == "fix_and_rerun":
             raise ContractError("result review requires an owned workflow_ref with saved evidence")
         payload = await self._paper(payload, identity)
         if kind in STAGES or framework_stage(kind) or kind in KNOWLEDGE_ROLES:
@@ -159,10 +160,15 @@ class LegacyExecutionService:
         self, payload: DirectExecutionRequest, identity: Identity, reference: str
     ) -> DirectSelection:
         kind = validate_legacy_request(payload)
-        if kind in AUDIT_ROLES:
-            plan = await asyncio.to_thread(
-                build_review_plan, payload, identity, self.plans, self.files, kind
-            )
+        if kind in AUDIT_ROLES or kind == "fix_and_rerun":
+            if kind == "fix_and_rerun":
+                plan = await asyncio.to_thread(
+                    build_gap_plan, payload, identity, self.plans, self.files
+                )
+            else:
+                plan = await asyncio.to_thread(
+                    build_review_plan, payload, identity, self.plans, self.files, kind
+                )
             await asyncio.to_thread(self.repository.save_plan, plan)
             if not plan.approval.required:
                 await asyncio.to_thread(self.repository.queue_plan, plan.id, identity.user_id)

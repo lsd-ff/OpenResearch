@@ -125,7 +125,12 @@ class ExecutionStore:
     ) -> None:
         result = completion.result
         keys = [item.key for item in completion.artifacts]
-        validate_output_keys(node.output_artifacts, keys, result is not None and result.success)
+        validate_output_keys(
+            node.output_artifacts,
+            keys,
+            result is not None and result.success,
+            node.contract.optional_output_artifacts,
+        )
         if result is not None and set(keys) != set(result.outputs):
             raise ContractError("published artifacts must match the returned output keys")
         for item in completion.artifacts:

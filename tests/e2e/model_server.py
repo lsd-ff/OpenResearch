@@ -5,9 +5,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
+from openresearch.models.gap import GapProposal
 from openresearch.models.knowledge import KnowledgeProposal
 from openresearch.models.planning import IntentDraft, SourceSelection
 from openresearch.models.recovery import RecoveryProposal
+from openresearch.models.research import FilePatch, ResearchPatch
 
 app = FastAPI()
 
@@ -26,6 +28,28 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
             reason="Controlled JSON API correction.",
             code=context["code"].replace("json.decode", "json.loads"),
         )
+    elif any('"title": "GapProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if context["request"] not in {"UI_GAP_NO_PATCH_FIXTURE", "UI_GAP_REJECTED_PATCH_FIXTURE"}:
+            raise HTTPException(400, "only the explicit no-patch display fixture is supported")
+        result = GapProposal(
+            status="insufficient_evidence", diagnosis="网页夹具：没有足够证据支持补丁。"
+        )
+        if context["request"] == "UI_GAP_REJECTED_PATCH_FIXTURE":
+            entry = context["allowed_paths"]["openresearch_run.py"]
+            result = GapProposal(
+                status="patched",
+                diagnosis="网页负向夹具：此补丁必须被拒绝。",
+                patch=ResearchPatch(
+                    files=[
+                        FilePatch(
+                            path="openresearch_run.py",
+                            base_sha256=entry["base_sha256"],
+                            content=entry["content"].replace("assert sum([2,3]) == 5\n", ""),
+                        )
+                    ]
+                ),
+            )
     elif any('"title": "KnowledgeProposal"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
         if context["stage"] != "knowledge_process" or context["sources"] or context["pages"]:

@@ -48,7 +48,12 @@ class TaskExecutor:
         return scoped_result(context, result)
 
     async def _commit(self, task: Task, lease: ExecutionLease, result: TaskResult) -> None:
-        validate_output_keys(task.output_artifacts, result.outputs.keys(), result.success)
+        validate_output_keys(
+            task.output_artifacts,
+            result.outputs.keys(),
+            result.success,
+            task.contract.optional_output_artifacts,
+        )
         output = [
             await asyncio.to_thread(self.files.write, lease, key, value)
             for key, value in result.outputs.items()

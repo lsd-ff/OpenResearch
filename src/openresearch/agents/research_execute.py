@@ -95,9 +95,13 @@ class ResearchExecutor:
             raise ContractError("task is not authorized to admit compute resources")
         snapshot, sources = self.preparer.workspace(plan)
         patch_key = (
-            "benchmark_preflight_patch"
-            if "benchmark_preflight_patch" in task.required_artifacts
-            else "research_patch"
+            "final_patch"
+            if task.type == "research_gap_repair"
+            else (
+                "benchmark_preflight_patch"
+                if "benchmark_preflight_patch" in task.required_artifacts
+                else "research_patch"
+            )
         )
         patch = ResearchPatch.model_validate_json(self.files.read(plan.artifacts[patch_key]))
         source = plan.artifacts.get("framework_source")
@@ -167,6 +171,18 @@ class ResearchExecutor:
             )
             verify_preflight(preflight, prepared.request)
 
+        return await self.execute_prepared(plan, task, prepared, preflight)
+
+    async def execute_prepared(
+        self,
+        plan: Plan,
+        task: Task,
+        prepared: PreparedExperiment,
+        preflight: BenchmarkPreflightReport | None = None,
+        *,
+        repair_limit: int | None = None,
+    ) -> TaskResult:
+
         async def recheck(request: ExperimentInput) -> BenchmarkPreflightReport:
             checked = await BenchmarkPreflight(self.repairs).run(
                 plan.user_intent, prepared.original, request, allow_repairs=False
@@ -185,6 +201,7 @@ class ResearchExecutor:
             prepared.request,
             recheck=recheck if preflight else None,
             allow_repairs=allow_repairs,
+            **({"repair_limit": repair_limit} if repair_limit is not None else {}),
         )
         request = baseline.request
         predictions = {"baseline": baseline.output.predictions}

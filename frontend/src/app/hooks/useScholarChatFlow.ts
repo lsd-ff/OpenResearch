@@ -196,6 +196,7 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
             if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
             const analysis = graph.nodes.find(node => node.type === 'framework_report')
+              ?? graph.nodes.find(node => node.type === 'research_gap_repair')
               ?? graph.nodes.find(node => node.type === 'chat_answer')
               ?? graph.nodes.find(node => node.type === 'paper_analyze')
               ?? graph.nodes.find(node => node.type === 'knowledge_synthesis')
@@ -204,8 +205,10 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
               ?? graph.nodes.find(node => node.type === 'result_audit')
               ?? graph.nodes.find(node => node.type === 'code_execute');
             const report = analysis?.type === 'code_execute' ? codeSummary(graph, analysis) : analysis?.result;
-            const validReport = analysis?.status === 'completed' && report &&
-              (graph.status === 'completed' || analysis.trigger_rule === 'all_done');
+            const gapReport = analysis?.type === 'research_gap_repair' &&
+              ['completed', 'failed'].includes(analysis.status ?? '');
+            const validReport = report && (gapReport || (analysis?.status === 'completed' &&
+              (graph.status === 'completed' || analysis.trigger_rule === 'all_done')));
             const text = graph.status === 'canceled' ? '当前计划已取消。'
               : validReport ? report
               : graph.status === 'completed' ? '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'

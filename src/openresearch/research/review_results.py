@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.audit import ResultAudit, ReviewSnapshot
+from openresearch.models.gap import GapDebugReport
 from openresearch.models.recovery import CodeRecoveryReport
 from openresearch.models.research import ResearchReport
 from openresearch.models.runtime import Status
@@ -149,6 +150,24 @@ def verify_results(
             "result outputs mix different execution attempts",
         )
         if material.task.status == Status.COMPLETED:
+            if material.task.type == "research_gap_repair" and "research_report" not in artifacts:
+                debug = GapDebugReport.model_validate_json(
+                    files.read(artifacts["gap_debug_report"])
+                )
+                require(
+                    not debug.execution_performed
+                    and not debug.preflight_performed
+                    and debug.status in {"not_justified", "insufficient_evidence"},
+                    "completed gap operation lacks actual execution receipts",
+                )
+                require(
+                    set(material.task.output_artifacts)
+                    - set(material.task.contract.optional_output_artifacts)
+                    <= set(artifacts),
+                    "completed gap operation is missing diagnostic outputs",
+                )
+                audit.limitations.append("没有有依据的补丁，本次未执行实验，不能验证实验成功。")
+                return VerifiedResults(audit, None)
             require(
                 len(produced) == len(material.task.output_artifacts),
                 "completed source is missing declared outputs",

@@ -1,6 +1,55 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pdfFixture } from './pdfFixture';
 
+for (const rejected of [false, true]) {
+test(`结果修复${rejected ? '拒绝删除断言' : '没有有据补丁'}时显示真实报告，刷新不重复`, async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const receivedHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': receivedHeaders['x-user-id'], 'X-Session-Id': receivedHeaders['x-session-id'] };
+  const readResult = async (response: Awaited<ReturnType<typeof page.request.post>>) => {
+    expect(response.status()).toBe(200);
+    const event = (await response.text()).split('\n\n').find(item => item.startsWith('event: result\n'));
+    expect(event).toBeDefined();
+    return JSON.parse(event!.split('data: ', 2)[1]);
+  };
+  const original = await readResult(await page.request.post('/api/execute', { headers, data: {
+    task_type: 'paper_code_execute', assigned_to: 'research_coding_agent',
+    task_description: '运行固定原程序并允许有界修复', inputs: {
+      code: 'assert sum([2,3]) == 5\nprint(5)\n', research: { max_repairs: 1, rubric: { claims: [{
+        title: '固定数值规则', statement: 'accuracy >= 0.9', criteria: [{ description: 'accuracy',
+          metric_name: 'accuracy', expected_value: 0.9, operator: 'at_least' }],
+      }] } },
+    },
+  } }));
+  const response = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'fix_and_rerun', assigned_to: 'research_coding_agent',
+    task_description: rejected ? 'UI_GAP_REJECTED_PATCH_FIXTURE' : 'UI_GAP_NO_PATCH_FIXTURE',
+    inputs: { workflow_ref: original.workflow_ref },
+  } });
+  let identifier: string;
+  if (rejected) {
+    expect(await response.text()).toContain('event: error');
+    identifier = response.headers()['x-openresearch-plan-id'];
+    const actual = await (await page.request.get(`/api/plans/${identifier}`, { headers })).json();
+    expect(actual.plan_graph.status).toBe('failed');
+    expect(actual.plan_graph.nodes[0].result).toContain('实际错误：');
+  } else {
+    const actual = await readResult(response);
+    expect(JSON.parse(actual.outputs.gap_debug_report).execution_performed).toBe(false);
+    expect(actual.outputs.research_report).toBeUndefined();
+    identifier = actual.plan_id;
+  }
+  await page.goto(`/?plan=${identifier}`);
+  await expect(page.getByText('结果修复', { exact: true })).toBeVisible();
+  await expect(page.getByText('本次没有执行预检或实验。', { exact: true })).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(rejected ? 'gap-rejected.png' : 'gap-no-patch.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('本次没有执行预检或实验。', { exact: true })).toHaveCount(1);
+});
+}
+
 test('通用只读回答显示实际报告，刷新后不误报实验完成', async ({ page }, testInfo) => {
   await page.goto('/');
   const initial = await send(page, '运行 smoke 冒烟测试');

@@ -32,6 +32,7 @@ const intentLabels: Record<string, string> = {
   Benchmark: '数据评测',
   Result_Review: '结果复核',
   Knowledge_Research: '资料研究',
+  Result_Gap_Repair: '结果修复',
   General_Response: '通用回答',
 };
 

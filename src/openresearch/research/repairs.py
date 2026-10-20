@@ -8,6 +8,7 @@ from openresearch.errors import ContractError, ModelError
 from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.research import BenchmarkPreflightReport, RunAttempt
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer, dependency_failure
+from openresearch.research.gap import validate_gap_patch
 from openresearch.research.patches import apply_patch, cumulative_patch
 from openresearch.research.runner import ExperimentInput, ExperimentOutput, ExperimentRunner
 
@@ -39,6 +40,7 @@ class RepairPipeline:
         *,
         recheck: Callable[[ExperimentInput], Awaitable[BenchmarkPreflightReport]] | None = None,
         allow_repairs: bool = True,
+        repair_limit: int | None = None,
     ) -> RepairOutcome:
         request = replace(request, number=1)
         output = await self.runner.run(request)
@@ -47,6 +49,8 @@ class RepairPipeline:
         rechecks = []
         environment_changes = []
         remaining = request.spec.max_repairs if allow_repairs else 0
+        if repair_limit is not None:
+            remaining = min(remaining, max(0, repair_limit))
         while remaining > 0:
             if not failure.error:
                 break
@@ -124,7 +128,12 @@ class RepairPipeline:
             ensure_ascii=False,
         )
         proposal = await self.preparer.propose(intent, request.spec, request.files, feedback)
-        patched = await asyncio.to_thread(apply_patch, request.files, proposal, request.spec)
+        if request.preserve_checks:
+            patched, _ = await asyncio.to_thread(
+                validate_gap_patch, request.files, proposal, request.spec, request.lock.python
+            )
+        else:
+            patched = await asyncio.to_thread(apply_patch, request.files, proposal, request.spec)
         if patched == request.files:
             raise ContractError("repair did not change the failed program")
         patch = cumulative_patch(original, patched, request.spec)

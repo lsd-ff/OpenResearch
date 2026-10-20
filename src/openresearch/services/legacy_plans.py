@@ -42,7 +42,7 @@ SUPPORTED_KINDS = (
     | STAGES.keys()
     | AUDIT_ROLES.keys()
     | KNOWLEDGE_ROLES.keys()
-    | {"dataset_profile", "paper_parse"}
+    | {"dataset_profile", "paper_parse", "fix_and_rerun"}
 )
 ALIASES = {
     "code_generate": "generate_code",
@@ -91,6 +91,8 @@ def validate_legacy_request(payload: DirectExecutionRequest) -> str:
         roles = set(framework.roles)
     if kind in KNOWLEDGE_ROLES:
         roles = KNOWLEDGE_ROLES[kind]
+    if kind == "fix_and_rerun":
+        roles = {"research_coding_agent", "coder_agent"}
     if payload.assigned_to and payload.assigned_to not in roles:
         raise ContractError("legacy task role is incompatible with its declared operation")
     return kind

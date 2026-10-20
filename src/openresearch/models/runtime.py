@@ -35,6 +35,9 @@ class TaskContract(ContractModel):
     version: str = "v1"
     input_artifacts: list[str] = Field(default_factory=list)
     output_artifacts: list[str] = Field(default_factory=list)
+    optional_output_artifacts: list[str] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     allowed_tools: list[str] = Field(default_factory=list)
 
 

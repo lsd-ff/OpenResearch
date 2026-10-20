@@ -13,7 +13,7 @@ from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
 
 TERMINAL = {Status.COMPLETED, Status.FAILED, Status.BLOCKED, Status.CANCELED}
-SOURCE_TYPES = {"research_execute", "code_execute", "data_analyze"}
+SOURCE_TYPES = {"research_execute", "research_gap_repair", "code_execute", "data_analyze"}
 SUPPLEMENT_KEYS = {
     "audit_report",
     "comparison_report",

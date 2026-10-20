@@ -39,6 +39,7 @@ class ExperimentInput:
     dependency_constraints: tuple[str, ...] = ()
     allow_environment_repair: bool = False
     allow_patch_repair: bool = True
+    preserve_checks: bool = False
     allow_runtime_select: bool = False
     runtime_fixed: bool = True
     interpreter_probe: InterpreterProbe | None = None

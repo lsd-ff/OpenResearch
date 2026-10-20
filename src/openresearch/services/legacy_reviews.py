@@ -56,7 +56,7 @@ def build_review_plan(
     snapshot = review_snapshot(payload, identity, plans.repository, files)
     scientific = {"benchmark_validate", "paper_compare", "claim_evidence_build"}
     material = load_review(snapshot, identity.user_id, plans.repository, files)
-    if kind in scientific and material.task.type != "research_execute":
+    if kind in scientific and material.task.type not in {"research_execute", "research_gap_repair"}:
         raise ContractError("this review requires a managed scientific execution stage")
     outputs = {
         "benchmark_validate": ["benchmark_metrics", "benchmark_validation_report"],

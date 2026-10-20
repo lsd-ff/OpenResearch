@@ -6,6 +6,7 @@ from openresearch.agents.compute import ComputeAgent
 from openresearch.agents.context import AgentContext
 from openresearch.agents.environment import EnvironmentAgent
 from openresearch.agents.framework_design import FrameworkDesigner
+from openresearch.agents.gap_repair import GapRepairer
 from openresearch.agents.research_design import ResearchDesigner
 from openresearch.agents.research_execute import ResearchExecutor
 from openresearch.agents.research_prepare import ResearchPreparer
@@ -42,9 +43,12 @@ class CoderAgent:
         self.designer = ResearchDesigner(settings, files)
         self.preparer = ResearchPreparer(settings, files)
         self.research_executor = ResearchExecutor(settings, repository, files, sandbox)
+        self.gaps = GapRepairer(settings, repository, files, self.research_executor)
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
+        if task.type == "research_gap_repair":
+            return await self.gaps.execute(plan, task, lease)
         probe = interpreter_probe(self.settings, self.sessions, lease, task, plan.user_intent)
         if task.type == "legacy_environment":
             return await self.legacy_environment.execute(plan, task, lease)
