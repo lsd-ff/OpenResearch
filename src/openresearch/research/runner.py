@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 
 from openresearch.config import Settings
-from openresearch.errors import ContractError, SandboxError
+from openresearch.errors import ContractError, DependencyInstallError, SandboxError
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.research import (
     ExperimentVariant,
@@ -32,6 +32,10 @@ class ExperimentInput:
     number: int
     required_modules: tuple[str, ...] = ()
     framework_source_sha256: str | None = None
+    dependency_requests: tuple[str, ...] = ()
+    dependency_constraints: tuple[str, ...] = ()
+    allow_environment_repair: bool = False
+    allow_patch_repair: bool = True
 
 
 @dataclass(frozen=True)
@@ -100,7 +104,34 @@ class ExperimentRunner:
 
     async def run(self, request: ExperimentInput) -> ExperimentOutput:
         async with self.sessions.open(request.lease) as session:
-            environment = await install_environment(session, request.lock, self.settings)
+            lock_sha256 = hashlib.sha256(request.lock.model_dump_json().encode()).hexdigest()
+            try:
+                environment = await install_environment(session, request.lock, self.settings)
+            except DependencyInstallError as exc:
+                # 安装失败没有执行科研程序；保留安装进程回执，不能伪造运行环境或测试结果。
+                attempt = RunAttempt(
+                    number=request.number,
+                    patch_sha256=hashlib.sha256(
+                        request.patch.model_dump_json().encode()
+                    ).hexdigest(),
+                    patch=request.patch,
+                    exit_code=exc.result.exit_code,
+                    stdout=exc.result.stdout,
+                    stderr=exc.result.stderr,
+                    error=str(exc),
+                    phase="install",
+                    sandbox_id=session.id,
+                    container_image_id=await session.adapter.image_identity(session.id),
+                    environment_lock_sha256=lock_sha256,
+                )
+                return ExperimentOutput(
+                    ResearchRun(
+                        variant=request.variant.name,
+                        arguments=request.variant.arguments,
+                        attempts=[attempt],
+                    ),
+                    [],
+                )
             files = {f"repository/{path}": raw for path, raw in request.files.items()}
             if request.dataset:
                 files["benchmark_input.json"] = json.dumps(
@@ -120,6 +151,9 @@ class ExperimentRunner:
                 error=f"experiment exited with status {result.exit_code}"
                 if result.exit_code
                 else "",
+                sandbox_id=session.id,
+                container_image_id=environment.container_image_id,
+                environment_lock_sha256=lock_sha256,
             )
             run = ResearchRun(
                 variant=request.variant.name,

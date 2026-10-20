@@ -3,7 +3,7 @@ from openresearch.errors import ContractError
 from openresearch.models.comparison import ComparisonSpec
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task
 from openresearch.models.submissions import PlanSubmission
-from openresearch.planner.research import depend, research_task
+from openresearch.planner.research import depend, repair_tools, research_task
 
 
 def namespace_task(task: Task, scope: str) -> None:
@@ -18,7 +18,7 @@ def namespace_task(task: Task, scope: str) -> None:
 
 
 def benchmark_branch(
-    spec: ComparisonSpec, protocol: Task, index: int, settings: Settings
+    spec: ComparisonSpec, protocol: Task, index: int, settings: Settings, intent: str = ""
 ) -> list[Task]:
     target = spec.targets[index]
     design = research_task(
@@ -42,7 +42,7 @@ def benchmark_branch(
     depend(prepare, [design, freeze, protocol])
     preflight = research_task(
         "benchmark_preflight",
-        ["benchmark.preflight", "research.patch"],
+        ["benchmark.preflight", *repair_tools(intent)],
         [
             "benchmark_preflight_report",
             "benchmark_preflight_patch",
@@ -52,7 +52,7 @@ def benchmark_branch(
     depend(preflight, [design, freeze, prepare, protocol])
     execute = research_task(
         "research_execute",
-        ["research.run", "research.patch", "benchmark.preflight"],
+        ["research.run", *repair_tools(intent), "benchmark.preflight"],
         [
             "research_report",
             "benchmark_predictions",
@@ -93,7 +93,7 @@ def build_framework_plan(submission: PlanSubmission, settings: Settings) -> Plan
     nodes = [protocol]
     for index, target in enumerate(spec.targets):
         if spec.mode == "benchmark":
-            nodes.extend(benchmark_branch(spec, protocol, index, settings))
+            nodes.extend(benchmark_branch(spec, protocol, index, settings, submission.intent))
         else:
             study = research_task(
                 "framework_research",

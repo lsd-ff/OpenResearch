@@ -3,6 +3,7 @@ from openresearch.errors import ContractError
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task, TaskContract
 from openresearch.models.submissions import PlanSubmission
+from openresearch.planner.code import code_permissions
 from openresearch.planner.documents import document_task
 from openresearch.research.ablation import requested_ablation_budget
 
@@ -25,6 +26,13 @@ def depend(task: Task, parents: list[Task]) -> None:
     task.dependencies = [parent.id for parent in parents]
     task.required_artifacts = [key for parent in parents for key in parent.output_artifacts]
     task.contract.input_artifacts = task.required_artifacts
+
+
+def repair_tools(intent: str) -> list[str]:
+    generation, execution = code_permissions(intent)
+    return (["research.patch"] if "code.repair" in generation else []) + (
+        ["environment.repair"] if "environment.lock" in execution else []
+    )
 
 
 def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Settings) -> list[Task]:
@@ -110,7 +118,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     if spec.benchmark:
         preflight = research_task(
             "benchmark_preflight",
-            ["benchmark.preflight", "research.patch"],
+            ["benchmark.preflight", *repair_tools(submission.intent)],
             ["benchmark_preflight_report", "benchmark_preflight_patch"],
             settings,
         )
@@ -120,7 +128,11 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         execution_parents.append(preflight)
     execute = research_task(
         "research_execute",
-        ["research.run", "research.patch", *(["benchmark.preflight"] if spec.benchmark else [])],
+        [
+            "research.run",
+            *repair_tools(submission.intent),
+            *(["benchmark.preflight"] if spec.benchmark else []),
+        ],
         [
             "research_report",
             "benchmark_predictions",

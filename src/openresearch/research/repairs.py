@@ -5,7 +5,9 @@ from dataclasses import dataclass, replace
 
 from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.errors import ContractError, ModelError
+from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.research import BenchmarkPreflightReport, RunAttempt
+from openresearch.research.environment_repair import ResearchEnvironmentRepairer, dependency_failure
 from openresearch.research.patches import apply_patch, cumulative_patch
 from openresearch.research.runner import ExperimentInput, ExperimentOutput, ExperimentRunner
 
@@ -15,12 +17,19 @@ class RepairOutcome:
     output: ExperimentOutput
     request: ExperimentInput
     rechecks: tuple[BenchmarkPreflightReport, ...] = ()
+    environment_changes: tuple[EnvironmentRepairDecision, ...] = ()
 
 
 class RepairPipeline:
-    def __init__(self, preparer: ResearchPreparer, runner: ExperimentRunner) -> None:
+    def __init__(
+        self,
+        preparer: ResearchPreparer,
+        runner: ExperimentRunner,
+        environment_repairer: ResearchEnvironmentRepairer | None = None,
+    ) -> None:
         self.preparer = preparer
         self.runner = runner
+        self.environment_repairer = environment_repairer
 
     async def run(
         self,
@@ -36,11 +45,24 @@ class RepairPipeline:
         attempts = list(output.run.attempts)
         failure = attempts[-1]
         rechecks = []
+        environment_changes = []
         for _ in range(request.spec.max_repairs if allow_repairs else 0):
             if not failure.error:
                 break
             try:
-                request = await self._revise(intent, original, request, failure)
+                if self.environment_repairer and dependency_failure(request, failure):
+                    revision = await self.environment_repairer.revise(intent, request, failure)
+                    environment_changes.append(revision.decision)
+                    if not revision.decision.accepted:
+                        failure.error += "; environment repair unavailable: " + (
+                            revision.decision.error or "no justified dependency change"
+                        )
+                        break
+                    request = replace(
+                        request, lock=revision.lock, dependency_requests=revision.requests
+                    )
+                else:
+                    request = await self._revise(intent, original, request, failure)
             except (ContractError, ModelError, ValueError) as exc:
                 failure.error += f"; repair unavailable: {exc}"
                 break
@@ -58,17 +80,23 @@ class RepairPipeline:
         output.run.attempts = attempts
         if rechecks and rechecks[-1].status != "passed":
             attempts[-1].error += "; revised benchmark preflight failed: " + failure.error[-2000:]
-        return RepairOutcome(output, request, tuple(rechecks))
+        return RepairOutcome(output, request, tuple(rechecks), tuple(environment_changes))
 
     async def _revise(
         self, intent: str, original: dict[str, bytes], request: ExperimentInput, failure: RunAttempt
     ) -> ExperimentInput:
+        if not request.allow_patch_repair or failure.phase == "install":
+            raise ContractError(
+                "source changes cannot repair this environment or bypass permissions"
+            )
         # 修复读取本次实际回溯，预检与正式运行共用原节点的有界修复次数。
         feedback = json.dumps(
             {
                 "error": failure.error,
                 "stdout": failure.stdout[-3000:],
                 "stderr": failure.stderr[-5000:],
+                "phase": failure.phase,
+                "effective_environment": [wheel.requirement for wheel in request.lock.wheels],
             },
             ensure_ascii=False,
         )

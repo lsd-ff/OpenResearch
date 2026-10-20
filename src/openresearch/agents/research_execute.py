@@ -17,8 +17,10 @@ from openresearch.models.research import (
     ResearchSpec,
 )
 from openresearch.models.runtime import Plan, Task, TaskResult
-from openresearch.models.sources import EnvironmentLock, RepositorySnapshot
+from openresearch.models.sources import RepositorySnapshot
 from openresearch.research.benchmark import Dataset, parse_dataset
+from openresearch.research.environment_policy import dependency_policy, prepared_lock
+from openresearch.research.environment_repair import ResearchEnvironmentRepairer
 from openresearch.research.outcomes import comparison, research_result
 from openresearch.research.patches import apply_patch
 from openresearch.research.preflight import BenchmarkPreflight, verify_preflight
@@ -49,7 +51,9 @@ class ResearchExecutor:
         self.uploads = UploadFiles(settings.data_dir / "uploads", settings.upload_max_bytes)
         self.preparer = ResearchPreparer(settings, files)
         self.runner = ExperimentRunner(settings, SandboxSessions(repository, sandbox))
-        self.repairs = RepairPipeline(self.preparer, self.runner)
+        self.repairs = RepairPipeline(
+            self.preparer, self.runner, ResearchEnvironmentRepairer(settings)
+        )
         self.claims = ClaimAssessor(settings, files)
 
     def _dataset(self, plan: Plan, spec: ResearchSpec) -> Dataset | None:
@@ -72,15 +76,14 @@ class ResearchExecutor:
         source = plan.artifacts.get("framework_source")
         source_raw = self.files.read(source) if source else ""
         modules = FrameworkSource.model_validate_json(source_raw).import_roots if source else []
+        requests, constraints = dependency_policy(plan, task, self.files, spec)
         request = ExperimentInput(
             lease=lease,
             spec=spec,
             variant=ExperimentVariant(name="baseline", arguments=spec.arguments),
             files=apply_patch(sources, patch, spec),
             patch=patch,
-            lock=EnvironmentLock.model_validate_json(
-                self.files.read(plan.artifacts["environment_lock"])
-            ),
+            lock=prepared_lock(plan, task, self.files),
             dataset=self._dataset(plan, spec),
             number=1,
             required_modules=tuple(modules),
@@ -89,6 +92,10 @@ class ResearchExecutor:
             ).hexdigest()
             if source
             else None,
+            dependency_requests=requests,
+            dependency_constraints=constraints,
+            allow_environment_repair="environment.repair" in task.contract.allowed_tools,
+            allow_patch_repair="research.patch" in task.contract.allowed_tools,
         )
         return PreparedExperiment(snapshot, sources, request)
 
@@ -100,7 +107,9 @@ class ResearchExecutor:
             plan.user_intent,
             prepared.original,
             prepared.request,
-            allow_repairs="research.patch" in task.contract.allowed_tools,
+            allow_repairs=bool(
+                {"research.patch", "environment.repair"}.intersection(task.contract.allowed_tools)
+            ),
         )
         final = report.run.attempts[-1]
         return TaskResult(
@@ -134,9 +143,9 @@ class ResearchExecutor:
             return checked
 
         # 旧计划不自动扩权；缺少重新预检权限时可以执行原冻结程序，但不能修复后绕过门禁。
-        allow_repairs = "research.patch" in task.contract.allowed_tools and (
-            preflight is None or "benchmark.preflight" in task.contract.allowed_tools
-        )
+        allow_repairs = bool(
+            {"research.patch", "environment.repair"}.intersection(task.contract.allowed_tools)
+        ) and (preflight is None or "benchmark.preflight" in task.contract.allowed_tools)
         baseline = await self.repairs.run(
             plan.user_intent,
             prepared.original,
@@ -165,6 +174,8 @@ class ResearchExecutor:
             entrypoint=request.spec.entrypoint,
             preflight=preflight,
             preflight_rechecks=list(baseline.rechecks),
+            environment_changes=list(baseline.environment_changes),
+            final_environment_lock=request.lock,
             ablation_plan=AblationPlan.model_validate_json(
                 self.files.read(plan.artifacts["ablation_plan"])
             )

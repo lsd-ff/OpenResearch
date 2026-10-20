@@ -50,6 +50,8 @@ def benchmark_plan(
     ablations=True,
     data=b"id,x,y\na,1,yes\nb,0,no\nc,1,yes\n",
     search=None,
+    environment=None,
+    intent="evaluate a real classifier",
 ):
     identity = Identity("research-user", "research-session")
     upload = UploadService(settings, repository).create(
@@ -57,11 +59,12 @@ def benchmark_plan(
     )
     return PlanService(settings, repository).create(
         PlanSubmission(
-            intent="evaluate a real classifier",
+            intent=intent,
             identity=identity,
             code=code,
             workflow="benchmark",
             research=ResearchSpec(
+                environment=environment or EnvironmentSpec(),
                 max_repairs=repairs,
                 ablation_search=search,
                 rubric=RubricDraft(

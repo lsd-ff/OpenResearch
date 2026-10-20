@@ -90,8 +90,10 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
         metadata = {
             "variant": run.variant,
             "metrics": run.metrics,
-            "environment": run.environment.model_dump(mode="json"),
+            "environment": run.environment.model_dump(mode="json") if run.environment else None,
             "exit_code": attempt.exit_code,
+            "phase": attempt.phase,
+            "environment_lock_sha256": attempt.environment_lock_sha256,
         }
         sections.extend(
             [
@@ -118,6 +120,8 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
                     "attempts": [
                         {
                             "number": item.number,
+                            "phase": item.phase,
+                            "environment_lock_sha256": item.environment_lock_sha256,
                             "exit_code": item.exit_code,
                             "error": item.error,
                             "stderr_tail": item.stderr[-1200:],
@@ -127,6 +131,15 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
                 }
                 for run in history_runs
             ],
+            ensure_ascii=False,
+        )
+        output["environment_changes"] = json.dumps(
+            [
+                change.model_dump()
+                for check in ([report.preflight] if report.preflight else [])
+                for change in check.environment_changes
+            ]
+            + [change.model_dump() for change in report.environment_changes],
             ensure_ascii=False,
         )
     if "parsed_paper" in evidence:

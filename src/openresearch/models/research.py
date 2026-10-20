@@ -4,8 +4,9 @@ from pydantic import Field, field_validator, model_validator
 
 from openresearch.models.ablation import AblationBudget, AblationPlan
 from openresearch.models.claims import RubricDraft
+from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.runtime import ContractModel
-from openresearch.models.sources import EnvironmentSpec, RepositorySpec
+from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, RepositorySpec
 from openresearch.sandbox.file_transfer import relative_path
 
 
@@ -111,17 +112,21 @@ class RunAttempt(ContractModel):
     number: int = Field(ge=1, le=3)
     patch_sha256: str
     patch: ResearchPatch
-    exit_code: int
+    exit_code: int | None
     stdout: str
     stderr: str
     error: str = ""
+    phase: Literal["install", "execute"] = "execute"
+    sandbox_id: str | None = None
+    container_image_id: str | None = None
+    environment_lock_sha256: str = ""
 
 
 class ResearchRun(ContractModel):
     variant: str
     arguments: list[str]
     attempts: list[RunAttempt]
-    environment: EnvironmentReport
+    environment: EnvironmentReport | None = None
     predictions_sha256: str | None = None
     metrics: dict[str, float] = Field(default_factory=dict)
     execution_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -139,6 +144,9 @@ class BenchmarkPreflightReport(ContractModel):
     total_rows: int = Field(ge=1)
     run: ResearchRun
     framework_source_sha256: str | None = None
+    environment_lock: EnvironmentLock | None = None
+    environment_changes: list[EnvironmentRepairDecision] = Field(default_factory=list, max_length=2)
+    dependency_requests: list[str] = Field(default_factory=list, max_length=128)
 
 
 class ResearchReport(ContractModel):
@@ -153,4 +161,6 @@ class ResearchReport(ContractModel):
     entrypoint: str = ""
     preflight: BenchmarkPreflightReport | None = None
     preflight_rechecks: list[BenchmarkPreflightReport] = Field(default_factory=list, max_length=2)
+    environment_changes: list[EnvironmentRepairDecision] = Field(default_factory=list, max_length=2)
+    final_environment_lock: EnvironmentLock | None = None
     ablation_plan: AblationPlan | None = None
