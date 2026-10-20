@@ -28,7 +28,7 @@
 | POST | /api/plans/{id}/tasks/{task}/execute | 202，只排队所选节点，依赖须已完成 |
 | POST | /api/plans/{id}/tasks/{task}/retry | 重置失败节点及后继，需再次执行 |
 | POST | /api/plans/{id}/tasks/{task}/reassign | assigned_to；仅允许尚未开始节点与兼容角色 |
-| POST | /api/execute | 持久节点的兼容 SSE 执行，task_id 必填，plan_id 可选 |
+| POST | /api/execute | 选择已保存节点，或以旧任务字段创建受治理的持久计划；SSE，待审批时返回 202 JSON |
 | GET | /api/plans/{id}/events?after=0 | 最多 200 个事件、next_cursor |
 | GET | /api/plans/{id}/stream?after=0 | plan_event SSE，支持 Last-Event-ID |
 | GET | /api/plans/{id}/artifacts/{artifact}/content | 完整文本产物与 SHA ETag |
@@ -67,7 +67,11 @@ workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已�
 
 repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来源，多个候选需要显式选择。ref 在准备时固定为完整提交 SHA。research.benchmark 包含 upload_id、format、input_columns、target_column、id_column、task 和 metrics；其协议见 experiments.md。rubric 支持来源页引用、数值阈值、容差、比较操作和指定运行 variant，规则先于实验冻结。
 
-/api/execute 只选择已保存的节点，客户端提交的类型、角色、输入不能覆盖持久契约。SSE 输出 log、result、error；整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
+`/api/execute` 支持两种请求：用服务端 `task_id`（可带 `plan_id`）选择已保存节点，或用 `task_type`、非空 `task_description`、`assigned_to`、`inputs` 创建旧接口兼容计划。前者仍不允许客户端类型、角色和输入覆盖持久契约；后者的外部 `task_id` 仅作来源标记，实际计划和节点 ID 由服务端生成。当前仅接通代码、依赖/环境、所属数据分析及 PDF 解析基础阶段，其他旧科研任务类型保持 422，完整范围见 [旧接口迁移](legacy-api.md)。
+
+兼容入口 SSE 输出 log、result、error；流响应头 `X-OpenResearch-Plan-Id`、`X-OpenResearch-Task-Id` 返回实际 ID。开启审批时先返回 202 JSON（`approval_required`、`plan_id`、`task_id`、`plan_graph`），审批后以实际 ID 再次调用。已保存的兼容计划重读结果不会重新执行，也不会采用新提交的源码；未保存的新请求会创建新计划。首次匿名响应保留身份 Cookie。结果兼容 Go 的 `image_base_64` 并保留原 `image_base64`，`outputs` 包含本阶段实际产物。环境引用是所属配置和锁的回执，每次实际执行仍创建受管容器。该 POST 流没有游标续传；要按游标读取持久事件使用整图 GET 流。
+
+整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
 
 整图 SSE 的浏览器连接在短暂断流后由 EventSource 携带 Last-Event-ID 自动重连；收到终态、切换会话或卸载页面才主动关闭。服务端读取终态快照之后再次检查尾部事件，避免任务在两次数据库读取之间完成时漏发结果；单节点流同样先排空晚提交的日志，再发送 result/error。重连后首次收到产物时，已经打开的空日志面板会切换到对应结果视图。日志和结果仍来自持久记录，断线不会重新执行实验。
 

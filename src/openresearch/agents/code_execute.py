@@ -13,6 +13,7 @@ from openresearch.agents.code_repair import (
 from openresearch.config import Settings
 from openresearch.errors import ContractError, ModelError
 from openresearch.llm.client import LLMClient
+from openresearch.models.code_environment import CodeEnvironment
 from openresearch.models.compute import ReproductionRequest
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.recovery import CodeRecoveryReport, RecoveryDecision, RecoveryProposal
@@ -42,6 +43,7 @@ class CodeState:
     lock: EnvironmentLock
     runtime: RuntimeBinding | None = None
     probe: InterpreterProbe | None = None
+    constraints: tuple[str, ...] = ()
 
 
 class CodeExecutor:
@@ -53,7 +55,13 @@ class CodeExecutor:
         self.max_repairs = settings.code_max_repairs
 
     async def execute(
-        self, task: Task, lease: ExecutionLease, code: str, goal: str | None = None
+        self,
+        task: Task,
+        lease: ExecutionLease,
+        code: str,
+        goal: str | None = None,
+        *,
+        bootstrap: CodeEnvironment | None = None,
     ) -> TaskResult:
         if "sandbox.python" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to execute code")
@@ -74,12 +82,22 @@ class CodeExecutor:
         report = CodeRecoveryReport(max_repairs=maximum, original_code_sha256=code_digest(code))
         probe = interpreter_probe(self.settings, self.runner.sessions, lease, task, intent)
         identity = await probe(binding) if probe else None
+        if bootstrap and (
+            bootstrap.runtime != binding
+            or (identity and bootstrap.lock.interpreter and bootstrap.lock.interpreter != identity)
+        ):
+            raise ContractError("prepared code environment differs from the frozen runtime")
         state = CodeState(
             code,
-            [],
-            EnvironmentLock(python=runtime_python(self.settings, binding), interpreter=identity),
+            list(bootstrap.requests) if bootstrap else [],
+            bootstrap.lock
+            if bootstrap
+            else EnvironmentLock(
+                python=runtime_python(self.settings, binding), interpreter=identity
+            ),
             binding,
             probe,
+            bootstrap.constraints if bootstrap else (),
         )
         remaining = maximum
         while True:
@@ -159,7 +177,7 @@ class CodeExecutor:
         remaining: int,
         decision: RecoveryDecision,
     ) -> CodeState:
-        constraints = [
+        constraints = list(state.constraints) + [
             constraint
             for value in [*state.requests, *proposal.requirements]
             if (constraint := dependency_constraint(intent, Requirement(value).name))

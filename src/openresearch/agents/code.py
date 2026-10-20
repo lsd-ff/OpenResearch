@@ -1,3 +1,5 @@
+import json
+
 from openresearch.agents.code_repair import CodeRepairer
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
@@ -21,6 +23,10 @@ class CodeAgent:
         code = task.inputs.get("code")
         if not isinstance(code, str):
             description = goal or task.description
+            if task.inputs.get("legacy_requirements"):
+                description += "\nUser-declared dependency requirements: " + json.dumps(
+                    task.inputs["legacy_requirements"]
+                )
             if runtime:
                 gpu = self.llm.settings.runtime_profiles[runtime.profile].gpu
                 description += (

@@ -111,6 +111,15 @@ class PlanningInfo(ContractModel):
     reason: str = "explicit_workflow"
 
 
+class LegacyTaskOrigin(ContractModel):
+    task_id: str = Field(default="", max_length=128)
+    task_type: str = Field(max_length=64)
+    requested_type: str = Field(default="", max_length=64)
+    task_name: str = Field(default="", max_length=256)
+    assigned_to: str = Field(default="", max_length=64)
+    native_task_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+
+
 class Plan(ContractModel):
     id: str = Field(default_factory=new_id)
     user_intent: str
@@ -120,6 +129,7 @@ class Plan(ContractModel):
     attachments: list[str] = Field(default_factory=list, max_length=8)
     trace_id: str = Field(default_factory=new_id)
     planning: PlanningInfo = Field(default_factory=PlanningInfo)
+    legacy: LegacyTaskOrigin | None = Field(default=None, exclude_if=lambda value: value is None)
     status: Status = Status.PENDING
     approval: Approval = Field(default_factory=Approval)
     budget: Budget = Field(default_factory=Budget)

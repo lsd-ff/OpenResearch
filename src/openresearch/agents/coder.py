@@ -12,8 +12,11 @@ from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
+from openresearch.models.code_environment import CodeEnvironment
+from openresearch.models.legacy import LegacyEnvironmentState
 from openresearch.models.runtime import TaskResult
 from openresearch.research.interpreter import interpreter_probe
+from openresearch.research.legacy_environment import LegacyEnvironment
 from openresearch.research.source_context import document_context
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.session import SandboxSessions
@@ -29,6 +32,7 @@ class CoderAgent:
         self.files = files
         self.settings = settings
         self.sessions = SandboxSessions(repository, sandbox)
+        self.legacy_environment = LegacyEnvironment(settings, self.sessions, files)
         self.code = CodeAgent(LLMClient(settings))
         self.execution = ExecutionTool(repository, sandbox, settings.max_output_bytes)
         self.code_execution = CodeExecutor(settings, repository, sandbox)
@@ -42,6 +46,8 @@ class CoderAgent:
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
         probe = interpreter_probe(self.settings, self.sessions, lease, task, plan.user_intent)
+        if task.type == "legacy_environment":
+            return await self.legacy_environment.execute(plan, task, lease)
         if task.type == "runtime_prepare":
             return await self.compute.execute(task, lease)
         if task.type == "framework_design":
@@ -52,6 +58,32 @@ class CoderAgent:
         if task.type == "code_execute":
             code = await asyncio.to_thread(self.files.read, plan.artifacts["generated_code"])
             if "code_recovery_report" in task.output_artifacts:
+                if task.inputs.get("legacy_environment"):
+                    if "legacy_environment_state" not in task.required_artifacts:
+                        raise ContractError(
+                            "prepared environment must come from a declared ancestor"
+                        )
+                    state = LegacyEnvironmentState.model_validate_json(
+                        await asyncio.to_thread(
+                            self.files.read, plan.artifacts["legacy_environment_state"]
+                        )
+                    )
+                    if state.phase == "probe":
+                        raise ContractError(
+                            "code execution requires a locked dependency environment"
+                        )
+                    return await self.code_execution.execute(
+                        task,
+                        lease,
+                        code,
+                        plan.user_intent,
+                        bootstrap=CodeEnvironment(
+                            state.lock,
+                            tuple(state.requests),
+                            state.runtime,
+                            tuple(state.constraints),
+                        ),
+                    )
                 return await self.code_execution.execute(task, lease, code, plan.user_intent)
             return await self.execution.execute(task, lease, code)
         if task.type == "environment_lock":
