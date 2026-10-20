@@ -8,6 +8,7 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.ablation import AblationPlan
 from openresearch.models.comparison import FrameworkSource
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.research import (
     BenchmarkPreflightReport,
@@ -176,6 +177,11 @@ class ResearchExecutor:
             preflight_rechecks=list(baseline.rechecks),
             environment_changes=list(baseline.environment_changes),
             final_environment_lock=request.lock,
+            environment_preparation=[
+                EnvironmentPreparationReport.model_validate_json(self.files.read(artifact))
+                for key in ("dependency_resolution_report", "environment_preparation_report")
+                if (artifact := plan.artifacts.get(key))
+            ],
             ablation_plan=AblationPlan.model_validate_json(
                 self.files.read(plan.artifacts["ablation_plan"])
             )

@@ -5,6 +5,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.claims import CriterionVerdict, FrozenCriterion, SemanticAssessment
 from openresearch.models.research import ResearchReport
 from openresearch.research.claim_verdicts import unknown
+from openresearch.research.environment_preparation import preparation_summary
 
 
 def validate_semantic(
@@ -107,6 +108,13 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
     execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
     if include_history:
+        output["environment_preparation"] = json.dumps(
+            [
+                json.loads(preparation_summary(prepared))
+                for prepared in report.environment_preparation
+            ],
+            ensure_ascii=False,
+        )
         history_runs = (
             ([report.preflight.run] if report.preflight else [])
             + [check.run for check in report.preflight_rechecks]

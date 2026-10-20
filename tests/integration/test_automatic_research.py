@@ -72,7 +72,10 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
         )
 
     async def resolve(requests):
-        assert requests == ["blinker>=1.9,<2"]
+        from packaging.requirements import Requirement
+
+        assert len(requests) == 1
+        assert Requirement(requests[0]) == Requirement("blinker>=1.9,<2")
         return EnvironmentSpec(requirements=["blinker==1.9.0"])
 
     designer.llm = LLMClient(settings, httpx.MockTransport(model))

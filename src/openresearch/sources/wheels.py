@@ -12,7 +12,7 @@ from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
 
 from openresearch.config import Settings
-from openresearch.errors import ContractError
+from openresearch.errors import ContractError, EnvironmentLockError
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, LockedWheel
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_closure import validate_dependency_graph
@@ -50,7 +50,7 @@ def validate_closure(metadata: dict[str, dict[str, Any]], pins: dict[str, str]) 
             environment,
         )
     except ValueError as exc:
-        raise ContractError(str(exc)) from exc
+        raise EnvironmentLockError(str(exc)) from exc
 
 
 def validate_package(metadata: dict[str, Any], name: str, version: str) -> None:
@@ -60,7 +60,7 @@ def validate_package(metadata: dict[str, Any], name: str, version: str) -> None:
     ) != Version(version):
         raise ContractError("package metadata differs from the requested exact pin")
     if "3.12.0" not in SpecifierSet(info.get("requires_python") or ""):
-        raise ContractError("dependency does not support the locked Python version")
+        raise EnvironmentLockError("dependency does not support the locked Python version")
 
 
 def choose_wheel(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -81,7 +81,7 @@ def choose_wheel(metadata: dict[str, Any]) -> dict[str, Any]:
         if parts.scheme != "https" or parts.netloc != "files.pythonhosted.org":
             raise ContractError("wheel URL is outside the trusted package host")
         return dict(asset)
-    raise ContractError("dependency has no supported CPython 3.12 Linux x86_64 wheel")
+    raise EnvironmentLockError("dependency has no supported CPython 3.12 Linux x86_64 wheel")
 
 
 class WheelSource:

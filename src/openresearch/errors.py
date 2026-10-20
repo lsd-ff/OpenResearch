@@ -19,6 +19,16 @@ class ContractError(Exception):
     """A plan, tool call, or result violates its declared contract."""
 
 
+class DependencyResolutionError(ContractError):
+    def __init__(self, diagnostic: str, exit_code: int) -> None:
+        self.diagnostic, self.exit_code = diagnostic[-16000:], exit_code
+        super().__init__("dependency resolution failed: " + self.diagnostic[-2000:])
+
+
+class EnvironmentLockError(ContractError):
+    """公开包版本、平台或依赖闭包不兼容；完整性/预算错误不属于可修复类别。"""
+
+
 class PlanningInputRequired(ContractError):
     def __init__(self, pending: "PendingPlanning") -> None:
         super().__init__(pending.question)

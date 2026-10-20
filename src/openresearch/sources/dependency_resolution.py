@@ -8,13 +8,13 @@ from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from openresearch.errors import ContractError
+from openresearch.errors import ContractError, DependencyResolutionError
 from openresearch.models.sources import EnvironmentSpec
 
 
-def dependency_requests(values: list[str]) -> list[str]:
-    if len(values) > 32:
-        raise ContractError("automatic environment exceeds 32 dependency requests")
+def dependency_requests(values: list[str], *, limit: int = 32) -> list[str]:
+    if len(values) > limit:
+        raise ContractError(f"automatic environment exceeds {limit} dependency requests")
     requests = []
     for value in values:
         try:
@@ -40,7 +40,14 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 
 class DependencyResolver:
     async def resolve(self, requests: list[str]) -> EnvironmentSpec:
-        dependencies = dependency_requests(requests)
+        return await self._resolve(requests, 32)
+
+    async def resolve_recovery(self, requests: list[str]) -> EnvironmentSpec:
+        # 模型仍最多提出 8 个变更；此入口只为保留已有最多 128 个锁定包，不能扩展新设计预算。
+        return await self._resolve(requests, 128)
+
+    async def _resolve(self, requests: list[str], limit: int) -> EnvironmentSpec:
+        dependencies = dependency_requests(requests, limit=limit)
         if not dependencies:
             return EnvironmentSpec()
         executable = shutil.which("uv")
@@ -93,11 +100,13 @@ class DependencyResolver:
         )
         try:
             async with asyncio.timeout(90):
-                await asyncio.gather(capped_output(process.stdout), capped_output(process.stderr))
-                if await process.wait() != 0:
-                    raise ContractError(
-                        "无法为当前 Python/CPU 环境解析兼容依赖；"
-                        "可在聊天中指定其他版本或轻量运行方式。"
+                stdout, stderr = await asyncio.gather(
+                    capped_output(process.stdout), capped_output(process.stderr)
+                )
+                exit_code = await process.wait()
+                if exit_code != 0:
+                    raise DependencyResolutionError(
+                        (stderr or stdout).decode("utf-8", errors="replace"), exit_code
                     )
         except TimeoutError:
             raise ContractError("automatic dependency resolution timed out") from None

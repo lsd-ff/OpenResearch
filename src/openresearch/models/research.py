@@ -4,6 +4,7 @@ from pydantic import Field, field_validator, model_validator
 
 from openresearch.models.ablation import AblationBudget, AblationPlan
 from openresearch.models.claims import RubricDraft
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.runtime import ContractModel
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, RepositorySpec
@@ -163,4 +164,7 @@ class ResearchReport(ContractModel):
     preflight_rechecks: list[BenchmarkPreflightReport] = Field(default_factory=list, max_length=2)
     environment_changes: list[EnvironmentRepairDecision] = Field(default_factory=list, max_length=2)
     final_environment_lock: EnvironmentLock | None = None
+    environment_preparation: list[EnvironmentPreparationReport] = Field(
+        default_factory=list, max_length=2
+    )
     ablation_plan: AblationPlan | None = None

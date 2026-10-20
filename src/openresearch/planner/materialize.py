@@ -95,7 +95,7 @@ def materialize(blueprint: PlanBlueprint, template: Plan, settings: Settings) ->
             and not set(original.dependencies).issubset(task.dependencies)
         ):
             raise ContractError("planner removed a final report's completion barrier")
-        if node.type == "chat_answer":
+        if node.type == "chat_answer" and task.trigger_rule != "all_done":
             task.required_artifacts = [
                 key for ref in node.dependencies for key in tasks[ref].output_artifacts
             ]

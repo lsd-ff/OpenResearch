@@ -52,6 +52,7 @@ def benchmark_plan(
     search=None,
     environment=None,
     intent="evaluate a real classifier",
+    auto_design=False,
 ):
     identity = Identity("research-user", "research-session")
     upload = UploadService(settings, repository).create(
@@ -63,6 +64,7 @@ def benchmark_plan(
             identity=identity,
             code=code,
             workflow="benchmark",
+            auto_design=auto_design,
             research=ResearchSpec(
                 environment=environment or EnvironmentSpec(),
                 max_repairs=repairs,

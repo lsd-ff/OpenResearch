@@ -6,9 +6,11 @@ from openresearch.agents.framework_answers import FrameworkAnswerer
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.chat import ChatReply, ExecutionSummary
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.recovery import CodeRecoveryReport
 from openresearch.models.runtime import TaskResult
 from openresearch.research.code_summaries import recovery_summary
+from openresearch.research.environment_preparation import preparation_summary
 from openresearch.research.semantic_claims import semantic_evidence
 from openresearch.services.chat_context import ChatContext
 from openresearch.storage.files import ArtifactStore
@@ -38,9 +40,19 @@ class ChatAgent:
             return await self.frameworks.execute(plan, task)
         if task.type != "chat_answer" or "chat.answer" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to use the chat agent")
+        keys = list(task.required_artifacts)
+        if task.trigger_rule == "all_done":
+            keys.extend(
+                key
+                for key in (
+                    "research_report",
+                    "dependency_resolution_report",
+                    "environment_preparation_report",
+                )
+                if key in plan.artifacts and key not in keys
+            )
         artifacts = {
-            key: await asyncio.to_thread(self.files.read, plan.artifacts[key])
-            for key in task.required_artifacts
+            key: await asyncio.to_thread(self.files.read, plan.artifacts[key]) for key in keys
         }
         # 大型源码补丁会挤掉实际 stdout；与证据评估共用最终执行投影。
         summaries = {
@@ -52,6 +64,11 @@ class ChatAgent:
             if key in artifacts:
                 summaries[key] = recovery_summary(
                     CodeRecoveryReport.model_validate_json(artifacts[key])
+                )
+        for key in ("dependency_resolution_report", "environment_preparation_report"):
+            if key in artifacts:
+                summaries[key] = preparation_summary(
+                    EnvironmentPreparationReport.model_validate_json(artifacts[key])
                 )
         if task.trigger_rule == "all_done":
             summaries["task_outcomes"] = json.dumps(

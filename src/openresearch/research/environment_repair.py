@@ -67,6 +67,26 @@ class ResearchEnvironmentRepairer:
                 reason=f"实际缺失模块 {module}，补充对应公开包。",
                 requirements=[dependency_constraint(intent, package) or package],
             )
+        return await self.diagnose(
+            intent,
+            failure.phase,
+            failure.error,
+            failure.stderr,
+            list(request.dependency_requests),
+            list(request.dependency_constraints),
+            [wheel.requirement for wheel in request.lock.wheels],
+        )
+
+    async def diagnose(
+        self,
+        intent: str,
+        phase: str,
+        error: str,
+        diagnostic: str,
+        requests: list[str],
+        constraints: list[str],
+        locked: list[str] | None = None,
+    ) -> EnvironmentRepairProposal:
         return await self.llm.request_typed(
             [
                 {
@@ -76,6 +96,9 @@ class ResearchEnvironmentRepairer:
                         "Return EnvironmentRepairProposal: dependencies with up to 8 public PyPI "
                         "names/version ranges to add or update, or stop. "
                         "Preserve the scientific goal, existing packages and user constraints. "
+                        "Exact user constraints cannot be changed. "
+                        "Verified public package metadata "
+                        "in diagnostics overrides your prior knowledge about available versions. "
                         "Do not change source, tests, data, rubric, resource budgets or runtime. "
                         "The target is CPython 3.12 Linux x86_64, CPU, wheel-only "
                         "and offline installation. "
@@ -90,12 +113,12 @@ class ResearchEnvironmentRepairer:
                     "content": json.dumps(
                         {
                             "goal": intent,
-                            "phase": failure.phase,
-                            "error": failure.error[-2000:],
-                            "stderr": failure.stderr[-8000:],
-                            "requests": request.dependency_requests,
-                            "constraints": request.dependency_constraints,
-                            "installed_lock": [wheel.requirement for wheel in request.lock.wheels],
+                            "phase": phase,
+                            "error": error[-2000:],
+                            "stderr": diagnostic[-8000:],
+                            "requests": requests,
+                            "constraints": constraints,
+                            "installed_lock": locked or [],
                         },
                         ensure_ascii=False,
                     ),

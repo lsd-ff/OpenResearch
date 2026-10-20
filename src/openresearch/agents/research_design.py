@@ -10,6 +10,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
+from openresearch.research.environment_preparation import EnvironmentPreparation
 from openresearch.research.repository_context import pytest_paths, repository_context
 from openresearch.research.source_context import document_context
 from openresearch.sources.dependency_resolution import DependencyResolver
@@ -67,6 +68,7 @@ class ResearchDesigner:
         self.preparer = ResearchPreparer(settings, files)
         self.llm = LLMClient(settings)
         self.dependencies = DependencyResolver()
+        self.environment = EnvironmentPreparation(settings)
 
     async def execute(self, plan: Plan, task: Task) -> TaskResult:
         if "research.design" not in task.contract.allowed_tools:
@@ -110,6 +112,27 @@ class ResearchDesigner:
                 design.dependencies.append("pytest>=7,<10")
         if design.entrypoint not in sources and design.entrypoint not in design.patch_paths:
             raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
+        outputs = {"experiment_design": design.model_dump_json()}
+        if "dependency_resolution_report" in task.output_artifacts:
+            self.environment.resolver = self.dependencies
+            prepared = await self.environment.run(
+                plan.user_intent,
+                design.dependencies,
+                spec.environment.requirements,
+                spec.max_repairs if "environment.repair" in task.contract.allowed_tools else 0,
+            )
+            outputs["dependency_resolution_report"] = prepared.report.model_dump_json()
+            if not prepared.report.success or prepared.spec is None:
+                return TaskResult(
+                    success=False,
+                    error=prepared.report.attempts[-1].error,
+                    result="Dependency resolution failed; actual diagnostics preserved.",
+                    structured_data=prepared.report.model_dump_json(),
+                    outputs=outputs,
+                )
+            environment = prepared.spec
+        else:
+            environment = await self.dependencies.resolve(design.dependencies)
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),
@@ -124,14 +147,11 @@ class ResearchDesigner:
                 if spec.ablation_search
                 else [variant.model_dump() for variant in design.ablations],
                 "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
-                "environment": (await self.dependencies.resolve(design.dependencies)).model_dump(),
+                "environment": environment.model_dump(),
             }
         )
         return TaskResult(
             result=design.rationale,
             structured_data=design.model_dump_json(),
-            outputs={
-                "research_spec": resolved.model_dump_json(),
-                "experiment_design": design.model_dump_json(),
-            },
+            outputs={**outputs, "research_spec": resolved.model_dump_json()},
         )

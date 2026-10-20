@@ -1,5 +1,6 @@
 from openresearch.errors import ContractError
 from openresearch.models.comparison import FrameworkSource
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import BenchmarkPreflightReport, ResearchSpec
 from openresearch.models.runtime import Plan, Task
@@ -18,6 +19,14 @@ def dependency_policy(
         if design
         else spec.environment.requirements
     )
+    for key in ("dependency_resolution_report", "environment_preparation_report"):
+        if artifact := plan.artifacts.get(key):
+            prepared = EnvironmentPreparationReport.model_validate_json(files.read(artifact))
+            if not prepared.success:
+                raise ContractError(
+                    "failed environment preparation cannot supply dependency policy"
+                )
+            requests = prepared.attempts[-1].requests
     if "benchmark_preflight_report" in task.required_artifacts:
         checked = BenchmarkPreflightReport.model_validate_json(
             files.read(plan.artifacts["benchmark_preflight_report"])

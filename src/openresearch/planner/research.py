@@ -48,9 +48,20 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
         repository.inputs["auto_discover"] = submission.auto_design
         nodes.append(repository)
     environment = research_task(
-        "environment_lock", ["environment.lock"], ["environment_lock"], settings
+        "environment_lock",
+        [
+            "environment.lock",
+            *(
+                ["environment.repair"]
+                if "environment.repair" in repair_tools(submission.intent)
+                else []
+            ),
+        ],
+        ["environment_lock", "environment_preparation_report", "prepared_environment"],
+        settings,
     )
     environment.inputs["environment"] = spec.environment.model_dump()
+    environment.inputs["research"] = spec.model_dump()
     return [*nodes, environment]
 
 
@@ -68,7 +79,17 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     if submission.auto_design:
         environment = nodes.pop()
         design = research_task(
-            "research_design", ["research.design"], ["research_spec", "experiment_design"], settings
+            "research_design",
+            [
+                "research.design",
+                *(
+                    ["environment.repair"]
+                    if "environment.repair" in repair_tools(submission.intent)
+                    else []
+                ),
+            ],
+            ["research_spec", "experiment_design", "dependency_resolution_report"],
+            settings,
         )
         design.inputs["research"] = spec.model_dump()
         design.inputs["code"] = submission.code
@@ -150,7 +171,9 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         summary.name = "实际执行报告"
         summary.assigned_to = "chat_agent"
         summary.description = "用中文返回本次真实测试、数值、失败与局限；不得声称未执行的论文效果。"
-        depend(summary, [execute])
+        # 只读报告等待全部节点；准备阶段失败也须把实际诊断回传聊天。
+        summary.trigger_rule = "all_done"
+        summary.dependencies = [node.id for node in nodes]
         nodes.append(summary)
     approval = Approval(
         required=settings.require_approval,

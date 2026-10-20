@@ -20,6 +20,25 @@ class RecoveredEnvironment:
     lock: EnvironmentLock
 
 
+def merge_requests(current: list[str], proposed: list[str], constraints: list[str]) -> list[str]:
+    merged = {
+        canonicalize_name(Requirement(value).name): value
+        for value in dependency_requests(current, limit=128)
+    }
+    for value in dependency_requests(proposed):
+        if Requirement(value).name.casefold().replace("-", "_") in sys.stdlib_module_names:
+            raise ContractError(
+                "dependency recovery cannot replace Python standard library modules"
+            )
+        merged[canonicalize_name(Requirement(value).name)] = value
+    for value in dependency_requests(constraints, limit=256):
+        requirement = Requirement(value)
+        name = canonicalize_name(requirement.name)
+        previous = Requirement(merged.get(name, value))
+        merged[name] = str(name) + str(previous.specifier & requirement.specifier)
+    return dependency_requests(list(merged.values()), limit=128)
+
+
 class DependencyRecovery:
     def __init__(self, settings: Settings) -> None:
         self.resolver = DependencyResolver()
@@ -35,22 +54,14 @@ class DependencyRecovery:
     ) -> RecoveredEnvironment:
         if not proposed:
             raise ContractError("dependency repair must name an actual package")
-        merged = {canonicalize_name(Requirement(value).name): value for value in current}
-        for value in dependency_requests(proposed):
-            if Requirement(value).name.casefold().replace("-", "_") in sys.stdlib_module_names:
-                raise ContractError(
-                    "dependency recovery cannot replace Python standard library modules"
-                )
-            merged[canonicalize_name(Requirement(value).name)] = value
-        for value in dependency_requests(constraints or []):
-            requirement = Requirement(value)
-            name = canonicalize_name(requirement.name)
-            previous = Requirement(merged.get(name, value))
-            merged[name] = str(name) + str(previous.specifier & requirement.specifier)
-        requests = dependency_requests(list(merged.values()))
+        requests = merge_requests(current, proposed, constraints or [])
         if requests == current:
             raise ContractError("dependency repair did not change the requested environment")
-        spec = await self.resolver.resolve(requests)
+        spec = await (
+            self.resolver.resolve(requests)
+            if len(requests) <= 32
+            else self.resolver.resolve_recovery(requests)
+        )
         lock, wheels = await self.source.fetch(spec)
         if missing:
             # 只能采用确实包含缺失模块的已校验 wheel，不在宿主机导入依赖。
