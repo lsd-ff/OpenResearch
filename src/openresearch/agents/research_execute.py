@@ -97,7 +97,10 @@ class ResearchExecutor:
             raise ContractError("task is not authorized to preflight benchmark code")
         prepared = await asyncio.to_thread(self._prepare, plan, task, lease)
         report = await BenchmarkPreflight(self.repairs).run(
-            plan.user_intent, prepared.original, prepared.request
+            plan.user_intent,
+            prepared.original,
+            prepared.request,
+            allow_repairs="research.patch" in task.contract.allowed_tools,
         )
         final = report.run.attempts[-1]
         return TaskResult(
@@ -121,7 +124,26 @@ class ResearchExecutor:
                 )
             )
             verify_preflight(preflight, prepared.request)
-        baseline = await self.repairs.run(plan.user_intent, prepared.original, prepared.request)
+
+        async def recheck(request: ExperimentInput) -> BenchmarkPreflightReport:
+            checked = await BenchmarkPreflight(self.repairs).run(
+                plan.user_intent, prepared.original, request, allow_repairs=False
+            )
+            if checked.status == "passed":
+                verify_preflight(checked, request)
+            return checked
+
+        # 旧计划不自动扩权；缺少重新预检权限时可以执行原冻结程序，但不能修复后绕过门禁。
+        allow_repairs = "research.patch" in task.contract.allowed_tools and (
+            preflight is None or "benchmark.preflight" in task.contract.allowed_tools
+        )
+        baseline = await self.repairs.run(
+            plan.user_intent,
+            prepared.original,
+            prepared.request,
+            recheck=recheck if preflight else None,
+            allow_repairs=allow_repairs,
+        )
         request = baseline.request
         predictions = {"baseline": baseline.output.predictions}
         runs = [baseline.output.run]
@@ -142,6 +164,7 @@ class ResearchExecutor:
             ).hexdigest(),
             entrypoint=request.spec.entrypoint,
             preflight=preflight,
+            preflight_rechecks=list(baseline.rechecks),
             ablation_plan=AblationPlan.model_validate_json(
                 self.files.read(plan.artifacts["ablation_plan"])
             )

@@ -152,4 +152,5 @@ class ResearchReport(ContractModel):
     environment_lock_sha256: str = ""
     entrypoint: str = ""
     preflight: BenchmarkPreflightReport | None = None
+    preflight_rechecks: list[BenchmarkPreflightReport] = Field(default_factory=list, max_length=2)
     ablation_plan: AblationPlan | None = None

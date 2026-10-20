@@ -120,7 +120,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         execution_parents.append(preflight)
     execute = research_task(
         "research_execute",
-        ["research.run", "research.patch"],
+        ["research.run", "research.patch", *(["benchmark.preflight"] if spec.benchmark else [])],
         [
             "research_report",
             "benchmark_predictions",

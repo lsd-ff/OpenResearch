@@ -24,6 +24,7 @@ def test_benchmark_has_mandatory_preflight_after_patch_and_before_full_run(setti
     assert stages["claim_freeze"].id in preflight.dependencies
     assert preflight.id in stages["research_execute"].dependencies
     assert "benchmark_preflight_patch" in stages["research_execute"].required_artifacts
+    assert "benchmark.preflight" in stages["research_execute"].contract.allowed_tools
 
 
 def test_preflight_sample_uses_first_eight_rows_and_withholds_targets():

@@ -27,7 +27,12 @@ class BenchmarkPreflight:
         self.repairs = repairs
 
     async def run(
-        self, intent: str, original: dict[str, bytes], request: ExperimentInput
+        self,
+        intent: str,
+        original: dict[str, bytes],
+        request: ExperimentInput,
+        *,
+        allow_repairs: bool = True,
     ) -> BenchmarkPreflightReport:
         if request.dataset is None or request.spec.benchmark is None:
             raise ContractError("benchmark preflight requires actual uploaded data")
@@ -38,7 +43,7 @@ class BenchmarkPreflight:
             dataset=sample,
             variant=ExperimentVariant(name="preflight", arguments=request.spec.arguments),
         )
-        outcome = await self.repairs.run(intent, original, probe)
+        outcome = await self.repairs.run(intent, original, probe, allow_repairs=allow_repairs)
         run = outcome.output.run
         return BenchmarkPreflightReport(
             status="failed" if run.attempts[-1].error else "passed",

@@ -52,7 +52,7 @@ def benchmark_branch(
     depend(preflight, [design, freeze, prepare, protocol])
     execute = research_task(
         "research_execute",
-        ["research.run", "research.patch"],
+        ["research.run", "research.patch", "benchmark.preflight"],
         [
             "research_report",
             "benchmark_predictions",
