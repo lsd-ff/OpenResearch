@@ -1,0 +1,27 @@
+from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core.embeddings import BaseEmbedding
+from llama_index.core.schema import TextNode
+from openresearch_comparison import cases, documents, embed, tokenizer, write
+
+
+class SharedEmbedding(BaseEmbedding):
+    def _get_query_embedding(self, query):
+        return embed(query)
+
+    async def _aget_query_embedding(self, query):
+        return embed(query)
+
+    def _get_text_embedding(self, text):
+        return embed(text)
+
+
+Settings.tokenizer = tokenizer
+predictions = []
+for case in cases():
+    nodes = [TextNode(text=item["text"], metadata={"doc_id": item["id"]},
+                      excluded_embed_metadata_keys=["doc_id"])
+             for item in documents(case["inputs"])]
+    index = VectorStoreIndex(nodes, embed_model=SharedEmbedding())
+    retrieved = index.as_retriever(similarity_top_k=1).retrieve(case["inputs"]["query"])
+    predictions.append({"id": case["id"], "prediction": retrieved[0].node.metadata["doc_id"]})
+write(predictions)

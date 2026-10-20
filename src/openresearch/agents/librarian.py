@@ -3,6 +3,7 @@ import json
 from openresearch.agents.claim_freeze import ClaimFreezer
 from openresearch.agents.context import AgentContext
 from openresearch.agents.documents import DocumentAgent
+from openresearch.agents.framework_research import FrameworkResearcher
 from openresearch.agents.paper_analysis import PaperAnalyst
 from openresearch.agents.repository import RepositoryAgent
 from openresearch.config import Settings
@@ -24,9 +25,12 @@ class LibrarianAgent:
         self.repositories = RepositoryAgent(settings, files)
         self.discovery = SourceDiscovery(proxy=settings.source_proxy_url.get_secret_value() or None)
         self.claims = ClaimFreezer(settings, files)
+        self.frameworks = FrameworkResearcher(settings)
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
+        if task.type == "framework_research":
+            return await self.frameworks.execute(task, plan.user_intent)
         if task.type == "document_extract":
             return await self.documents.execute(plan, task, lease)
         if task.type == "paper_analyze":

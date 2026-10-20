@@ -6,7 +6,6 @@ from urllib.parse import urlsplit
 
 import httpx
 from packaging.markers import default_environment
-from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.tags import Tag, compatible_tags, cpython_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
@@ -16,6 +15,7 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, LockedWheel
 from openresearch.sources.blobs import SourceBlobs
+from openresearch.sources.dependency_closure import validate_dependency_graph
 from openresearch.sources.http import read_bounded
 
 
@@ -32,7 +32,7 @@ def target_tags() -> set[Tag]:
     )
 
 
-def validate_closure(metadata: dict[str, Any], pins: dict[str, str]) -> None:
+def validate_closure(metadata: dict[str, dict[str, Any]], pins: dict[str, str]) -> None:
     environment = {key: str(value) for key, value in default_environment().items()}
     environment.update(
         python_version="3.12",
@@ -43,18 +43,14 @@ def validate_closure(metadata: dict[str, Any], pins: dict[str, str]) -> None:
         os_name="posix",
         extra="",
     )
-    for raw in metadata["info"].get("requires_dist") or []:
-        dependency = Requirement(raw)
-        if dependency.marker and not dependency.marker.evaluate(environment):
-            continue
-        name = canonicalize_name(dependency.name)
-        if (
-            dependency.url
-            or dependency.extras
-            or name not in pins
-            or pins[name] not in dependency.specifier
-        ):
-            raise ContractError(f"dependency lock must include compatible exact pin: {dependency}")
+    try:
+        validate_dependency_graph(
+            {name: item["info"].get("requires_dist") or [] for name, item in metadata.items()},
+            pins,
+            environment,
+        )
+    except ValueError as exc:
+        raise ContractError(str(exc)) from exc
 
 
 def validate_package(metadata: dict[str, Any], name: str, version: str) -> None:
@@ -123,6 +119,7 @@ class WheelSource:
             proxy=self.settings.source_proxy_url.get_secret_value() or None,
             transport=self.transport,
         ) as client:
+            metadata_by_name = {}
             for pin in spec.requirements:
                 name, version = pin.split("==", 1)
                 metadata = json.loads(
@@ -131,7 +128,11 @@ class WheelSource:
                     )
                 )
                 validate_package(metadata, name, version)
-                validate_closure(metadata, pins)
+                metadata_by_name[name] = metadata
+            validate_closure(metadata_by_name, pins)
+            for pin in spec.requirements:
+                name, version = pin.split("==", 1)
+                metadata = metadata_by_name[name]
                 asset = choose_wheel(metadata)
                 raw = await self._asset(client, asset)
                 digest = hashlib.sha256(raw).hexdigest()

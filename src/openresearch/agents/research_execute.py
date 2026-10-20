@@ -7,6 +7,7 @@ from openresearch.agents.research_prepare import ResearchPreparer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.ablation import AblationPlan
+from openresearch.models.comparison import FrameworkSource
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.research import (
     BenchmarkPreflightReport,
@@ -68,6 +69,9 @@ class ResearchExecutor:
             else "research_patch"
         )
         patch = ResearchPatch.model_validate_json(self.files.read(plan.artifacts[patch_key]))
+        source = plan.artifacts.get("framework_source")
+        source_raw = self.files.read(source) if source else ""
+        modules = FrameworkSource.model_validate_json(source_raw).import_roots if source else []
         request = ExperimentInput(
             lease=lease,
             spec=spec,
@@ -79,6 +83,12 @@ class ResearchExecutor:
             ),
             dataset=self._dataset(plan, spec),
             number=1,
+            required_modules=tuple(modules),
+            framework_source_sha256=hashlib.sha256(
+                source_raw.encode() + sources.get("openresearch_comparison.py", b"")
+            ).hexdigest()
+            if source
+            else None,
         )
         return PreparedExperiment(snapshot, sources, request)
 

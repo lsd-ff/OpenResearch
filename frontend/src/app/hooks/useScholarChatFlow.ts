@@ -194,11 +194,12 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
               (session.reportedPlanStatus ?? session.planGraph?.status) === graph.status;
             if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
-            const analysis = graph.nodes.find(node => node.type === 'chat_answer')
+            const analysis = graph.nodes.find(node => node.type === 'framework_report')
+              ?? graph.nodes.find(node => node.type === 'chat_answer')
               ?? graph.nodes.find(node => node.type === 'paper_analyze');
-            const text = graph.status === 'completed'
-              ? analysis?.result || '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
-              : graph.status === 'canceled' ? '当前计划已取消。'
+            const text = graph.status === 'canceled' ? '当前计划已取消。'
+              : analysis?.status === 'completed' && analysis.result ? analysis.result
+              : graph.status === 'completed' ? '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
               : failure?.error || '执行失败，运行记录已保留，可查看失败节点后继续处理。';
             return { ...session, planGraph: graph, reportedPlanId: graph.id, reportedPlanStatus: graph.status,
               chatHistory: [...session.chatHistory, { role: 'system', text }] };

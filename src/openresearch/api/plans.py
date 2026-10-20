@@ -23,8 +23,14 @@ async def create_plan(
         attachments=payload.attachments,
         workflow=payload.workflow,
         research=payload.research,
+        comparison=payload.comparison,
     )
-    if payload.workflow == "auto" and payload.research is None and payload.code is None:
+    if (
+        payload.workflow == "auto"
+        and payload.research is None
+        and payload.comparison is None
+        and payload.code is None
+    ):
         result = await runtime.messages.send(submission)
         response = message_payload(result)
         return {

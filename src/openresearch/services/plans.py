@@ -5,6 +5,7 @@ from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.code import build_code_plan
 from openresearch.planner.data import build_data_plan
 from openresearch.planner.documents import build_document_plan, prepend_documents
+from openresearch.planner.framework import build_framework_plan
 from openresearch.planner.research import build_research_plan
 from openresearch.storage.repository import Repository
 
@@ -25,6 +26,12 @@ class PlanService:
             self.repository.uploads.get(identifier, submission.identity.user_id)
         if len(set(submission.attachments)) != len(submission.attachments):
             raise ContractError("duplicate attachments")
+        if submission.workflow == "framework" or submission.comparison is not None:
+            if submission.comparison and submission.comparison.benchmark:
+                self.repository.uploads.get(
+                    submission.comparison.benchmark.upload_id, submission.identity.user_id
+                )
+            return build_framework_plan(submission, self.settings)
         if submission.workflow == "data":
             return build_data_plan(submission, self.settings)
         if submission.research and submission.research.benchmark:

@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from openresearch.agents.context import AgentContext
+from openresearch.agents.framework_answers import FrameworkAnswerer
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.chat import ChatReply, ExecutionSummary
@@ -19,6 +20,7 @@ class ChatAgent:
         self.llm = llm
         self.repository = repository
         self.files = files
+        self.frameworks = FrameworkAnswerer(llm, repository, files)
 
     async def reply(self, context: ChatContext) -> ChatReply:
         reply = await self.llm.request_typed(context.messages, ChatReply)
@@ -30,6 +32,8 @@ class ChatAgent:
 
     async def execute(self, context: AgentContext) -> TaskResult:
         task, plan = context.task, context.plan
+        if task.type == "framework_answer":
+            return await self.frameworks.execute(plan, task)
         if task.type != "chat_answer" or "chat.answer" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to use the chat agent")
         artifacts = {

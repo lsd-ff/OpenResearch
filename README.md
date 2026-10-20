@@ -40,6 +40,7 @@ docker compose logs -f worker
 - 直接在聊天中说出论文或方法名称，例如「复现一下 Transformer 论文的核心架构并跑通测试」。系统先检索来源；模型查询无结果或失败时，会用用户给出的名称再检索一次。匹配明确则自动选取实现并生成流程图，真正歧义才列出候选。也可直接提供仓库链接，例如「用 https://github.com/pallets/itsdangerous 做签名校验冒烟实验」。
 - 添加 PDF 后发送「分析这篇论文」或「复现这篇论文」。解析在 Docker 中完成；分析引用核对实际页码，复现会从原文或真实检索结果发现仓库。多个候选、缺失源码等材料会在聊天中追问，直接回复编号或链接继续。
 - 添加 CSV、TSV、JSONL 或 JSON 对象数组，描述评测目标。常见标签列可识别，歧义列会追问；无需重新上传。标签留在评估端，实验只接收特征。见 [实验协议](docs/experiments.md) 与 [examples](examples/)。
+- 发送「对比 LangChain 与 LlamaIndex 的 RAG 性能」可创建独立框架分支，共用数据与嵌入协议，实际安装并调用框架，再用相同的真实模型生成回答。未上传数据时明确使用合成功能样例；发送「比较 LangChain 与 LlamaIndex 的适用场景」则只分析实际发布资料。默认自动执行，仍遵守「只规划」及审批设置。范围与实测见 [框架对比](docs/framework-comparison.md)。
 - 上传数据后也可直接要求统计和缺失值分析；Data Agent 计算实际数据并生成 SVG。代码把文件写入 `/workspace/artifacts` 后会自动收集、校验和保存，支持图像预览与下载，详见 [输出产物](docs/output-artifacts.md)。PDF 可在聊天附件旁直接阅读。
 - 「高级实验设置」是可选入口，用于手动指定仓库、入口、固定依赖、列映射和验收阈值。普通聊天实验无需填写该表单。
 - 选择节点查看日志、报告与证据图。支持整图、单节点执行；API 提供角色重分配、审批、取消、失败节点重试和 SSE 游标回放。
@@ -63,7 +64,7 @@ uv run --locked python scripts/verify_deployment.py
 
 OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换取 HttpOnly Cookie，供 REST、SSE、PDF 与产物读取使用。用户 ID 是可信本地客户端声明的资源归属标识，没有独立账号认证；当前面向单机可信使用者。
 
-原生 Docker 默认：1 CPU、256 MiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 64 MiB 不可执行内存盘；/workspace 为 256 MiB 内存盘，支持 wheel 扩展模块。任务 120 秒、计划 600 秒、最多 10 次节点尝试；研究修复最多 2 次、消融最多 6 组，自动 ToT 默认选择最多 3 组。部分上限可配置。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
+原生 Docker 默认：1 CPU、1 GiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 256 MiB 不可执行内存盘；/workspace 为 1 GiB 内存盘，支持 wheel 扩展模块。wheel 下载总量默认最多 128 MiB。任务 600 秒、计划 2400 秒、最多 100 次节点尝试；研究修复最多 2 次、消融最多 6 组，自动 ToT 默认选择最多 3 组。默认预算覆盖首次多框架下载；已有 `.env` 的显式配置优先，不能被规划器自行突破。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
 
 仓库仅支持 HTTPS GitHub；分支在获取时解析为完整提交 SHA，拒绝链接、特殊文件及越界归档。依赖最终必须完整 name==version 固定，限定 PyPI 上适配 CPython 3.12 / Linux x86_64 的 wheel，校验哈希后在容器中离线安装。自动规划先将模型建议的版本范围解析成固定版本；不执行源码包构建或仓库安装脚本。
 

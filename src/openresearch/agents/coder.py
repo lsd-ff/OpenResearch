@@ -3,6 +3,7 @@ import asyncio
 from openresearch.agents.code import CodeAgent
 from openresearch.agents.context import AgentContext
 from openresearch.agents.environment import EnvironmentAgent
+from openresearch.agents.framework_design import FrameworkDesigner
 from openresearch.agents.research_design import ResearchDesigner
 from openresearch.agents.research_execute import ResearchExecutor
 from openresearch.agents.research_prepare import ResearchPreparer
@@ -25,12 +26,15 @@ class CoderAgent:
         self.code = CodeAgent(LLMClient(settings))
         self.execution = ExecutionTool(repository, sandbox, settings.max_output_bytes)
         self.environment = EnvironmentAgent(settings)
+        self.frameworks = FrameworkDesigner(settings, files)
         self.designer = ResearchDesigner(settings, files)
         self.preparer = ResearchPreparer(settings, files)
         self.research_executor = ResearchExecutor(settings, repository, files, sandbox)
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
+        if task.type == "framework_design":
+            return await self.frameworks.execute(plan, task)
         if task.type == "code_generate":
             sources = await asyncio.to_thread(document_context, plan, self.files)
             return await self.code.execute(task, sources)

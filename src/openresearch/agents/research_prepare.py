@@ -5,9 +5,11 @@ import json
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
+from openresearch.models.comparison import FrameworkSource
 from openresearch.models.research import FilePatch, ResearchPatch, ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySnapshot
+from openresearch.research.framework_protocol import program, read_protocol
 from openresearch.research.patches import (
     apply_patch,
     load_sources,
@@ -50,7 +52,14 @@ class ResearchPreparer:
         snapshot = (
             RepositorySnapshot.model_validate_json(self.files.read(artifact)) if artifact else None
         )
-        return snapshot, load_sources(snapshot, self.blobs)
+        sources = load_sources(snapshot, self.blobs)
+        if "comparison_protocol" in plan.artifacts:
+            sources["openresearch_comparison.py"] = program("comparison_common").encode()
+        if "framework_source" in plan.artifacts:
+            sources["openresearch_framework_api.txt"] = self.files.read(
+                plan.artifacts["framework_source"]
+            ).encode()
+        return snapshot, sources
 
     async def propose(
         self, intent: str, spec: ResearchSpec, files: dict[str, bytes], error: str = ""
@@ -101,6 +110,21 @@ class ResearchPreparer:
         spec = resolved_research(plan, task, self.files)
         _, files = await asyncio.to_thread(self.workspace, plan)
         code = task.inputs.get("code")
+        if "framework_source" in plan.artifacts:
+            source = FrameworkSource.model_validate_json(
+                self.files.read(plan.artifacts["framework_source"])
+            )
+            protocol = read_protocol(plan, self.files)
+            if protocol.benchmark and {"query", "documents"}.issubset(
+                protocol.benchmark.input_columns
+            ):
+                adapters = {
+                    "langchain_core": "comparison_langchain",
+                    "llama_index.core": "comparison_llamaindex",
+                }
+                for root, adapter in adapters.items():
+                    if root in source.import_roots:
+                        code = program(adapter)
         if isinstance(code, str):
             base = (
                 hashlib.sha256(files[spec.entrypoint]).hexdigest()

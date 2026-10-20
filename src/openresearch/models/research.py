@@ -124,6 +124,8 @@ class ResearchRun(ContractModel):
     environment: EnvironmentReport
     predictions_sha256: str | None = None
     metrics: dict[str, float] = Field(default_factory=dict)
+    execution_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    module_calls: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class BenchmarkPreflightReport(ContractModel):
@@ -136,6 +138,7 @@ class BenchmarkPreflightReport(ContractModel):
     sample_ids: list[str] = Field(min_length=1, max_length=8)
     total_rows: int = Field(ge=1)
     run: ResearchRun
+    framework_source_sha256: str | None = None
 
 
 class ResearchReport(ContractModel):

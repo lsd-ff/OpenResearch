@@ -113,6 +113,34 @@ test('状态夹具：失败计划恢复完成后自动返回聊天报告，刷�
   await expect(page.getByText('状态夹具：恢复后测试报告', { exact: true })).toHaveCount(1);
 });
 
+test('状态夹具：框架分支失败后聊天仍展示完整失败报告并保持失败状态', async ({ page }) => {
+  await page.goto('/');
+  const response = await send(page, 'smoke');
+  const payload = await response.json();
+  const identifier = payload.plan_graph.id;
+  await page.route(`**/api/plans/${identifier}`, async route => {
+    const graph = structuredClone(payload.plan_graph);
+    graph.status = 'failed';
+    graph.intent_type = 'Framework_Comparison';
+    graph.nodes.forEach((node: { status: string; error: string }) => {
+      node.status = 'failed';
+      node.error = '状态夹具：框架依赖安装失败';
+    });
+    const report = graph.nodes[graph.nodes.length - 1];
+    report.type = 'framework_report';
+    report.status = 'completed';
+    report.error = '';
+    report.result = '状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。';
+    await route.fulfill({ json: { ...payload, plan_graph: graph } });
+  });
+  await page.reload();
+  await expect(page.getByText('状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。',
+    { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。',
+    { exact: true })).toHaveCount(1);
+});
+
 test('上传数据并在聊天补充列映射，刷新后无需重传或高级表单', async ({ page }, testInfo) => {
   let uploads = 0;
   page.on('request', request => {

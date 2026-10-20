@@ -71,10 +71,17 @@ class MessageService:
         auto_run = (
             outcome.plan is not None
             and not outcome.plan.approval.required
-            and any(node.type == "research_design" for node in outcome.plan.nodes)
-            and bool(
-                re.search(
-                    r"跑通|执行完|直接执行|跑.{0,20}测试|run.{0,20}tests?", submission.intent, re.I
+            and (
+                outcome.plan.intent_type == "Framework_Comparison"
+                or (
+                    any(node.type == "research_design" for node in outcome.plan.nodes)
+                    and bool(
+                        re.search(
+                            r"跑通|执行完|直接执行|跑.{0,20}测试|run.{0,20}tests?",
+                            submission.intent,
+                            re.I,
+                        )
+                    )
                 )
             )
             and not re.search(
@@ -82,7 +89,7 @@ class MessageService:
             )
         )
         response = (
-            "已开始执行，完成后会在当前聊天中返回实际测试报告。\n"
+            "已开始执行，完成后会在当前聊天中返回实际执行报告。\n"
             + outcome.response.replace("可在右侧运行。", "执行进度会在右侧更新。")
             if auto_run
             else outcome.response

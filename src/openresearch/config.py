@@ -24,16 +24,16 @@ class Settings(BaseSettings):
     opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
     sandbox_network: Literal["none", "bridge"] = "none"
-    sandbox_memory: str = "256m"
-    sandbox_tmpfs_size_mb: int = Field(default=64, ge=16, le=2048)
-    sandbox_workspace_size_mb: int = Field(default=256, ge=64, le=4096)
+    sandbox_memory: str = "1g"
+    sandbox_tmpfs_size_mb: int = Field(default=256, ge=16, le=2048)
+    sandbox_workspace_size_mb: int = Field(default=1024, ge=64, le=4096)
     api_token: SecretStr = SecretStr("")
     require_approval: bool = False
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_concurrent_tasks: int = Field(default=2, ge=1, le=16)
-    task_timeout_seconds: int = Field(default=120, ge=1, le=3600)
-    plan_timeout_seconds: int = Field(default=600, ge=1, le=86400)
-    max_task_attempts: int = Field(default=10, ge=1, le=1000)
+    task_timeout_seconds: int = Field(default=600, ge=1, le=3600)
+    plan_timeout_seconds: int = Field(default=2400, ge=1, le=86400)
+    max_task_attempts: int = Field(default=100, ge=1, le=1000)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     poll_interval_seconds: float = Field(default=0.25, gt=0, le=10)
     max_output_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     source_max_files: int = Field(default=2000, ge=1, le=10000)
     source_proxy_url: SecretStr = SecretStr("")
     source_download_timeout_seconds: int = Field(default=60, ge=10, le=600)
-    dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
+    dependency_max_bytes: int = Field(default=128 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
     planner_mode: Literal["llm", "template"] = "llm"
     intent_service_url: str = ""

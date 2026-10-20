@@ -10,6 +10,7 @@ from openresearch.sandbox.opensandbox import OpenSandbox
 
 
 def lifecycle(settings, mode="success", bare_json=False):
+    settings.sandbox_memory = "256m"
     calls = []
     metadata = {}
 

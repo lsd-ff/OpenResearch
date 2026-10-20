@@ -5,11 +5,13 @@ import json
 from openresearch.agents.ablation import AblationDesigner
 from openresearch.agents.claim_freeze import ClaimFreezer
 from openresearch.agents.context import AgentContext
+from openresearch.agents.framework_report import framework_report
 from openresearch.agents.librarian import LibrarianAgent
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.runtime import TaskResult
 from openresearch.research.data_profile import missing_values_chart, profile_records, read_records
+from openresearch.research.framework_protocol import create_protocol
 from openresearch.services.uploads import UploadService
 from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
@@ -28,9 +30,14 @@ class DataAgent:
         self.claims = ClaimFreezer(settings, files)
         self.ablations = AblationDesigner(settings, files)
         self.librarian = librarian
+        self.files = files
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task = context.plan, context.task
+        if task.type == "comparison_protocol":
+            return await asyncio.to_thread(create_protocol, self.settings, self.uploads, plan, task)
+        if task.type == "framework_report":
+            return await asyncio.to_thread(framework_report, plan, task, self.files)
         if task.type == "ablation_design":
             return await self.ablations.execute(plan, task)
         if task.type == "claim_freeze":

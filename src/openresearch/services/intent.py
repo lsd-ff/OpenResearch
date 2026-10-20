@@ -16,7 +16,11 @@ from openresearch.services.remote_intent import RemoteIntentClient
 logger = logging.getLogger(__name__)
 
 INTENT_PROMPT = (
-    "Classify the user's current request into chat/code/paper/reproduce/benchmark/data. "
+    "Classify the user's current request into chat/code/paper/reproduce/benchmark/data/framework. "
+    "Use framework for a requested comparison of at least two named software frameworks. "
+    "Copy frameworks names from the human's goal only; do not invent targets. "
+    "Set framework_mode=research for source/feature/fit discussion, benchmark for requested "
+    "performance or execution comparisons. Never downgrade a comparison to a single repository. "
     "Use chat for questions about capabilities, explanations or existing results; use code for "
     "requested standalone execution; paper for reading/translation/analysis; reproduce for "
     "repository experiments or paper reproduction; benchmark for evaluation on uploaded data. "
@@ -43,10 +47,34 @@ INTENT_PROMPT = (
 )
 
 
+def named_comparison(message: str) -> IntentDraft | None:
+    if re.search(
+        r"(?:不要|不用|无需|不需要|do not|don't)\s*(?:做|进行)?\s*(?:对比|比较|compare)",
+        message,
+        re.I,
+    ):
+        return None
+    if not re.search(r"对比|比较|不同|区别|compare|versus|\bvs\b", message, re.I):
+        return None
+    names = [
+        name
+        for name in ("LangChain", "LlamaIndex")
+        if re.search(name, message.replace("-", "").replace(" ", ""), re.I)
+    ]
+    if len(names) < 2:
+        return None
+    mode = (
+        "benchmark"
+        if re.search(r"性能|benchmark|跑|运行|执行|测试|评测|RAG|performance", message, re.I)
+        else "research"
+    )
+    return IntentDraft(workflow="framework", frameworks=names, framework_mode=mode)
+
+
 def looks_like_task(message: str) -> bool:
     return bool(
         re.search(
-            r"复现|实验|benchmark|reproduce|smoke|冒烟|消融|```|"
+            r"复现|实验|benchmark|reproduce|smoke|冒烟|消融|对比|比较|\bcompare\b|```|"
             r"(?:执行|运行|画|绘制|生成|对比|比较|评测|评估|分析|阅读|翻译|总结).{0,80}(?:代码|程序|论文|数据|图|仓库|框架|性能|准确率|RAG)|"
             r"(?:run|execute|implement|plot|translate|summarize|analyse|analyze)\b",
             message,
@@ -75,6 +103,13 @@ class IntentParser:
     async def parse(
         self, snapshot: Conversation, message: str, attachments: list[dict[str, Any]]
     ) -> IntentDraft:
+        if (
+            snapshot.pending_planning is None
+            and not attachments
+            and not re.search(r"列|输入|标签|target|label", message, re.I)
+            and (comparison := named_comparison(message))
+        ):
+            return comparison
         if snapshot.pending_planning is None and not attachments:
             if (
                 "```" in message
@@ -109,6 +144,24 @@ class IntentParser:
         goal = message
         if snapshot.pending_planning and draft.continue_pending:
             goal = snapshot.pending_planning.intent + "\n" + message
+        if comparison := named_comparison(goal):
+            return draft.model_copy(
+                update={
+                    "workflow": "framework",
+                    "frameworks": comparison.frameworks,
+                    "framework_mode": comparison.framework_mode,
+                }
+            )
+        if draft.workflow == "framework":
+
+            def normalize(value: str) -> str:
+                return re.sub(r"[\s_-]", "", value).casefold()
+
+            if len(draft.frameworks) < 2 or any(
+                normalize(name) not in normalize(goal) for name in draft.frameworks
+            ):
+                raise ModelError("framework targets must be named in the human's request")
+            return draft
         goal = re.sub(
             r"(?:不需要|无需|不用|不要|without|no)\s*(?:做|跑|运行)?\s*benchmark\b",
             "",

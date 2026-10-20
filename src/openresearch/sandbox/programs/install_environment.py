@@ -7,8 +7,12 @@ import pathlib
 import platform
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 
-from pip._vendor.packaging.requirements import Requirement
+if TYPE_CHECKING:
+    from openresearch.sources.dependency_closure import validate_dependency_graph
+
+from pip._vendor.packaging.markers import default_environment
 from pip._vendor.packaging.utils import canonicalize_name
 
 root = pathlib.Path("/tmp/openresearch")
@@ -47,19 +51,11 @@ if (root / "requirements.lock").read_text().strip():
 distributions = list(importlib.metadata.distributions(path=[str(target)]))
 installed = {canonicalize_name(item.metadata["Name"]): item.version for item in distributions}
 # 以容器实际 Python 补丁版本再次验证 wheel 内元数据，避免服务端目标版本与运行版本的 marker 差异。
-for distribution in distributions:
-    for raw in distribution.requires or []:
-        dependency = Requirement(raw)
-        if dependency.marker and not dependency.marker.evaluate({"extra": ""}):
-            continue
-        name = canonicalize_name(dependency.name)
-        if (
-            dependency.url
-            or dependency.extras
-            or name not in installed
-            or installed[name] not in dependency.specifier
-        ):
-            raise RuntimeError(f"installed environment has an unsatisfied dependency: {dependency}")
+validate_dependency_graph(
+    {canonicalize_name(item.metadata["Name"]): item.requires or [] for item in distributions},
+    installed,
+    default_environment(),
+)
 report = {
     "python": platform.python_version(),
     "platform": platform.platform(),

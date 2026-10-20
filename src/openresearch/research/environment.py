@@ -32,6 +32,14 @@ async def install_environment(
         .joinpath("install_environment.py")
         .read_text(encoding="utf-8")
     )
+    closure = (
+        resources.files("openresearch.sources")
+        .joinpath("dependency_closure.py")
+        .read_text(encoding="utf-8")
+    )
+    # 复用可信元数据算法；容器使用 pip 自带的 packaging，无需在线安装校验器。
+    closure = closure.replace("from packaging.", "from pip._vendor.packaging.")
+    code = closure + "\n" + code
     result = await session.execute(code)
     if result.exit_code:
         raise SandboxError(f"offline dependency installation failed: {result.stderr[-2000:]}")

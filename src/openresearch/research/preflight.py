@@ -49,6 +49,7 @@ class BenchmarkPreflight:
             sample_ids=[str(row["id"]) for row in sample.inputs],
             total_rows=len(request.dataset.inputs),
             run=run,
+            framework_source_sha256=request.framework_source_sha256,
         )
 
 
@@ -63,6 +64,7 @@ def verify_preflight(report: BenchmarkPreflightReport, request: ExperimentInput)
         or report.patch_sha256 != checksum(request.patch.model_dump_json())
         or report.spec_sha256 != checksum(request.spec.model_dump_json())
         or report.environment_lock_sha256 != checksum(request.lock.model_dump_json())
+        or report.framework_source_sha256 != request.framework_source_sha256
     ):
         raise ContractError(
             "preflight does not match the full experiment's code, data or environment"
