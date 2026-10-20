@@ -105,6 +105,7 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
     execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
     if include_history:
+        history_runs = ([report.preflight.run] if report.preflight else []) + report.runs
         # 汇总需要真实重试过程；历史错误单列，避免被误引为最终运行证据。
         output["execution_history"] = json.dumps(
             [
@@ -120,7 +121,7 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
                         for item in run.attempts
                     ],
                 }
-                for run in report.runs
+                for run in history_runs
             ],
             ensure_ascii=False,
         )

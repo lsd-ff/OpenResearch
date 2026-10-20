@@ -14,6 +14,7 @@ TaskKind = Literal[
     "claim_freeze",
     "research_design",
     "research_prepare",
+    "benchmark_preflight",
     "research_execute",
     "chat_answer",
     "source_discover",

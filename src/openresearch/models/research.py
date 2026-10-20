@@ -122,6 +122,18 @@ class ResearchRun(ContractModel):
     metrics: dict[str, float] = Field(default_factory=dict)
 
 
+class BenchmarkPreflightReport(ContractModel):
+    version: Literal["benchmark.preflight/v1"] = "benchmark.preflight/v1"
+    status: Literal["passed", "failed"]
+    dataset_sha256: str
+    spec_sha256: str
+    environment_lock_sha256: str
+    patch_sha256: str
+    sample_ids: list[str] = Field(min_length=1, max_length=8)
+    total_rows: int = Field(ge=1)
+    run: ResearchRun
+
+
 class ResearchReport(ContractModel):
     version: Literal["research.report/v1"] = "research.report/v1"
     repository_commit: str | None
@@ -132,3 +144,4 @@ class ResearchReport(ContractModel):
     dataset_sha256: str | None = None
     environment_lock_sha256: str = ""
     entrypoint: str = ""
+    preflight: BenchmarkPreflightReport | None = None

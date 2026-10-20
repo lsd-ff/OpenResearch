@@ -70,6 +70,19 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     prepare.description = submission.intent
     prepare.inputs = {"research": spec.model_dump(), "code": submission.code}
     depend(prepare, nodes)
+    execution_parents = [*nodes, prepare]
+    preflight = None
+    if spec.benchmark:
+        preflight = research_task(
+            "benchmark_preflight",
+            ["benchmark.preflight", "research.patch"],
+            ["benchmark_preflight_report", "benchmark_preflight_patch"],
+            settings,
+        )
+        preflight.name = "Benchmark 样本预检"
+        preflight.inputs["research"] = spec.model_dump()
+        depend(preflight, execution_parents)
+        execution_parents.append(preflight)
     execute = research_task(
         "research_execute",
         ["research.run", "research.patch"],
@@ -83,8 +96,8 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         settings,
     )
     execute.inputs["research"] = spec.model_dump()
-    depend(execute, [*nodes, prepare])
-    nodes.extend([prepare, execute])
+    depend(execute, execution_parents)
+    nodes.extend([prepare, *([preflight] if preflight else []), execute])
     if submission.auto_design:
         summary = research_task("chat_answer", ["chat.answer"], ["chat_answer"], settings)
         summary.name = "实际执行报告"

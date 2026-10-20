@@ -12,6 +12,7 @@ ROLES: dict[str, set[str]] = {
     "environment_lock": {"research_agent", "sandbox_agent", "coder_agent"},
     "claim_freeze": {"research_agent", "librarian_agent", "data_agent"},
     "research_prepare": {"research_agent", "coder_agent", "research_coding_agent"},
+    "benchmark_preflight": {"coder_agent", "research_coding_agent"},
     "research_design": {"research_agent", "coder_agent", "research_coding_agent"},
     "research_execute": {"research_agent", "sandbox_agent", "research_coding_agent", "coder_agent"},
 }

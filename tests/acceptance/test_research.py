@@ -42,10 +42,17 @@ async def finish(worker, repository, plan_id) -> None:
         await asyncio.gather(*(active.future for active in worker.active.values()))
 
 
-def benchmark_plan(settings, repository, code=PREDICTOR, repairs=0, ablations=True):
+def benchmark_plan(
+    settings,
+    repository,
+    code=PREDICTOR,
+    repairs=0,
+    ablations=True,
+    data=b"id,x,y\na,1,yes\nb,0,no\nc,1,yes\n",
+):
     identity = Identity("research-user", "research-session")
     upload = UploadService(settings, repository).create(
-        UploadSubmission("dataset.csv", io.BytesIO(b"id,x,y\na,1,yes\nb,0,no\nc,1,yes\n"), identity)
+        UploadSubmission("dataset.csv", io.BytesIO(data), identity)
     )
     return PlanService(settings, repository).create(
         PlanSubmission(
@@ -107,6 +114,8 @@ async def test_real_predictions_and_ablation_metrics(settings, repository, files
         done = repository.get_plan(plan.id)
         assert done.status == Status.COMPLETED, [node.error for node in done.nodes]
         report = json.loads(files.read(done.artifacts["research_report"]))
+        assert report["preflight"]["status"] == "passed"
+        assert report["preflight"]["sample_ids"] == ["a", "b", "c"]
         assert report["runs"][0]["metrics"]["accuracy"] == 1.0
         assert report["runs"][1]["metrics"]["accuracy"] == pytest.approx(1 / 3)
         assert report["comparison"]["without_feature"]["accuracy"] == pytest.approx(-2 / 3)
@@ -138,9 +147,11 @@ async def test_failed_prediction_contract_preserves_evidence(settings, repositor
         await finish(worker, repository, plan.id)
         done = repository.get_plan(plan.id)
         assert done.status == Status.FAILED
-        report = json.loads(files.read(done.artifacts["research_report"]))
-        assert not report["success"] and report["runs"][0]["metrics"] == {}
-        assert "every dataset row" in report["runs"][0]["attempts"][0]["error"]
+        report = json.loads(files.read(done.artifacts["benchmark_preflight_report"]))
+        assert report["status"] == "failed" and report["run"]["metrics"] == {}
+        assert "every dataset row" in report["run"]["attempts"][0]["error"]
+        assert "research_report" not in done.artifacts
+        assert next(node for node in done.nodes if node.type == "research_execute").run_count == 0
     finally:
         await worker._shutdown()
 
@@ -187,7 +198,8 @@ async def test_two_repairs_use_new_containers_and_replayable_final_patch(
         done = repository.get_plan(plan.id)
         assert done.status == Status.COMPLETED, [node.error for node in done.nodes]
         report = json.loads(files.read(done.artifacts["research_report"]))
-        assert len(report["runs"][0]["attempts"]) == 3 and len(calls) == 2
+        assert len(report["preflight"]["run"]["attempts"]) == 3 and len(calls) == 2
+        assert len(report["runs"][0]["attempts"]) == 1
         final = json.loads(files.read(done.artifacts["final_patch"]))
         assert final["files"][0]["base_sha256"] is None
         assert final["files"][0]["content"] == PREDICTOR

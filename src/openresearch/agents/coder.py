@@ -43,6 +43,8 @@ class CoderAgent:
             return await self.designer.execute(plan, task)
         if task.type == "research_prepare":
             return await self.preparer.execute(plan, task)
+        if task.type == "benchmark_preflight":
+            return await self.research_executor.preflight(plan, task, lease)
         if task.type == "research_execute":
             return await self.research_executor.execute(plan, task, lease)
         raise ContractError("unsupported coder agent task")
