@@ -39,6 +39,7 @@ class Repository:
 
     def _bind_executions(self, store: ExecutionStore) -> None:
         self.renew = store.renew
+        self.execution_committed = store.execution_committed
         self.finish = store.finish
         self.append_log = store.append_log
         self.recover_expired = store.recover_expired

@@ -34,6 +34,19 @@ class ExecutionStore:
             self.database.save(connection, plan)
             return True
 
+    def execution_committed(self, lease: ExecutionLease) -> bool:
+        """只有此身份提交的结果终态才算完成；取消、失联或重分配仍须停止执行。"""
+        with self.database.engine.connect() as connection:
+            status = connection.execute(
+                select(attempts.c.status).where(
+                    attempts.c.id == lease.execution_id,
+                    attempts.c.plan_id == lease.plan_id,
+                    attempts.c.task_id == lease.task_id,
+                    attempts.c.worker_id == lease.worker_id,
+                )
+            ).scalar_one_or_none()
+            return status in {"completed", "failed"}
+
     def finish(self, lease: ExecutionLease, completion: TaskCompletion) -> None:
         """结果、产物索引、事件、后继节点状态在同一事务中提交。"""
         with self.database.transaction() as connection:

@@ -74,7 +74,10 @@ class Worker:
             current = await asyncio.to_thread(
                 self.repository.renew, active.lease, self.settings.lease_seconds
             )
-            if not current:
+            if not current and not await asyncio.to_thread(
+                self.repository.execution_committed, active.lease
+            ):
+                # 提交事务可能已终止租约，但 to_thread 尚未返回；不可误取消已经提交的结果。
                 # 重复 cancel 会打断 finally 内的容器清理；每次执行只取消一次。
                 active.future.cancel()
 
