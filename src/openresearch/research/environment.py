@@ -23,10 +23,8 @@ async def environment_files(lock: EnvironmentLock, settings: Settings) -> dict[s
     return files
 
 
-async def install_environment(
-    session: RunningSandbox, lock: EnvironmentLock, settings: Settings
-) -> EnvironmentReport:
-    await session.put_files(await environment_files(lock, settings))
+def installation_program() -> str:
+    """生产与独立验收使用同一可信脚本，闭包校验不能依赖调用方临时注入。"""
     code = (
         resources.files("openresearch.sandbox.programs")
         .joinpath("install_environment.py")
@@ -39,8 +37,14 @@ async def install_environment(
     )
     # 复用可信元数据算法；容器使用 pip 自带的 packaging，无需在线安装校验器。
     closure = closure.replace("from packaging.", "from pip._vendor.packaging.")
-    code = closure + "\n" + code
-    result = await session.execute(code)
+    return closure + "\n" + code
+
+
+async def install_environment(
+    session: RunningSandbox, lock: EnvironmentLock, settings: Settings
+) -> EnvironmentReport:
+    await session.put_files(await environment_files(lock, settings))
+    result = await session.execute(installation_program())
     if result.exit_code:
         raise SandboxError(f"offline dependency installation failed: {result.stderr[-2000:]}")
     raw = json.loads(await session.get_file("environment.json", 65536))

@@ -51,11 +51,14 @@ if (root / "requirements.lock").read_text().strip():
 distributions = list(importlib.metadata.distributions(path=[str(target)]))
 installed = {canonicalize_name(item.metadata["Name"]): item.version for item in distributions}
 # 以容器实际 Python 补丁版本再次验证 wheel 内元数据，避免服务端目标版本与运行版本的 marker 差异。
-validate_dependency_graph(
-    {canonicalize_name(item.metadata["Name"]): item.requires or [] for item in distributions},
-    installed,
-    default_environment(),
-)
+try:
+    validate_dependency_graph(
+        {canonicalize_name(item.metadata["Name"]): item.requires or [] for item in distributions},
+        installed,
+        default_environment(),
+    )
+except ValueError as error:
+    raise RuntimeError(f"installed environment has an unsatisfied dependency: {error}") from error
 report = {
     "python": platform.python_version(),
     "platform": platform.platform(),
