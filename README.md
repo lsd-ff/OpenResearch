@@ -74,6 +74,8 @@ OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换�
 
 独立运行时可选择 docker、http、opensandbox 或 auto 后端。http 既支持本项目 Python 服务，也兼容原 Go NDJSON 协议；仅旧 Go 服务缺少清单和镜像摘要。Python HTTP 服务可对账容器并返回原生 Docker 的实际镜像摘要。
 
+管理员可注册命名运行时，基础层已验证目标 Python 3.11/3.12/3.13 的依赖解析和实际安装，以及真实 GPU 容器中的 CUDA 向量计算。自动计划选择、版本故障后的自动切换及 GPU/full 资源调度尚未接完；默认科研流程仍使用 Python 3.12 CPU。配置契约、真实回执与限制见 [运行时基础](docs/runtime-profiles.md)。
+
 ## 工程与恢复
 
 ```powershell

@@ -1,6 +1,5 @@
 import asyncio
 import re
-import sys
 from dataclasses import dataclass
 
 from packaging.requirements import Requirement
@@ -12,6 +11,7 @@ from openresearch.errors import ContractError
 from openresearch.models.sources import EnvironmentLock
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver, dependency_requests
+from openresearch.sources.stdlib import is_stdlib
 from openresearch.sources.wheel_modules import wheel_sources
 from openresearch.sources.wheels import WheelSource
 
@@ -26,7 +26,7 @@ def protected_requests(intent: str, current: list[str]) -> list[str]:
     names: list[str] = []
     for value in current:
         name = canonicalize_name(Requirement(value).name)
-        if name.replace("-", "_") in sys.stdlib_module_names:
+        if is_stdlib(name):
             continue
         aliases = {
             name,
@@ -75,7 +75,7 @@ def merge_requests(
     for name in removed:
         merged.pop(name)
     for value in changes:
-        if Requirement(value).name.casefold().replace("-", "_") in sys.stdlib_module_names:
+        if is_stdlib(Requirement(value).name):
             raise ContractError(
                 "dependency recovery cannot replace Python standard library modules"
             )

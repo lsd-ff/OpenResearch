@@ -1,6 +1,5 @@
 import json
 import re
-import sys
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -9,6 +8,7 @@ from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.recovery import RecoveryProposal
 from openresearch.research.code_guards import validate_code_repair
+from openresearch.sources.stdlib import is_stdlib
 
 MODULE_PACKAGES = {
     "numpy": "numpy",
@@ -64,7 +64,7 @@ class CodeRepairer:
         self, goal: str, code: str, error: str, requirements: list[str], allow_dependencies: bool
     ) -> RecoveryProposal:
         module = missing_module(error)
-        if module and module.split(".")[0] in sys.stdlib_module_names:
+        if module and is_stdlib(module.split(".")[0]):
             allow_dependencies = False
         if allow_dependencies and module in MODULE_PACKAGES:
             package = MODULE_PACKAGES[module]

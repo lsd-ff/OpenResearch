@@ -1,11 +1,14 @@
 """One configuration source shared by the API and worker."""
 
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from openresearch.models.runtime_profiles import RuntimeProfile
 
 
 class Settings(BaseSettings):
@@ -23,6 +26,7 @@ class Settings(BaseSettings):
     opensandbox_url: str = "http://127.0.0.1:8088"
     opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
+    runtime_profiles: dict[str, RuntimeProfile] = Field(default_factory=dict, max_length=16)
     sandbox_network: Literal["none", "bridge"] = "none"
     sandbox_memory: str = "1g"
     sandbox_tmpfs_size_mb: int = Field(default=256, ge=16, le=2048)
@@ -70,6 +74,20 @@ class Settings(BaseSettings):
     @classmethod
     def absolute_data_dir(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @field_validator("runtime_profiles")
+    @classmethod
+    def profile_names(cls, values: dict[str, RuntimeProfile]) -> dict[str, RuntimeProfile]:
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", name) for name in values):
+            raise ValueError(
+                "runtime profile names must use lowercase letters, numbers, underscores or hyphens"
+            )
+        return values
+
+    @field_validator("runtime_profiles", mode="before")
+    @classmethod
+    def empty_profiles(cls, value: object) -> object:
+        return {} if value is None else value
 
     @field_validator("llm_base_url", "sandbox_url", "opensandbox_url")
     @classmethod

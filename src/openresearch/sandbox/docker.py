@@ -13,6 +13,7 @@ from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import docker_files
 from openresearch.sandbox.base import LogCallback
 from openresearch.sandbox.namespace import runtime_namespace
+from openresearch.sandbox.profiles import selected_profile
 
 
 @dataclass
@@ -37,10 +38,11 @@ class DockerSandbox:
         self.settings = settings
         self.namespace = runtime_namespace(settings.data_dir)
 
-    def _create(self, plan_id: str, execution_id: str) -> str:
+    def _create(self, plan_id: str, execution_id: str, runtime_profile: str | None = None) -> str:
+        profile = selected_profile(self.settings, runtime_profile)
         with closing(docker.from_env(timeout=30)) as client:
             container = client.containers.run(
-                self.settings.sandbox_image,
+                profile.image if profile else self.settings.sandbox_image,
                 ["sleep", "infinity"],
                 detach=True,
                 labels={
@@ -49,9 +51,17 @@ class DockerSandbox:
                     "openresearch.execution_id": execution_id,
                     "openresearch.namespace": self.namespace,
                     "openresearch.created_at": str(time.time()),
+                    **(
+                        {"openresearch.runtime_profile": runtime_profile} if runtime_profile else {}
+                    ),
                 },
-                mem_limit=self.settings.sandbox_memory,
-                nano_cpus=1_000_000_000,
+                mem_limit=f"{profile.memory_mb}m"
+                if profile and profile.memory_mb
+                else self.settings.sandbox_memory,
+                nano_cpus=int(profile.cpus * 1_000_000_000) if profile else 1_000_000_000,
+                device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+                if profile and profile.gpu
+                else [],
                 pids_limit=64,
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true"],
@@ -77,8 +87,10 @@ class DockerSandbox:
             )
             return str(container.id)
 
-    async def create(self, plan_id: str, execution_id: str) -> str:
-        return await asyncio.to_thread(self._create, plan_id, execution_id)
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str:
+        return await asyncio.to_thread(self._create, plan_id, execution_id, runtime_profile)
 
     async def put_files(self, sandbox_id: str, files: dict[str, bytes]) -> None:
         await asyncio.to_thread(docker_files.put_files, sandbox_id, files)

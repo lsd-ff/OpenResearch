@@ -1,6 +1,5 @@
 import hashlib
 import json
-import sys
 from dataclasses import dataclass
 
 from packaging.requirements import Requirement
@@ -18,6 +17,7 @@ from openresearch.models.research import RunAttempt
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.dependency_recovery import DependencyRecovery, protected_requests
 from openresearch.research.runner import ExperimentInput
+from openresearch.sources.stdlib import is_stdlib
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ def dependency_failure(request: ExperimentInput, failure: RunAttempt) -> bool:
     if failure.phase == "install":
         return True
     module = missing_module(failure.stderr)
-    if not module or module.split(".")[0] in sys.stdlib_module_names:
+    if not module or is_stdlib(module.split(".")[0]):
         return False
     root = module.split(".")[0]
     # 仓库模块缺失通常是路径/源码问题，不能安装同名公开包替代固定仓库实现。

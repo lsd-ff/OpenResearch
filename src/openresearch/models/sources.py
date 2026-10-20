@@ -7,6 +7,7 @@ from packaging.utils import canonicalize_name
 from pydantic import Field, field_validator, model_validator
 
 from openresearch.models.runtime import ContractModel
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.sandbox.file_transfer import relative_path
 
 
@@ -109,7 +110,7 @@ class LockedWheel(ContractModel):
 
 class EnvironmentLock(ContractModel):
     version: Literal["environment.lock/v1"] = "environment.lock/v1"
-    python: Literal["3.12"] = "3.12"
+    python: TargetPython = "3.12"
     platform: Literal["linux_x86_64"] = "linux_x86_64"
     wheels: list[LockedWheel] = Field(default_factory=list, max_length=128)
 

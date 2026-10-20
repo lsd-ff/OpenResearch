@@ -1,5 +1,4 @@
 import json
-import sys
 
 from packaging.requirements import Requirement
 
@@ -22,6 +21,7 @@ from openresearch.research.code_guards import code_digest
 from openresearch.research.dependency_recovery import DependencyRecovery
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.session import SandboxSessions
+from openresearch.sources.stdlib import is_stdlib
 from openresearch.storage.repository import Repository
 
 
@@ -60,7 +60,7 @@ class CodeExecutor:
             report.decisions.append(decision)
             module = missing_module(error)
             allow_dependencies = "environment.lock" in task.contract.allowed_tools and not (
-                module and module.split(".")[0] in sys.stdlib_module_names
+                module and is_stdlib(module.split(".")[0])
             )
             try:
                 proposal = await self.repairer.propose(

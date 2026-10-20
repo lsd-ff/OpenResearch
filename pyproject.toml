@@ -62,6 +62,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "docker: requires a running Docker engine (explicit opt-in)",
     "external: requires public network source access (explicit opt-in)",
+    "gpu: requires real GPU devices in the sandbox (explicit opt-in)",
 ]
 
 [tool.coverage.run]

@@ -19,6 +19,7 @@ from openresearch.sandbox.docker import DockerSandbox
 from openresearch.sandbox.fallback import FallbackSandbox
 from openresearch.sandbox.input_bundle import bundle_limit, unpack_bundle
 from openresearch.sandbox.opensandbox import OpenSandbox
+from openresearch.sandbox.profiles import profile_fingerprint, selected_profile
 from openresearch.sandbox.service_stream import execution_stream
 
 
@@ -27,6 +28,7 @@ class CreateSandbox(ContractModel):
     mount_path: str = Field(default="", max_length=0)
     plan_id: str = Field(default_factory=new_id, pattern=r"^[a-f0-9]{32}$")
     execution_id: str = Field(default_factory=new_id, pattern=r"^[a-f0-9]{32}$")
+    runtime_profile: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class PythonExecution(ContractModel):
@@ -74,18 +76,41 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     async def health() -> dict[str, Any]:
         return {"ok": await engine.health(), "backend": engine.backend}
 
+    @app.get("/api/v1/runtime-profiles")
+    async def runtime_profiles() -> dict[str, Any]:
+        return {
+            name: {**profile.model_dump(), "sha256": profile_fingerprint(profile)}
+            for name, profile in configuration.runtime_profiles.items()
+        }
+
     @app.post("/api/v1/sandboxes", status_code=201)
     async def create(payload: CreateSandbox) -> dict[str, str]:
-        if payload.image and payload.image != configuration.sandbox_image:
+        profile = selected_profile(configuration, payload.runtime_profile)
+        image = profile.image if profile else configuration.sandbox_image
+        if payload.image and payload.image != image:
             raise HTTPException(422, "sandbox image is selected by the service configuration")
-        creation = asyncio.create_task(engine.create(payload.plan_id, payload.execution_id))
+        creation = asyncio.create_task(
+            engine.create(payload.plan_id, payload.execution_id, payload.runtime_profile)
+            if payload.runtime_profile
+            else engine.create(payload.plan_id, payload.execution_id)
+        )
         try:
             identifier = await asyncio.shield(creation)
         except asyncio.CancelledError:
             identifier = await creation
             await asyncio.shield(engine.close(identifier))
             raise
-        return {"sandbox_id": identifier}
+        return {
+            "sandbox_id": identifier,
+            **(
+                {
+                    "runtime_profile": payload.runtime_profile,
+                    "runtime_profile_sha256": profile_fingerprint(profile),
+                }
+                if payload.runtime_profile and profile is not None
+                else {}
+            ),
+        }
 
     @app.get("/api/v1/sandboxes")
     async def inventory() -> dict[str, Any]:

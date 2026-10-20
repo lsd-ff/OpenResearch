@@ -18,6 +18,7 @@ class RunningSandbox:
     lease: ExecutionLease
     repository: Repository
     adapter: Sandbox
+    runtime_profile: str | None = None
 
     async def _log(self, stream: str, message: str) -> None:
         await asyncio.to_thread(self.repository.append_log, self.lease, message, stream)
@@ -40,8 +41,14 @@ class SandboxSessions:
         self.adapter = adapter
 
     @asynccontextmanager
-    async def open(self, lease: ExecutionLease) -> AsyncIterator[RunningSandbox]:
-        creation = asyncio.create_task(self.adapter.create(lease.plan_id, lease.execution_id))
+    async def open(
+        self, lease: ExecutionLease, runtime_profile: str | None = None
+    ) -> AsyncIterator[RunningSandbox]:
+        creation = asyncio.create_task(
+            self.adapter.create(lease.plan_id, lease.execution_id, runtime_profile)
+            if runtime_profile
+            else self.adapter.create(lease.plan_id, lease.execution_id)
+        )
         sandbox_id: str | None = None
         registered = False
         try:
@@ -55,7 +62,7 @@ class SandboxSessions:
                 self.repository.register_sandbox, lease, sandbox_id, self.adapter.backend
             )
             registered = True
-            yield RunningSandbox(sandbox_id, lease, self.repository, self.adapter)
+            yield RunningSandbox(sandbox_id, lease, self.repository, self.adapter, runtime_profile)
         finally:
             if sandbox_id is not None:
                 await self._protected_cleanup(sandbox_id, registered)

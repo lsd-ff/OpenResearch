@@ -10,7 +10,9 @@ LogCallback = Callable[[str, str], Awaitable[None]]
 class Sandbox(Protocol):
     backend: str
 
-    async def create(self, plan_id: str, execution_id: str) -> str: ...
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str: ...
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult: ...
 

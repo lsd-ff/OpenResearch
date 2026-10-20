@@ -20,8 +20,14 @@ target = pathlib.Path("/workspace/environment")
 target.mkdir(parents=True, exist_ok=True)
 scratch = pathlib.Path("/workspace/install-tmp")
 scratch.mkdir(parents=True, exist_ok=True)
-assert sys.version_info[:2] == (3, 12), "environment lock requires CPython 3.12"
+expected_python = globals().get("OPENRESEARCH_EXPECTED_PYTHON", (3, 12))
+assert sys.version_info[:2] == expected_python, (
+    f"environment lock requires CPython {expected_python}"
+)
 assert platform.system() == "Linux" and platform.machine() == "x86_64", "unsupported target"
+assert tuple(int(part) for part in platform.libc_ver()[1].split(".")[:2]) >= (2, 36), (
+    "runtime requires glibc >= 2.36"
+)
 if (root / "requirements.lock").read_text().strip():
     subprocess.run(
         [

@@ -9,6 +9,7 @@ from pathlib import Path
 from packaging.requirements import InvalidRequirement, Requirement
 
 from openresearch.errors import ContractError, DependencyResolutionError
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentSpec
 
 
@@ -39,6 +40,9 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 
 
 class DependencyResolver:
+    def __init__(self, python: TargetPython = "3.12") -> None:
+        self.python = python
+
     async def resolve(self, requests: list[str]) -> EnvironmentSpec:
         return await self._resolve(requests, 32)
 
@@ -86,7 +90,7 @@ class DependencyResolver:
             "--output-file",
             str(root / "requirements.txt"),
             "--python-version",
-            "3.12",
+            self.python,
             "--python-platform",
             "x86_64-manylinux_2_36",
             "--no-build",

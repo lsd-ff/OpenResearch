@@ -1,6 +1,5 @@
 import asyncio
 import json
-import sys
 from dataclasses import dataclass
 
 from packaging.requirements import Requirement
@@ -25,6 +24,7 @@ from openresearch.research.environment_repair import ResearchEnvironmentRepairer
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.sources.packages import PackageSource
+from openresearch.sources.stdlib import is_stdlib
 from openresearch.sources.wheels import WheelSource
 
 
@@ -102,8 +102,7 @@ class EnvironmentPreparation:
                 standard = [
                     Requirement(value).name
                     for value in current
-                    if Requirement(value).name.casefold().replace("-", "_")
-                    in sys.stdlib_module_names
+                    if is_stdlib(Requirement(value).name)
                 ]
                 if standard:
                     raise EnvironmentLockError(
@@ -223,7 +222,7 @@ class EnvironmentPreparation:
         for value in [*constraints, *requests]:
             requirement = Requirement(value)
             name = canonicalize_name(requirement.name)
-            if name.replace("-", "_") in sys.stdlib_module_names:
+            if is_stdlib(name):
                 continue
             if name in selected:
                 continue
