@@ -33,7 +33,9 @@ def wheel_sources(wheels: dict[str, bytes], roots: list[str]) -> dict[str, str]:
                 members = [
                     item
                     for item in archive.infolist()
-                    if item.filename.startswith(prefix + "/") or item.filename == prefix + ".py"
+                    if item.filename.startswith(prefix + "/")
+                    or item.filename == prefix + ".py"
+                    or (item.filename.startswith(prefix + ".") and item.filename.endswith(".so"))
                 ]
                 if members:
                     found.add(root)

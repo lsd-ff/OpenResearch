@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     task_timeout_seconds: int = Field(default=600, ge=1, le=3600)
     plan_timeout_seconds: int = Field(default=2400, ge=1, le=86400)
     max_task_attempts: int = Field(default=100, ge=1, le=1000)
+    code_max_repairs: int = Field(default=2, ge=0, le=2)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     poll_interval_seconds: float = Field(default=0.25, gt=0, le=10)
     max_output_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)

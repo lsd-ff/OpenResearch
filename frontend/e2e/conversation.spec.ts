@@ -19,7 +19,30 @@ test('按链接打开 API 创建的计划并执行，刷新后保留真实结果
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
   await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
   await page.getByRole('button', { name: '分析报告', exact: true }).click();
-  await expect(page.getByText('17', { exact: true })).toBeVisible();
+  await expect(page.getByText('17', { exact: true }).last()).toBeVisible();
+});
+
+test('直接执行错误 API 程序，实际修复并在聊天返回两次运行记录', async ({ page }) => {
+  await page.goto('/');
+  const code = `import json\nvalue = json.decode('{"number":7}')\nassert value['number'] == 7\nprint(value['number'])`;
+  const message = ['直接执行以下代码并修复 API 错误，保留断言', '```python', code, '```'].join('\n');
+  const response = await send(page, message);
+  const payload = await response.json();
+  expect(['ready', 'in_progress', 'completed']).toContain(payload.plan_graph.status);
+  await expect(page.getByText(/运行\/安装尝试 2 次，采用 1 次修复/)).toBeVisible({ timeout: 90_000 });
+  const headers = await response.request().allHeaders();
+  const saved = await page.request.get(`/api/plans/${payload.plan_graph.id}`, {
+    headers: { 'X-User-Id': headers['x-user-id'], 'X-Session-Id': headers['x-session-id'] },
+  });
+  const graph = (await saved.json()).plan_graph;
+  expect(graph.status).toBe('completed');
+  const task = graph.nodes.find((node: { type: string }) => node.type === 'code_execute');
+  const report = JSON.parse(task.structured_data);
+  expect(report.attempts.map((item: { output: { exit_code: number } }) => item.output.exit_code)).toEqual([1, 0]);
+  expect(new Set(report.attempts.map((item: { sandbox_id: string }) => item.sandbox_id)).size).toBe(2);
+  expect(report.attempts[1].output.stdout.trim()).toBe('7');
+  await page.reload();
+  await expect(page.getByText(/运行\/安装尝试 2 次，采用 1 次修复/)).toHaveCount(1);
 });
 
 test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', async ({ page }, testInfo) => {
@@ -128,6 +151,7 @@ test('状态夹具：框架分支失败后聊天仍展示完整失败报告并�
     });
     const report = graph.nodes[graph.nodes.length - 1];
     report.type = 'framework_report';
+    report.trigger_rule = 'all_done';
     report.status = 'completed';
     report.error = '';
     report.result = '状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。';
@@ -189,9 +213,9 @@ test('聊天创建 smoke 计划，经真实 Docker 执行并在刷新后保留�
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible({ timeout: 90_000 });
   await page.reload();
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
-  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。')).toBeVisible();
+  await expect(page.getByText(/运行\/安装尝试 1 次，采用 0 次修复/)).toBeVisible();
   await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
-  await expect(page.getByText(/"sum":\s*15/)).toBeVisible();
+  await expect(page.getByText(/"sum":\s*15/).last()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('docker-smoke-result.png'), fullPage: true });
 });
 

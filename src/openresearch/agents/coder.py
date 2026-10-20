@@ -1,6 +1,7 @@
 import asyncio
 
 from openresearch.agents.code import CodeAgent
+from openresearch.agents.code_execute import CodeExecutor
 from openresearch.agents.context import AgentContext
 from openresearch.agents.environment import EnvironmentAgent
 from openresearch.agents.framework_design import FrameworkDesigner
@@ -25,6 +26,7 @@ class CoderAgent:
         self.files = files
         self.code = CodeAgent(LLMClient(settings))
         self.execution = ExecutionTool(repository, sandbox, settings.max_output_bytes)
+        self.code_execution = CodeExecutor(settings, repository, sandbox)
         self.environment = EnvironmentAgent(settings)
         self.frameworks = FrameworkDesigner(settings, files)
         self.designer = ResearchDesigner(settings, files)
@@ -37,9 +39,11 @@ class CoderAgent:
             return await self.frameworks.execute(plan, task)
         if task.type == "code_generate":
             sources = await asyncio.to_thread(document_context, plan, self.files)
-            return await self.code.execute(task, sources)
+            return await self.code.execute(task, sources, plan.user_intent)
         if task.type == "code_execute":
             code = await asyncio.to_thread(self.files.read, plan.artifacts["generated_code"])
+            if "code_recovery_report" in task.output_artifacts:
+                return await self.code_execution.execute(task, lease, code, plan.user_intent)
             return await self.execution.execute(task, lease, code)
         if task.type == "environment_lock":
             return await self.environment.execute(task, plan, self.files)

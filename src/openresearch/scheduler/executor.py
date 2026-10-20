@@ -7,8 +7,8 @@ from openresearch.agents.context import AgentContext
 from openresearch.agents.router import RoutedAgents
 from openresearch.agents.scopes import scoped_context, scoped_result
 from openresearch.config import Settings
-from openresearch.errors import ContractError, PlanningInputRequired, StaleExecutionError
-from openresearch.models.execution import ExecutionLease, TaskCompletion
+from openresearch.errors import PlanningInputRequired, StaleExecutionError
+from openresearch.models.execution import ExecutionLease, TaskCompletion, validate_output_keys
 from openresearch.models.output_files import OutputFiles
 from openresearch.models.runtime import Artifact, Plan, Task, TaskResult
 from openresearch.sandbox.base import Sandbox
@@ -48,8 +48,7 @@ class TaskExecutor:
         return scoped_result(context, result)
 
     async def _commit(self, task: Task, lease: ExecutionLease, result: TaskResult) -> None:
-        if set(result.outputs) != set(task.output_artifacts):
-            raise ContractError("agent output does not match its task contract")
+        validate_output_keys(task.output_artifacts, result.outputs.keys(), result.success)
         output = [
             await asyncio.to_thread(self.files.write, lease, key, value)
             for key, value in result.outputs.items()

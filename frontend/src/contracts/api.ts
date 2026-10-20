@@ -45,6 +45,7 @@ export interface GraphTask {
   type: string;
   description: string;
   assigned_to: string;
+  trigger_rule?: 'all_success' | 'all_done';
   status: string;
   dependencies: string[];
   inputs?: Record<string, unknown>;

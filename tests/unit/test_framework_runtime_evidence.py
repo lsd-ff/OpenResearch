@@ -27,3 +27,10 @@ def test_package_prefix_collision_cannot_stand_in_for_real_module():
     raw = wheel({"real_library_fork/base.py": "print('different library')"})
     with pytest.raises(ContractError, match="do not exist"):
         wheel_sources(raw, ["real_library"])
+
+
+def test_a_verified_native_extension_is_a_real_importable_module_without_python_excerpts():
+    raw = wheel({"ujson.cpython-312-x86_64-linux-gnu.so": b"binary fixture"})
+    assert wheel_sources(raw, ["ujson"]) == {}
+    with pytest.raises(ContractError):
+        wheel_sources(wheel({"ujson_helper.cpython-312-x86_64-linux-gnu.so": b"other"}), ["ujson"])

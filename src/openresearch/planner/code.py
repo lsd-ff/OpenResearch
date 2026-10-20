@@ -12,6 +12,23 @@ print(json.dumps({"status": "ok", "sum": sum(values), "python": platform.python_
 """
 
 
+def code_permissions(intent: str) -> tuple[list[str], list[str]]:
+    # 源码中的字符串只是待处理数据，不能替代代码块外的人类权限指令。
+    intent = re.sub(r"```.*?```", "", intent, flags=re.S)
+    disabled = bool(re.search(r"不要自动修复|不自动修复|禁止自动修复|不做任何修复", intent))
+    immutable = disabled or bool(
+        re.search(r"(?:不要|禁止|不允许)(?:修改|修复|改动)(?:这段|原始|任何)?(?:代码|程序)", intent)
+    )
+    no_install = disabled or bool(re.search(r"(?:不要|禁止|不允许)安装", intent))
+    generate, execute = ["code.generate"], ["sandbox.python"]
+    if not immutable:
+        generate.append("code.repair")
+        execute.append("code.repair")
+    if not no_install:
+        execute.append("environment.lock")
+    return generate, execute
+
+
 def build_code_plan(
     intent: str, owner_id: str, session_id: str, settings: Settings, code: str | None = None
 ) -> Plan:
@@ -28,29 +45,43 @@ def build_code_plan(
         code = SMOKE_CODE
     if code is None and not settings.llm_api_key.get_secret_value():
         raise ContractError("provide Python code, request a smoke experiment, or configure an LLM")
+    preparation_tools, execution_tools = code_permissions(intent)
     generate = Task(
         name="Prepare Python Code",
         type="code_generate",
         assigned_to="coder_agent",
         description=intent,
         inputs={"code": code} if code is not None else {},
-        output_artifacts=["generated_code"],
+        output_artifacts=["generated_code", "code_preparation_report"],
         timeout_seconds=settings.task_timeout_seconds,
-        contract=TaskContract(output_artifacts=["generated_code"], allowed_tools=["code.generate"]),
+        contract=TaskContract(
+            output_artifacts=["generated_code", "code_preparation_report"],
+            allowed_tools=preparation_tools,
+        ),
     )
     execute = Task(
         name="Execute Python Experiment",
         type="code_execute",
         assigned_to="coder_agent",
-        description="Execute prepared Python code in a resource-limited container.",
+        description=intent,
         dependencies=[generate.id],
         required_artifacts=["generated_code"],
-        output_artifacts=["run_metrics", "execution_files"],
+        output_artifacts=[
+            "run_metrics",
+            "execution_files",
+            "executed_code",
+            "code_recovery_report",
+        ],
         timeout_seconds=settings.task_timeout_seconds,
         contract=TaskContract(
             input_artifacts=["generated_code"],
-            output_artifacts=["run_metrics", "execution_files"],
-            allowed_tools=["sandbox.python"],
+            output_artifacts=[
+                "run_metrics",
+                "execution_files",
+                "executed_code",
+                "code_recovery_report",
+            ],
+            allowed_tools=execution_tools,
         ),
     )
     approval = Approval(

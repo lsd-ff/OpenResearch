@@ -6,7 +6,9 @@ from openresearch.agents.framework_answers import FrameworkAnswerer
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.chat import ChatReply, ExecutionSummary
+from openresearch.models.recovery import CodeRecoveryReport
 from openresearch.models.runtime import TaskResult
+from openresearch.research.code_summaries import recovery_summary
 from openresearch.research.semantic_claims import semantic_evidence
 from openresearch.services.chat_context import ChatContext
 from openresearch.storage.files import ArtifactStore
@@ -46,6 +48,11 @@ class ChatAgent:
             for key, value in artifacts.items()
             if key not in {"final_patch", "research_patch", "parsed_paper", "research_report"}
         }
+        for key in ("code_preparation_report", "code_recovery_report"):
+            if key in artifacts:
+                summaries[key] = recovery_summary(
+                    CodeRecoveryReport.model_validate_json(artifacts[key])
+                )
         if task.trigger_rule == "all_done":
             summaries["task_outcomes"] = json.dumps(
                 [

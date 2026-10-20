@@ -3,7 +3,7 @@ import json
 from importlib import resources
 
 from openresearch.config import Settings
-from openresearch.errors import SandboxError
+from openresearch.errors import DependencyInstallError, SandboxError
 from openresearch.models.research import EnvironmentReport
 from openresearch.models.sources import EnvironmentLock
 from openresearch.sandbox.session import RunningSandbox
@@ -46,7 +46,7 @@ async def install_environment(
     await session.put_files(await environment_files(lock, settings))
     result = await session.execute(installation_program())
     if result.exit_code:
-        raise SandboxError(f"offline dependency installation failed: {result.stderr[-2000:]}")
+        raise DependencyInstallError(result)
     raw = json.loads(await session.get_file("environment.json", 65536))
     report = EnvironmentReport(
         **raw,

@@ -68,24 +68,32 @@ class MessageService:
         if outcome.chat:
             reply, revision = await self.chat.answer(submission.identity, submission.intent)
             return MessageResult("chat", reply.response, revision, citations=reply.citations)
+        # 是否执行由代码块外的用户指令决定，待分析源码不能自行触发入队。
+        instructions = re.sub(r"```.*?```", "", submission.intent, flags=re.S)
         auto_run = (
             outcome.plan is not None
             and not outcome.plan.approval.required
             and (
                 outcome.plan.intent_type == "Framework_Comparison"
                 or (
+                    any(node.type == "code_execute" for node in outcome.plan.nodes)
+                    and bool(
+                        re.search(r"直接执行|执行完|自动执行|跑通|执行.{0,40}修复", instructions)
+                    )
+                )
+                or (
                     any(node.type == "research_design" for node in outcome.plan.nodes)
                     and bool(
                         re.search(
                             r"跑通|执行完|直接执行|跑.{0,20}测试|run.{0,20}tests?",
-                            submission.intent,
+                            instructions,
                             re.I,
                         )
                     )
                 )
             )
             and not re.search(
-                r"只.{0,4}规划|先.{0,4}规划|不要执行|不执行|仅.{0,4}计划", submission.intent
+                r"只.{0,4}规划|先.{0,4}规划|不要.{0,4}执行|不执行|仅.{0,4}计划", instructions
             )
         )
         response = (

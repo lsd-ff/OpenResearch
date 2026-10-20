@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openresearch.models.planning import PendingPlanning
+    from openresearch.models.runtime import ExecutionResult
 
 
 class NotFoundError(Exception):
@@ -30,6 +31,12 @@ class StaleExecutionError(ConflictError):
 
 class SandboxError(Exception):
     """Sandbox creation, execution, or cleanup failed."""
+
+
+class DependencyInstallError(SandboxError):
+    def __init__(self, result: "ExecutionResult") -> None:
+        self.result = result
+        super().__init__(f"offline dependency installation failed: {result.stderr[-2000:]}")
 
 
 class ModelError(Exception):

@@ -45,6 +45,7 @@ docker compose logs -f worker
 - 「高级实验设置」是可选入口，用于手动指定仓库、入口、固定依赖、列映射和验收阈值。普通聊天实验无需填写该表单。
 - 选择节点查看日志、报告与证据图。支持整图、单节点执行；API 提供角色重分配、审批、取消、失败节点重试和 SSE 游标回放。
 - 普通聊天、自然语言代码生成、自动补丁修复和语义主张评估需要配置 OpenAI-compatible 或 Anthropic Messages 模型。未配置或响应无效会明确失败或标记不可验证；配置和真实联调见 [模型说明](docs/models.md)。
+- 普通代码支持有界自动恢复：明确说「直接执行以下代码并修复错误」时自动入队；语法和可恢复的 API/导入错误可由模型提出修复，缺失公开模块经版本与 wheel 哈希校验后离线安装，再使用新容器运行。原代码、错误和修复记录保留，故意失败的断言不会被改成成功。`OPENRESEARCH_CODE_MAX_REPAIRS=0` 可关闭，准备和执行阶段分别最多 2 次修复。详见 [普通代码恢复](docs/code-recovery.md)。
 
 示例部署验收会真实执行沙箱程序，重算基线与消融准确率并下载产物：
 
@@ -85,7 +86,7 @@ uv run --locked pytest -m docker
 
 默认门禁包含 Ruff、严格 mypy、离线行为测试及 sdist/wheel 构建；前端运行 npm run lint 和 npm run build。CI 已配置 Windows/Linux 与 Python 3.12/3.13，远程结果以 GitHub Actions 实际运行记录为准。
 
-CI 的 browser 作业在独立 Linux 环境运行 Chromium、API 和真实 Docker Worker，覆盖 PDF 阅读、图表输出与下载、数据分析、聊天追问、刷新恢复、名称检索和窄屏操作。分类、候选选择和名称检索使用受控夹具，不提供代码或实验结果；程序、图表和统计结果来自实际执行。真实模型 DAG、HTTP 沙箱、数据与 SSE 可使用 `scripts/verify_framework.py` 另行验收；自动设计、源码复现和 Benchmark 由 `scripts/verify_auto_planning.py` 验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
+CI 的 browser 作业在独立 Linux 环境运行 Chromium、API 和真实 Docker Worker，覆盖 PDF 阅读、图表输出与下载、数据分析、聊天追问、刷新恢复、名称检索和窄屏操作。分类、候选选择、名称检索和 JSON API 修复提议使用受控夹具，不提供实验结果；程序、图表和统计结果来自实际执行。真实模型 DAG、HTTP 沙箱、数据与 SSE 可使用 `scripts/verify_framework.py` 另行验收；自动设计、源码复现和 Benchmark 由 `scripts/verify_auto_planning.py` 验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
 
 SQLite 使用 WAL、外键与写事务锁。状态、事件和产物索引同事务提交；上传、会话、来源页和历史尝试持久化，迁移包含 0001_runtime 与 0002_documents_context。产物读取验证 SHA-256。租约过期恢复会拒绝旧结果；实验允许重复执行，不承诺 exactly-once。
 

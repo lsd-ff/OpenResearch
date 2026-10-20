@@ -1,4 +1,4 @@
-"""仅供网页 CI 的分类与候选选择夹具；不提供代码、实验设计或执行结果。"""
+"""网页 CI 的分类、候选和预定 API 修复提议；不提供实验结果。"""
 
 import json
 from typing import Any
@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 
 from openresearch.models.planning import IntentDraft, SourceSelection
+from openresearch.models.recovery import RecoveryProposal
 
 app = FastAPI()
 
@@ -15,7 +16,16 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
     messages = payload.get("messages", [])
     schemas = [item.get("content", "") for item in messages if item.get("role") == "system"]
     # 拒绝其它契约，防止把受控分类响应误当成真实模型生成或实验成功。
-    if any('"title": "SourceSelection"' in schema for schema in schemas):
+    if any('"title": "RecoveryProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if "json.decode" not in context["code"] or "AttributeError" not in context["error"]:
+            raise HTTPException(400, "only the controlled JSON API repair fixture is supported")
+        result = RecoveryProposal(
+            action="code",
+            reason="Controlled JSON API correction.",
+            code=context["code"].replace("json.decode", "json.loads"),
+        )
+    elif any('"title": "SourceSelection"' in schema for schema in schemas):
         result = SourceSelection(choice=1, reason="Controlled matching source fixture")
     elif any('"title": "IntentDraft"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
@@ -38,7 +48,9 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
             )
         )
     else:
-        raise HTTPException(400, "UI fixture supports classification and source selection only")
+        raise HTTPException(
+            400, "UI fixture supports classification, source selection and JSON API repair only"
+        )
     return {
         "choices": [
             {
