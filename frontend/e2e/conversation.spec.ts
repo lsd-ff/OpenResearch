@@ -100,6 +100,85 @@ test('上传数据后直接聊天即可分析并查看实际缺失值图表', as
   await page.screenshot({ path: testInfo.outputPath('data-analysis-chart.png'), fullPage: true });
 });
 
+async function interruptPlanStream(page: Page) {
+  let first = true;
+  const transport = { deliveredCursor: '', resumedCursor: '' };
+  page.on('response', async response => {
+    if (response.url().endsWith('/stream')) {
+      const received = await response.headerValue('x-test-received-cursor');
+      if (received !== null) transport.resumedCursor = received;
+    }
+  });
+  await page.route('**/api/plans/*/stream', async route => {
+    if (!first) {
+      await route.continue();
+      return;
+    }
+    first = false;
+    // 程序和统计结果来自真实后端；仅截断传输，模拟日志之后连接断开。
+    const response = await route.fetch();
+    const body = await response.text();
+    const frames = body.split('\n\n').filter(frame => frame.startsWith('id:'));
+    const started = frames.findIndex(frame => frame.includes('"event_type": "task_started"'));
+    expect(started).toBeGreaterThanOrEqual(0);
+    expect(body).toContain('"event_type": "plan_completed"');
+    transport.deliveredCursor = /^id: (\d+)/m.exec(frames[started])?.[1] ?? '';
+    expect(transport.deliveredCursor).not.toBe('');
+    await route.fulfill({
+      status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      body: 'retry: 10000\n\n' + frames.slice(0, started + 1).join('\n\n') + '\n\n',
+    });
+  });
+  return transport;
+}
+
+test('实际计划在 SSE 断流后按游标重连，已打开面板恢复结果与图表', async ({ page }) => {
+  const transport = await interruptPlanStream(page);
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'reconnect.csv', mimeType: 'text/csv', buffer: Buffer.from('x,label\n1,a\n3,b\n,a\n'),
+  });
+  await expect(page.getByRole('button', { name: '移除 reconnect.csv', exact: true })).toBeVisible();
+  await send(page, '分析数据中的均值和缺失值');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  // 轮询已看到真实完成快照，但被截断的 SSE 仍只到 started，面板此时已打开。
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await page.locator('.react-flow__node').filter({ hasText: 'Analyze Uploaded Dataset' }).click();
+  await expect.poll(() => transport.resumedCursor).toBe(transport.deliveredCursor);
+  await expect(page.getByAltText('Generated Plot')).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载图表', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '正在执行…', exact: true })).toHaveCount(0);
+});
+
+test('SSE 断流等待重连期间切换会话，会关闭原会话连接', async ({ page }) => {
+  await page.addInitScript(() => {
+    const sources: EventSource[] = [];
+    const Native = window.EventSource;
+    window.EventSource = class extends Native {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        sources.push(this);
+      }
+    };
+    Object.assign(window, { observedEventSources: sources });
+  });
+  const transport = await interruptPlanStream(page);
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'switch.csv', mimeType: 'text/csv', buffer: Buffer.from('x,label\n1,a\n3,b\n,a\n'),
+  });
+  await expect(page.getByRole('button', { name: '移除 switch.csv', exact: true })).toBeVisible();
+  await send(page, '分析数据中的均值和缺失值');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  await expect.poll(() => transport.deliveredCursor).not.toBe('');
+  await page.getByRole('button', { name: '新建临时 Session', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const sources = (window as Window & { observedEventSources: EventSource[] }).observedEventSources;
+    return sources.length === 1 && sources[0].readyState === EventSource.CLOSED;
+  })).toBe(true);
+  expect(transport.resumedCursor).toBe('');
+});
+
 async function send(page: Page, message: string) {
   await page.getByPlaceholder('直接描述实验目标，也可添加论文或数据...').fill(message);
   const response = page.waitForResponse(response =>

@@ -67,6 +67,8 @@ repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来�
 
 /api/execute 只选择已保存的节点，客户端提交的类型、角色、输入不能覆盖持久契约。SSE 输出 log、result、error；整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
 
+整图 SSE 的浏览器连接在短暂断流后由 EventSource 携带 Last-Event-ID 自动重连；收到终态、切换会话或卸载页面才主动关闭。服务端读取终态快照之后再次检查尾部事件，避免任务在两次数据库读取之间完成时漏发结果；单节点流同样先排空晚提交的日志，再发送 result/error。重连后首次收到产物时，已经打开的空日志面板会切换到对应结果视图。日志和结果仍来自持久记录，断线不会重新执行实验。
+
 ## 状态与错误
 
 正常计划 pending → ready → in_progress → completed；可有 awaiting_approval、failed、canceled。依赖失败的节点 blocked。单节点完成后，若仍有未执行节点，计划回到 pending。

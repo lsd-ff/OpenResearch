@@ -63,6 +63,9 @@ async def direct_events(
             Status.CANCELED,
             Status.BLOCKED,
         }:
+            # 节点可能在事件读取后才完成；先排空该终态已经提交的日志，再发送最终结果。
+            if await asyncio.to_thread(runtime.repository.list_events, plan_id, cursor):
+                continue
             if node.status == Status.COMPLETED:
                 data = {
                     "result": node.result,

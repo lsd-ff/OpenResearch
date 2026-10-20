@@ -148,11 +148,17 @@ const executionReducer = (state: ExecutionState, action: ExecutionAction): Execu
       };
     case 'patch-task-state': {
       const prevTaskState = state.nodeStates[action.taskId] ?? initialNodeExecutionState;
+      const nextTaskState = action.updater(prevTaskState);
+      const showingPendingLogs = state.selectedTask?.ID === action.taskId && state.displayMode === 'logs'
+        && !prevTaskState.result && !prevTaskState.code && !prevTaskState.structuredData && !prevTaskState.imageBase64;
       return {
         ...state,
+        // 断流恢复后首次收到实际结果，已打开的空日志面板也需要展示对应产物。
+        displayMode: showingPendingLogs && state.selectedTask
+          ? detectBestDisplayMode(state.selectedTask, nextTaskState) : state.displayMode,
         nodeStates: {
           ...state.nodeStates,
-          [action.taskId]: action.updater(prevTaskState),
+          [action.taskId]: nextTaskState,
         },
       };
     }
@@ -315,12 +321,7 @@ export function useScholarRuntime(options: UseScholarRuntimeOptions) {
             });
           }
         },
-        onError: () => {
-          source.close();
-          if (planEventSourceRef.current === source) {
-            planEventSourceRef.current = null;
-          }
-        },
+        // 短暂断流由 EventSource 携带 Last-Event-ID 重连；只在终态、切换或卸载时关闭。
       });
 
       planEventSourceRef.current = source;
@@ -588,6 +589,8 @@ export function useScholarRuntime(options: UseScholarRuntimeOptions) {
   }, []);
 
   const resetRuntimeState = useCallback(() => {
+    planEventSourceRef.current?.close();
+    planEventSourceRef.current = null;
     dispatchExecution({ type: 'reset' });
   }, []);
 

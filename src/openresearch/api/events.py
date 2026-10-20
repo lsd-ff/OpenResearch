@@ -54,8 +54,10 @@ async def generate_events(
             value = json.dumps(item.model_dump(mode="json"), ensure_ascii=False)
             yield f"id: {cursor}\nevent: plan_event\ndata: {value}\n\n"
         plan = await asyncio.to_thread(runtime.repository.get_plan, plan_id)
-        # 先排空持久化事件再关闭终态流，断线重连也能收到完整终态。
+        # 计划可能在上次事件读取之后才提交终态，必须在该快照之后再确认尾部为空。
         if len(history) < 200 and plan.status in TERMINAL:
+            if await asyncio.to_thread(runtime.repository.list_events, plan_id, cursor):
+                continue
             return
         if time.monotonic() - last_heartbeat >= 10:
             yield ": heartbeat\n\n"
