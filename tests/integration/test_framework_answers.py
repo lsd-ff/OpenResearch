@@ -18,8 +18,13 @@ from openresearch.services.uploads import UploadService
 
 @pytest.mark.parametrize("duplicate", [False, True])
 async def test_answers_use_actual_retrieved_context_without_reference_answers(
-    settings, repository, files, duplicate
+    settings, repository, files, duplicate, monkeypatch
 ):
+    from openresearch.agents import framework_answers
+
+    # 短传输夹具不依赖 Windows/Python 3.12 的系统时钟粒度，实际生成仍使用高精度计时。
+    ticks = iter([20.0, 20.125])
+    monkeypatch.setattr(framework_answers, "perf_counter", lambda: next(ticks))
     plan = PlanService(settings, repository).build(
         PlanSubmission(
             "对比真实框架",
@@ -72,4 +77,4 @@ async def test_answers_use_actual_retrieved_context_without_reference_answers(
         result = await answerer.execute(plan, task)
         report = json.loads(result.outputs["framework_answer_report"])
         assert report["metrics"]["answer_exact_match"] == 0.75
-        assert report["generation_seconds"] > 0
+        assert report["generation_seconds"] == 0.125

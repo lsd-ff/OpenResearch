@@ -1,7 +1,7 @@
 import asyncio
 import json
-import time
 import unicodedata
+from time import perf_counter
 
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
@@ -54,7 +54,7 @@ class FrameworkAnswerer:
                 {"id": case["id"], "query": case["inputs"]["query"], "context": matches[0]["text"]}
             )
         answers: list[GeneratedAnswer] = []
-        started = time.monotonic()
+        started = perf_counter()
         for offset in range(0, len(contexts), 32):
             batch = contexts[offset : offset + 32]
             reply = await self.llm.request_typed(
@@ -91,7 +91,7 @@ class FrameworkAnswerer:
             ) / len(answers)
         report = FrameworkAnswerReport(
             answers=answers,
-            generation_seconds=time.monotonic() - started,
+            generation_seconds=perf_counter() - started,
             metrics=metrics,
             model=self.llm.settings.llm_model,
         )
