@@ -7,6 +7,7 @@ from openresearch.agents.claim_freeze import ClaimFreezer
 from openresearch.agents.context import AgentContext
 from openresearch.agents.framework_report import framework_report
 from openresearch.agents.librarian import LibrarianAgent
+from openresearch.agents.result_audit import ResultAuditor
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.runtime import TaskResult
@@ -31,9 +32,12 @@ class DataAgent:
         self.ablations = AblationDesigner(settings, files)
         self.librarian = librarian
         self.files = files
+        self.auditor = ResultAuditor(settings, repository, files)
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task = context.plan, context.task
+        if task.type == "result_audit":
+            return await self.auditor.execute(plan, task)
         if task.type == "comparison_protocol":
             return await asyncio.to_thread(create_protocol, self.settings, self.uploads, plan, task)
         if task.type == "framework_report":

@@ -142,7 +142,7 @@ function ExpandedPlotView({ executionImage, onClose }: ExpandedPlotViewProps) {
             <h2 className="text-3xl font-black text-gray-900 tracking-tight">生成的图表可视化</h2>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-xs font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full uppercase tracking-wider">Visual Result</span>
-              <span className="text-sm text-gray-400 font-medium">Rendered by Matplotlib in Sandbox</span>
+              <span className="text-sm text-gray-400 font-medium">来自本次任务的实际结果</span>
             </div>
           </div>
         </div>

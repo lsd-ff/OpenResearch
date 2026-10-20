@@ -1,6 +1,6 @@
 # 旧执行接口迁移
 
-Go 的 `/api/execute` 接受临时任务字段，原 Python 入口仅能选择已经保存的节点。当前在同一路径增加旧请求适配：先转换成服务端模板并持久化，再通过现有 Worker、租约、审批、预算、权限和 Docker 沙箱执行。当前是基础阶段兼容，不是全部 Go 任务等价完成。8080 的既有部署尚未更新为迁移分支。
+Go 的 `/api/execute` 接受临时任务字段，原 Python 入口仅能选择已经保存的节点。当前在同一路径增加旧请求适配：先转换成服务端模板并持久化，再通过现有 Worker、租约、审批、预算和权限执行，需要运行实验时进入 Docker 沙箱。已接通基础操作、部分科研阶段及只读结果复核，仍不代表全部 Go 任务等价完成。8080 的既有部署尚未更新为迁移分支。
 
 ## 请求与恢复
 
@@ -45,6 +45,11 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | `benchmark_adapter_preflight` | 执行必要前序阶段及最多 8 条真实样本预检，失败阻止正式阶段 |
 | `benchmark_execute` | 在原工作流上通过预检后运行全部实际数据，保留预测、重算指标、环境及证据 |
 | `paper_code_execute` | 走原生科研执行器，读取固定仓库/给定源码、依赖锁及冻结验收规则，实际运行并保留回执 |
+| `benchmark_validate` | 引用已终止的科研阶段，从实际所属数据及保存预测重新计算声明的原生 Benchmark 指标，校验样本、摘要和回执 |
+| `verify_result` | 独立复核已有科研/普通代码/数据结果，实际失败或证据不足保持验证失败，保存审核报告 |
+| `paper_compare` | 读取原实验及执行前冻结的论文主张，报告实际差距与缺失证据；不生成新的论文指标 |
+| `claim_evidence_build` | 对实际来源、原运行和冻结规则重新建立证据图，不把旧判定图或源码当作新执行证据 |
+| `result_visualization`、`render_plot` | 将经校验的实际指标或执行次数绘制为 SVG，保存完整图表数据；不申请实验容器 |
 
 拼写别名：`code_generate` → `generate_code`；`code_execute` → `execute_code`；`data_analyze` → `dataset_profile`；`document_extract` → `paper_parse`；`env_setup` / `prepare_environment` / `setup_runtime` / `test_environment` → `prepare_runtime`；`dependency_install` → `install_dependencies`。
 
@@ -73,6 +78,29 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 候选消融参数只包含应用参数；Python 与入口脚本由执行器添加。重复脚本/解释器被拒，最多两次模型候选请求，原提议和错误写入 `proposal_rejections`；失败可使用明确标注的已有源码/设计候选，但回退也须通过相同参数校验。两次模型提议及一次回退的拒绝记录最多三组，没有可用候选则保留失败审计并阻止执行。纠正不静默删改 argv，不将设计估计标为实测。
 
+## 独立结果复核
+
+上述六类结果操作必须引用已有的所属工作流，不接受客户端提交的报告正文、预测、指标、代码或宿主路径。例如：
+
+```json
+{
+  "task_type": "benchmark_validate",
+  "task_description": "核验已有运行的实际预测与指标",
+  "assigned_to": "data_agent",
+  "inputs": {"workflow_ref": "openresearch:<source_plan_id>"}
+}
+```
+
+源节点必须是已终止的 `research_execute`、`code_execute` 或 `data_analyze`；多个分支时用实际 `stage_task_id` 选择。`benchmark_validate`、`paper_compare` 和 `claim_evidence_build` 还要求科研来源；其余结果操作可复核普通代码或上传数据。`benchmark_validate` 也接受 `research_coding_agent`，其他五类的兼容角色为 `data_agent`，实际均路由到受限的原生 DataAgent。非所属资源返回 404，未终止来源返回 409，不支持的输入或角色返回 422。
+
+结果复核建立新的 `Result_Review` 持久计划，执行只读 `result_audit` 节点。它有自己的服务端审批、任务超时及一次尝试预算，不修改源计划、首次起算时间、尝试次数或原实验状态，也不申请新实验容器。这与前述在同一图上继续实验阶段的行为不同。结果的 `workflow_ref` 指向新审核计划，`source_workflow_ref` 指向原运行；审核引用可以继续用于下一种结果操作，服务端展开到原来源并只保留有界的补充分析引用，不递归复制整条链。用审核的实际任务 ID 重读时不重复分析；重新提交一个未保存的新请求仍建立新的审核计划。
+
+创建时冻结源节点的状态、执行次数、契约摘要、来源产物 ID 与 SHA。Worker 读取前再次核对这些字段、分支归属和真实文件摘要；源记录改变或混入其他生产者/执行尝试时失败并保留诊断。补充审核与原始产物分别保存，不能覆盖原执行回执。原有失败可被分析，但 `paper_compare` 或证据任务完成只表示报告已产出；`verify_result` 和 `benchmark_validate` 只有实际可核验且通过才成功，不能用分析任务的完成状态修改实验结论。
+
+每项操作保存 `audit_report`。验证返回 `verification_report` 或 `benchmark_validation_report` / `benchmark_metrics`；论文对比另返回 `comparison_report`，对比与证据阶段均返回 `claim_evidence_graph` 和 `claim_verification_report`；绘图返回 `result_plot`、`plot_spec` 及兼容的图像字段，网页聊天显示实际审核报告。完整标签和数值保存在图表数据中，图中采用有界标签与独立指标刻度。
+
+当前独立指标重算覆盖已声明的原生 `accuracy`、`macro_f1`、`mse`、`mae`、`r2` 协议。读取原始所属数据并核对完整样本 ID、目标及保存预测；没有 Benchmark 协议时拒绝把任意数值字段视作已验证指标。旧回执未单独保存预测原始字节，审核只能校验不可变的结构化预测，不能声称重现原始预测字节摘要；预检也只能核验已有回执、覆盖范围和独立容器，不能从未保存的预检预测重新计算指标。源码、补丁、仓库提交、实际锁、执行环境及每个已声明消融均按已有记录核对，历史缺失的环境身份明确记为限制。数值主张依据实际指标；语义主张只允许模型引用实际运行报告并经服务器校验，缺少证据保持不可验证。四行功能样例、程序断言或零退出码不证明论文完整效果。
+
 ## 输入与环境生命周期
 
 源码字段 `generated_code` / `code` 同时出现时必须相同。依赖字段 `dependency_spec` / `requirements` / `dependencies` 支持字符串列表、JSON 字符串、含 `requirements` / `dependencies` / `packages` 的对象、换行或逗号分隔字符串；版本范围内的逗号保留。多个字段须声明等价集合。公开包名称规范化，旧别名 `pytorch` → `torch`、`msgpack-python` → `msgpack`，保留版本约束。禁止 URL、额外源、pip 命令参数及当前契约不支持的 extras/marker；显式依赖最多 128 条，自动导入推导仍有独立上限。
@@ -91,10 +119,9 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 | 范围 | 尚未适配的 Go 类型 |
 | --- | --- |
-| 框架研究与对比 | `framework_research`、`framework_recommendation`，以及按分支生成的 fit/index/prepare 类型 |
-| 论文、仓库与证据 | `repo_discovery`、`paper_compare`、`claim_evidence_build` |
-| 结果及恢复阶段 | `result_visualization`、`fix_and_rerun`、`verify_result`、`render_plot` |
+| 框架研究与对比 | `framework_research`、`framework_recommendation`、`framework_report`，以及 `framework_fit_*`、`framework_prepare_*`、`framework_run_*`（含数字编号及 left/right 分支） |
+| 仓库发现 | `repo_discovery` |
+| 独立恢复阶段 | `fix_and_rerun` |
 | 通用研究 | `general_research`、`general_synthesis`、`general_process` |
-| 独立 Benchmark 阶段 | `benchmark_validate`（原生执行器已核验指标，旧独立阶段尚未适配） |
 
 单文件发行、独立 docker-core 能力和最终统一部署另按 [实施与验收](implementation-plan.md) 跟踪。本接口的基础兼容验收不替代这些范围，也不证明论文大规模训练结果。

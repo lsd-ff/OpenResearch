@@ -3,6 +3,7 @@
 from typing import Any
 
 from openresearch.errors import ContractError
+from openresearch.models.audit import AUDIT_ROLES
 from openresearch.models.compute import ReproductionRequest
 from openresearch.models.context import Identity
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
@@ -54,7 +55,10 @@ def legacy_kind(payload: DirectExecutionRequest) -> str:
 
 def validate_legacy_request(payload: DirectExecutionRequest) -> str:
     kind = legacy_kind(payload)
-    if kind not in CODE_KINDS | ENV_KINDS | STAGES.keys() | {"dataset_profile", "paper_parse"}:
+    if kind not in CODE_KINDS | ENV_KINDS | STAGES.keys() | AUDIT_ROLES.keys() | {
+        "dataset_profile",
+        "paper_parse",
+    }:
         raise ContractError(
             "legacy operation requires a managed continuation or is not yet mapped: " + kind
         )
@@ -73,6 +77,8 @@ def validate_legacy_request(payload: DirectExecutionRequest) -> str:
         roles = {"coder_agent"}
     if kind in STAGES:
         roles = set(STAGES[kind].roles)
+    if kind in AUDIT_ROLES:
+        roles = AUDIT_ROLES[kind]
     if payload.assigned_to and payload.assigned_to not in roles:
         raise ContractError("legacy task role is incompatible with its declared operation")
     return kind
@@ -115,7 +121,7 @@ def basic_legacy_plan(
         plan = _code_plan(payload, identity, plans, state)
     elif kind in ENV_KINDS:
         plan = _environment_plan(payload, identity, plans, state)
-    else:
+    elif kind in {"dataset_profile", "paper_parse"}:
         workflow: Workflow = "data" if kind == "dataset_profile" else "paper"
         plan = plans.build(
             PlanSubmission(
@@ -124,6 +130,8 @@ def basic_legacy_plan(
         )
         if kind == "paper_parse":
             plan = prefix_plan(plan, "document_extract")
+    else:
+        raise ContractError("operation requires its managed scientific or review service")
     if payload.task_name:
         plan.nodes[-1].name = payload.task_name
     plan.legacy = LegacyTaskOrigin(

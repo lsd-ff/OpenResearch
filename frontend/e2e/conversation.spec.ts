@@ -57,6 +57,47 @@ test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', 
   await page.screenshot({ path: testInfo.outputPath('pdf-reader.png'), fullPage: true });
 });
 
+test('真实运行结果可独立复核并绘图，刷新后保留图表和审核报告', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const outcome = (text: string) => {
+    const event = text.split('\n\n').find(item => item.startsWith('event: result\n'));
+    expect(event, text).toBeDefined();
+    return JSON.parse(event!.split('data: ', 2)[1]);
+  };
+  const executed = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'execute_code', assigned_to: 'coder_agent',
+    task_description: '执行原断言，不要自动修复', inputs: { code: 'assert sum([2,3,5]) == 10\nprint(10)\n' },
+  } });
+  const source = outcome(await executed.text());
+  const before = await (await page.request.get(`/api/plans/${source.plan_id}`, { headers })).json();
+  const reviewed = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'render_plot', task_name: '实际结果复核图', assigned_to: 'data_agent',
+    task_description: '绘制已有真实执行统计，不执行新实验', inputs: { workflow_ref: source.workflow_ref },
+  } });
+  const result = outcome(await reviewed.text());
+  expect(result.source_workflow_ref).toBe(source.workflow_ref);
+  expect(JSON.parse(result.outputs.plot_spec).panels.program_attempts).toEqual([['execution', 1]]);
+  const after = await (await page.request.get(`/api/plans/${source.plan_id}`, { headers })).json();
+  expect(after.plan_graph).toEqual(before.plan_graph);
+  await page.goto(`/?plan=${result.plan_id}`);
+  await expect(page.getByText('结果复核', { exact: true })).toBeVisible();
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.locator('.react-flow__node').filter({ hasText: '实际结果复核图' }).click();
+  const image = page.getByAltText('Generated Plot');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(900);
+  await page.screenshot({ path: testInfo.outputPath('review-plot.png'), fullPage: true });
+  await page.getByRole('button', { name: '分析报告', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '实际结果复核', exact: true }).last()).toBeVisible();
+  await page.reload();
+  await page.locator('.react-flow__node').filter({ hasText: '实际结果复核图' }).click();
+  await expect(page.getByAltText('Generated Plot')).toBeVisible();
+});
+
 test('状态夹具：远程 PDF 消息打开实际所属附件，刷新后仍是该文档', async ({ page }) => {
   await page.goto('/');
   const initial = await send(page, '运行 smoke 冒烟测试');

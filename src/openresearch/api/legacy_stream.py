@@ -7,6 +7,7 @@ from fastapi import Request
 
 from openresearch.api.dependencies import Runtime
 from openresearch.api.legacy_stage_outputs import stage_outputs
+from openresearch.models.audit import ReviewSnapshot
 from openresearch.models.graph import ancestor_map
 from openresearch.models.legacy import LegacyEnvironmentState
 from openresearch.models.runtime import Plan, Status, Task
@@ -75,6 +76,14 @@ async def legacy_result(
         "task_id": node.id,
         "client_task_id": plan.legacy.task_id if plan.legacy else "",
         "workflow_ref": "openresearch:" + plan.id,
+        **(
+            {
+                "source_workflow_ref": "openresearch:"
+                + ReviewSnapshot.model_validate(node.inputs["snapshot"]).source_plan_id
+            }
+            if node.type == "result_audit"
+            else {}
+        ),
     }
 
 

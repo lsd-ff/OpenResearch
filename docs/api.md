@@ -71,6 +71,8 @@ repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来�
 
 科研阶段可用 `inputs.research` 创建完整冻结图，再通过结果中的 `workflow_ref` 选择后续阶段；续请求只接收该引用和可选实际 `stage_task_id`，不接受新源码等契约覆盖。只执行目标及其必要祖先，保留后继和全部已有结果；阶段完成时整图仍可能 pending。多分支同名阶段必须显式选择。审批、所属身份、累计尝试及首次执行起算时间持续生效，从其他执行入口恢复也不重置时间预算。
 
+`benchmark_validate`、`verify_result`、`paper_compare`、`claim_evidence_build`、`result_visualization`、`render_plot` 必须以所属 `inputs.workflow_ref` 引用已终止的真实来源，可附实际 `stage_task_id` 消除分支歧义。这些操作建立独立的只读 `Result_Review` 计划，具有自身审批和一次尝试预算，不重跑实验或改变源计划。结果 `workflow_ref` 指向审核计划，`source_workflow_ref` 指向原运行；可以继续引用审核计划串联后续分析。创建与执行时均校验源契约、状态、次数、产物身份及实际文件 SHA，补充分析不能覆盖原产物。来源执行失败或证据不足时严格验证保持失败；分析任务可以完成失败报告，但不改变原实验结论。已声明原生 Benchmark 的五种指标可从所属数据和保存预测重算，历史原始字节与环境缺失仍明确记录限制。角色、实际产物及更详细边界见 [独立结果复核](legacy-api.md#独立结果复核)。
+
 兼容入口 SSE 输出 log、result、error；流响应头 `X-OpenResearch-Plan-Id`、`X-OpenResearch-Task-Id` 返回实际 ID。开启审批时先返回 202 JSON（`approval_required`、`plan_id`、`task_id`、`plan_graph`），审批后以实际 ID 再次调用。已保存的兼容计划重读结果不会重新执行，也不会采用新提交的源码；未保存的新请求会创建新计划。首次匿名响应保留身份 Cookie。结果兼容 Go 的 `image_base_64` 并保留原 `image_base64`，`outputs` 包含本阶段实际产物。环境引用是所属配置和锁的回执，每次实际执行仍创建受管容器。该 POST 流没有游标续传；要按游标读取持久事件使用整图 GET 流。
 
 整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。

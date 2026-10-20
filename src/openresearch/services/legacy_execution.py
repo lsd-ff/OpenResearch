@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from openresearch.config import Settings
 from openresearch.errors import ContractError, NotFoundError
+from openresearch.models.audit import AUDIT_ROLES
 from openresearch.models.context import Identity
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
 from openresearch.models.runtime import LegacyTaskOrigin, Plan, Status
@@ -15,6 +16,7 @@ from openresearch.services.legacy_plans import (
     legacy_kind,
     validate_legacy_request,
 )
+from openresearch.services.legacy_reviews import build_review_plan
 from openresearch.services.legacy_stages import (
     STAGES,
     build_stage_plan,
@@ -63,6 +65,8 @@ class LegacyExecutionService:
         if not payload.task_description.strip():
             raise ContractError("provide a saved task_id or a legacy task_description")
         kind = validate_legacy_request(payload)
+        if kind in AUDIT_ROLES:
+            raise ContractError("result review requires an owned workflow_ref with saved evidence")
         payload = await self._paper(payload, identity)
         if kind in STAGES:
             return await self._new_stage(payload, identity, kind)
@@ -137,6 +141,16 @@ class LegacyExecutionService:
         self, payload: DirectExecutionRequest, identity: Identity, reference: str
     ) -> DirectSelection:
         kind = validate_legacy_request(payload)
+        if kind in AUDIT_ROLES:
+            plan = await asyncio.to_thread(
+                build_review_plan, payload, identity, self.plans, self.files, kind
+            )
+            await asyncio.to_thread(self.repository.save_plan, plan)
+            if not plan.approval.required:
+                await asyncio.to_thread(self.repository.queue_plan, plan.id, identity.user_id)
+            return DirectSelection(
+                await asyncio.to_thread(self.repository.get_plan, plan.id), plan.nodes[0].id, kind
+            )
         if kind not in STAGES:
             raise ContractError("this operation does not select a managed scientific stage")
         if payload.plan_id or set(payload.inputs) - {"workflow_ref", "stage_task_id"}:
