@@ -13,12 +13,13 @@ from openresearch.agents.code_repair import (
 from openresearch.config import Settings
 from openresearch.errors import ContractError, ModelError
 from openresearch.llm.client import LLMClient
+from openresearch.models.compute import ReproductionRequest
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.recovery import CodeRecoveryReport, RecoveryDecision, RecoveryProposal
 from openresearch.models.runtime import Task, TaskResult
 from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock
-from openresearch.research.code_execution import CodeProgramRunner, ProgramOutcome
+from openresearch.research.code_execution import CodeProgramRunner, ProgramOptions, ProgramOutcome
 from openresearch.research.code_guards import code_digest
 from openresearch.research.dependency_recovery import DependencyRecovery, DependencyUpdate
 from openresearch.research.runtime_recovery import (
@@ -61,13 +62,22 @@ class CodeExecutor:
         )
         intent = goal or task.description
         binding = task_runtime(self.settings, task, intent)
+        compute = (
+            ReproductionRequest.model_validate(task.inputs["reproduction"])
+            if task.inputs.get("reproduction")
+            else None
+        )
+        if compute and "runtime.probe" not in task.contract.allowed_tools:
+            raise ContractError("task is not authorized to admit compute resources")
         report = CodeRecoveryReport(max_repairs=maximum, original_code_sha256=code_digest(code))
         state = CodeState(
             code, [], EnvironmentLock(python=runtime_python(self.settings, binding)), binding
         )
         remaining = maximum
         while True:
-            arguments = {"runtime": state.runtime} if state.runtime else {}
+            arguments: ProgramOptions = {"runtime": state.runtime} if state.runtime else {}
+            if compute:
+                arguments["reproduction"] = compute
             outcome = await self.runner.run(
                 lease, state.code, state.lock, len(report.attempts) + 1, **arguments
             )

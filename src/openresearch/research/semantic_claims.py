@@ -95,6 +95,7 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
             "exit_code": attempt.exit_code,
             "phase": attempt.phase,
             "environment_lock_sha256": attempt.environment_lock_sha256,
+            "reproduction": run.reproduction.model_dump() if run.reproduction else None,
         }
         sections.extend(
             [

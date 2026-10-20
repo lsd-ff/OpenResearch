@@ -50,6 +50,8 @@ class RepairPipeline:
         while remaining > 0:
             if not failure.error:
                 break
+            if failure.phase == "resources":
+                break
             try:
                 remaining -= 1
                 if self.environment_repairer and dependency_failure(request, failure):

@@ -43,6 +43,10 @@ class SandboxError(Exception):
     """Sandbox creation, execution, or cleanup failed."""
 
 
+class ResourceBusyError(SandboxError):
+    """GPU 已被真实容器占用；不得当成后端故障回退到未受治理的服务。"""
+
+
 class DependencyInstallError(SandboxError):
     def __init__(self, result: "ExecutionResult") -> None:
         self.result = result

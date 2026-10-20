@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 
@@ -27,5 +28,6 @@ class Sandbox(Protocol):
     async def image_identity(self, sandbox_id: str) -> str | None: ...
 
     async def health(self) -> bool: ...
+    async def resources(self, sandbox_id: str) -> SandboxResources: ...
 
     async def shutdown(self) -> None: ...

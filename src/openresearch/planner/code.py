@@ -3,7 +3,10 @@ import re
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task, TaskContract
-from openresearch.research.runtime_selection import runtime_for_intent, runtime_tools
+from openresearch.planner.compute import compute_task
+from openresearch.research.compute import compute_runtime
+from openresearch.research.reproduction_mode import request_from_intent
+from openresearch.research.runtime_selection import runtime_tools
 
 SMOKE_CODE = """import json
 import platform
@@ -47,7 +50,8 @@ def build_code_plan(
     if code is None and not settings.llm_api_key.get_secret_value():
         raise ContractError("provide Python code, request a smoke experiment, or configure an LLM")
     preparation_tools, execution_tools = code_permissions(intent)
-    runtime = runtime_for_intent(settings, intent)
+    request = request_from_intent(intent)
+    runtime = compute_runtime(settings, intent, request)
     preparation_tools.extend(runtime_tools(settings))
     execution_tools.extend(runtime_tools(settings))
     generate = Task(
@@ -91,6 +95,33 @@ def build_code_plan(
     if runtime:
         generate.inputs["runtime"] = runtime.model_dump()
         execute.inputs["runtime"] = runtime.model_dump()
+        for node in (generate, execute):
+            if "runtime.select" not in node.contract.allowed_tools:
+                node.contract.allowed_tools.append("runtime.select")
+    nodes = [generate, execute]
+    if request:
+        compute = compute_task(settings, request, runtime)
+        generate.dependencies = [compute.id]
+        generate.required_artifacts = ["reproduction_decision"]
+        generate.contract.input_artifacts = list(generate.required_artifacts)
+        execute.dependencies.append(compute.id)
+        execute.required_artifacts.append("reproduction_decision")
+        execute.contract.input_artifacts = list(execute.required_artifacts)
+        for node in nodes:
+            node.inputs["reproduction"] = request.model_dump()
+            node.contract.allowed_tools.append("runtime.probe")
+        nodes.insert(0, compute)
+        summary = Task(
+            name="实际资源与执行报告",
+            type="chat_answer",
+            assigned_to="chat_agent",
+            trigger_rule="all_done",
+            dependencies=[node.id for node in nodes],
+            output_artifacts=["chat_answer"],
+            timeout_seconds=settings.task_timeout_seconds,
+            contract=TaskContract(allowed_tools=["chat.answer"], output_artifacts=["chat_answer"]),
+        )
+        nodes.append(summary)
     approval = Approval(
         required=settings.require_approval,
         status="pending" if settings.require_approval else "not_required",
@@ -99,8 +130,12 @@ def build_code_plan(
         user_intent=intent,
         owner_id=owner_id,
         session_id=session_id,
-        nodes=[generate, execute],
-        edges=[Edge(**{"from": generate.id, "to": execute.id})],
+        nodes=nodes,
+        edges=[
+            Edge(**{"from": parent, "to": node.id})
+            for node in nodes
+            for parent in node.dependencies
+        ],
         approval=approval,
         status=Status.AWAITING_APPROVAL if approval.required else Status.PENDING,
         budget=Budget(

@@ -1,4 +1,5 @@
 from openresearch.errors import ContractError
+from openresearch.models.compute import ReproductionDecision
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.research import BenchmarkPreflightReport, ResearchSpec
 from openresearch.models.runtime import Plan, Task
@@ -18,6 +19,11 @@ def resolved_research(plan: Plan, task: Task, files: ArtifactStore) -> ResearchS
         spec = spec.model_copy(
             update={"environment": EnvironmentSpec.model_validate_json(files.read(prepared))}
         )
+    if artifact := plan.artifacts.get("reproduction_decision"):
+        decision = ReproductionDecision.model_validate_json(files.read(artifact))
+        if not decision.execution_allowed:
+            raise ContractError("resource admission did not allow this experiment")
+        spec = spec.model_copy(update={"runtime": decision.runtime})
     for key in ("dependency_resolution_report", "environment_preparation_report"):
         if artifact := plan.artifacts.get(key):
             report = EnvironmentPreparationReport.model_validate_json(files.read(artifact))

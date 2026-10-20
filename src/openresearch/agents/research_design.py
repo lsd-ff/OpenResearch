@@ -83,6 +83,7 @@ class ResearchDesigner:
             raise ContractError("task is not authorized to design an experiment")
         spec = ResearchSpec.model_validate(task.inputs["research"])
         python = runtime_python(self.settings, spec.runtime)
+        gpu = bool(spec.runtime and self.settings.runtime_profiles[spec.runtime.profile].gpu)
         if spec.runtime and "runtime.select" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to select a research runtime")
         snapshot, sources = await asyncio.to_thread(self.preparer.workspace, plan)
@@ -100,6 +101,10 @@ class ResearchDesigner:
             "dependency_bytes": self.settings.dependency_max_bytes,
             "runtime_python": python,
             "requested_requirements": spec.environment.requirements,
+            "compute_request": spec.reproduction.model_dump() if spec.reproduction else None,
+            "runtime_gpu": bool(
+                spec.runtime and self.settings.runtime_profiles[spec.runtime.profile].gpu
+            ),
             "available_cpu_runtimes": {
                 name: profile.python
                 for name, profile in self.settings.runtime_profiles.items()
@@ -110,7 +115,9 @@ class ResearchDesigner:
             [
                 {
                     "role": "system",
-                    "content": DESIGN_PROMPT.replace("Python 3.12", f"Python {python}"),
+                    "content": DESIGN_PROMPT.replace("Python 3.12", f"Python {python}").replace(
+                        "Linux x86_64, CPU", "Linux x86_64, GPU" if gpu else "Linux x86_64, CPU"
+                    ),
                 },
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
             ],

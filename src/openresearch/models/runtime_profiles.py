@@ -24,6 +24,9 @@ class RuntimeProfile(ContractModel):
     gpu: bool = False
     cpus: float = Field(default=1, ge=0.25, le=64, allow_inf_nan=False)
     memory_mb: int | None = Field(default=None, ge=64, le=131072)
+    workspace_storage: Literal["tmpfs", "volume"] = Field(
+        default="tmpfs", exclude_if=lambda value: value == "tmpfs"
+    )
 
     @field_validator("image")
     @classmethod

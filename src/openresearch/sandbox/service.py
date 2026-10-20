@@ -6,12 +6,13 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import Field
 
 from openresearch.api.body_limit import BodyLimitMiddleware
 from openresearch.api.middleware import install_error_handlers, install_middleware
 from openresearch.config import Settings
+from openresearch.errors import ResourceBusyError
 from openresearch.models.runtime import ContractModel, ExecutionResult, new_id
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.commands import command_program
@@ -63,6 +64,10 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
         max_bytes=1024 * 1024,
         path_limits={r"/api/v1/sandboxes/[^/]+/files": bundle_limit(configuration)},
     )
+
+    @app.exception_handler(ResourceBusyError)
+    async def resource_busy(_: Request, exc: ResourceBusyError) -> JSONResponse:
+        return JSONResponse({"code": "resource_busy", "error": str(exc)}, status_code=409)
 
     async def owned(identifier: str) -> None:
         if identifier not in {item.id for item in await engine.inventory()}:
@@ -120,6 +125,11 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     async def image(identifier: str) -> dict[str, str | None]:
         await owned(identifier)
         return {"image_identity": await engine.image_identity(identifier)}
+
+    @app.get("/api/v1/sandboxes/{identifier}/resources")
+    async def resources(identifier: str) -> dict[str, Any]:
+        await owned(identifier)
+        return (await engine.resources(identifier)).model_dump()
 
     @app.put("/api/v1/sandboxes/{identifier}/files")
     async def put_files(identifier: str, request: Request) -> dict[str, int]:

@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
     runtime_profiles: dict[str, RuntimeProfile] = Field(default_factory=dict, max_length=16)
+    reproduction_full_min_cpu: float = Field(default=16, ge=1, le=256)
+    reproduction_full_min_memory_mb: int = Field(default=65536, ge=64, le=1048576)
+    reproduction_full_min_disk_mb: int = Field(default=102400, ge=64, le=10485760)
+    reproduction_full_min_gpu: int = Field(default=1, ge=0, le=16)
+    gpu_wait_seconds: int = Field(default=30, ge=1, le=600)
     sandbox_network: Literal["none", "bridge"] = "none"
     sandbox_memory: str = "1g"
     sandbox_tmpfs_size_mb: int = Field(default=256, ge=16, le=2048)

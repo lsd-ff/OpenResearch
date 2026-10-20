@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from typing import TypedDict
 
 from openresearch.config import Settings
 from openresearch.errors import ContractError, DependencyInstallError, SandboxError
+from openresearch.models.compute import ReproductionRequest
 from openresearch.models.execution import ExecutionLease
 from openresearch.models.output_files import OutputFiles
 from openresearch.models.recovery import CodeAttempt
@@ -10,6 +12,7 @@ from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.code_guards import code_digest
 from openresearch.research.environment import install_environment
+from openresearch.research.reproduction_mode import decide_mode
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.sandbox.collect import collect_files
 from openresearch.sandbox.session import SandboxSessions
@@ -20,6 +23,11 @@ class ProgramOutcome:
     attempt: CodeAttempt
     files: OutputFiles
     output: ExecutionResult | None
+
+
+class ProgramOptions(TypedDict, total=False):
+    runtime: RuntimeBinding | None
+    reproduction: ReproductionRequest | None
 
 
 class CodeProgramRunner:
@@ -34,6 +42,7 @@ class CodeProgramRunner:
         number: int,
         *,
         runtime: RuntimeBinding | None = None,
+        reproduction: ReproductionRequest | None = None,
     ) -> ProgramOutcome:
         attempt = CodeAttempt(
             number=number,
@@ -54,6 +63,18 @@ class CodeProgramRunner:
             async with context as session:
                 attempt.sandbox_id = session.id
                 attempt.container_image_id = await session.adapter.image_identity(session.id)
+                if reproduction:
+                    attempt.phase = "resources"
+                    attempt.reproduction = decide_mode(
+                        self.settings, reproduction, await session.adapter.resources(session.id)
+                    )
+                    attempt.reproduction.runtime = runtime
+                    if not attempt.reproduction.execution_allowed:
+                        raise ContractError(
+                            "actual resource admission refused execution: "
+                            + "; ".join(attempt.reproduction.reasons)
+                        )
+                    attempt.phase = "install"
                 if lock.wheels or runtime:
                     attempt.environment = await install_environment(session, lock, self.settings)
                 attempt.phase = "execute"

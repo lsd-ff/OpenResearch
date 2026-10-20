@@ -74,7 +74,7 @@ OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换�
 
 独立运行时可选择 docker、http、opensandbox 或 auto 后端。http 既支持本项目 Python 服务，也兼容原 Go NDJSON 协议；仅旧 Go 服务缺少清单和镜像摘要。Python HTTP 服务可对账容器并返回原生 Docker 的实际镜像摘要。
 
-管理员可注册命名运行时，科研/框架计划按用户版本选择目标，初始准备遇到有公开证据的 Python 不兼容时可有界切换，后续预检、执行及依赖恢复保留该环境。基础层还验证了真实 GPU 容器中的 CUDA 向量计算；GPU/full 资源调度尚未接完。配置为空时默认使用 Python 3.12 CPU。配置契约、真实回执与限制见 [运行时选择](docs/runtime-profiles.md)。
+管理员可注册命名运行时，科研/框架计划按用户版本选择目标，不兼容时可按真实证据有界恢复。新 GPU/full 计划接入实际容器资源准入、跨服务 GPU 互斥及执行前重新探测；资源不足会阻止程序并返回失败报告。大工作区可显式使用临时 Docker 卷，该卷没有磁盘配额。配置为空时默认 Python 3.12 CPU；full 策略和小型 CUDA 验收不证明大型论文训练效果，最终部署仍待验收。配置与回执见 [运行时选择](docs/runtime-profiles.md)。
 
 ## 工程与恢复
 

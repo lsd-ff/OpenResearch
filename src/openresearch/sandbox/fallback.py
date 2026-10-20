@@ -2,7 +2,8 @@ import asyncio
 import logging
 import re
 
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox.base import LogCallback, Sandbox
@@ -26,6 +27,8 @@ class FallbackSandbox:
                 if runtime_profile
                 else self.primary.create(plan_id, execution_id)
             )
+        except ResourceBusyError:
+            raise
         except Exception:
             if self.fallback is None:
                 raise
@@ -65,6 +68,10 @@ class FallbackSandbox:
     async def image_identity(self, sandbox_id: str) -> str | None:
         adapter, identifier = self.select(sandbox_id)
         return await adapter.image_identity(identifier)
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        adapter, identifier = self.select(sandbox_id)
+        return await adapter.resources(identifier)
 
     async def inventory(self) -> list[ManagedSandbox]:
         results: list[ManagedSandbox] = []

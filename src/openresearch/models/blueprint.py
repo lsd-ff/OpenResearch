@@ -5,6 +5,7 @@ from pydantic import Field
 from openresearch.models.runtime import ContractModel
 
 TaskKind = Literal[
+    "runtime_prepare",
     "comparison_protocol",
     "framework_design",
     "framework_research",

@@ -48,6 +48,9 @@ class ChatAgent:
                     "research_report",
                     "dependency_resolution_report",
                     "environment_preparation_report",
+                    "reproduction_decision",
+                    "code_recovery_report",
+                    "code_preparation_report",
                 )
                 if key in plan.artifacts and key not in keys
             )

@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from openresearch.models.compute import ReproductionDecision
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.research import EnvironmentReport
 from openresearch.models.runtime import ContractModel, ExecutionResult
@@ -27,7 +28,7 @@ class RecoveryDecision(ContractModel):
 
 class CodeAttempt(ContractModel):
     number: int = Field(ge=1, le=3)
-    phase: Literal["syntax", "syntax_pending", "install", "execute", "outputs"]
+    phase: Literal["syntax", "syntax_pending", "resources", "install", "execute", "outputs"]
     code: str = Field(max_length=131072)
     code_sha256: str
     output: ExecutionResult | None = None
@@ -39,6 +40,9 @@ class CodeAttempt(ContractModel):
     environment: EnvironmentReport | None = None
     error: str = ""
     runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
+    reproduction: ReproductionDecision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CodeRecoveryReport(ContractModel):

@@ -57,12 +57,16 @@ def runtime_python(settings: Settings, binding: RuntimeBinding | None) -> Target
 
 
 def runtime_for_intent(
-    settings: Settings, intent: str, binding: RuntimeBinding | None = None
+    settings: Settings,
+    intent: str,
+    binding: RuntimeBinding | None = None,
+    *,
+    allow_gpu: bool = False,
 ) -> RuntimeBinding | None:
     requested = intent_python(intent)
     profile = bound_profile(settings, binding)
     if profile:
-        if profile.gpu:
+        if profile.gpu and not allow_gpu:
             raise ContractError("research GPU profiles require GPU resource admission")
         if requested is not None and profile.python + ".0" not in requested:
             raise ContractError("configured runtime conflicts with the requested Python version")
@@ -92,7 +96,9 @@ def task_runtime(settings: Settings, task: Task, intent: str) -> RuntimeBinding 
         if binding:
             raise ContractError("task is not authorized to select a runtime")
         return None
-    return runtime_for_intent(settings, intent, binding)
+    return runtime_for_intent(
+        settings, intent, binding, allow_gpu="runtime.probe" in task.contract.allowed_tools
+    )
 
 
 def compatible_runtime(

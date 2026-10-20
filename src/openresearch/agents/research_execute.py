@@ -90,6 +90,8 @@ class ResearchExecutor:
         spec = resolved_research(plan, task, self.files)
         if spec.runtime and "runtime.select" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to select a research runtime")
+        if spec.reproduction and "runtime.probe" not in task.contract.allowed_tools:
+            raise ContractError("task is not authorized to admit compute resources")
         snapshot, sources = self.preparer.workspace(plan)
         patch_key = (
             "benchmark_preflight_patch"
@@ -200,6 +202,7 @@ class ResearchExecutor:
             ).hexdigest(),
             entrypoint=request.spec.entrypoint,
             runtime=request.spec.runtime,
+            reproduction=runs[0].reproduction,
             source_integrity=provided_source_identity(plan, task, request),
             preflight=preflight,
             preflight_rechecks=list(baseline.rechecks),

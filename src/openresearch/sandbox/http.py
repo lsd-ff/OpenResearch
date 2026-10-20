@@ -1,7 +1,8 @@
 import httpx
 
 from openresearch.config import Settings
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
@@ -40,6 +41,8 @@ class HttpSandbox:
                 **({"runtime_profile": runtime_profile} if runtime_profile else {}),
             },
         )
+        if response.status_code == 409 and response.json().get("code") == "resource_busy":
+            raise ResourceBusyError(str(response.json().get("error", "GPU resource busy"))[:2000])
         response.raise_for_status()
         identifier = response.json().get("sandbox_id")
         if not isinstance(identifier, str) or not identifier.startswith(("dk-", "os-")):
@@ -52,6 +55,13 @@ class HttpSandbox:
             await self.close(identifier)
             raise SandboxError("sandbox service did not confirm the requested runtime profile")
         return identifier
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        response = await self.client.get(f"/api/v1/sandboxes/{sandbox_id}/resources")
+        response.raise_for_status()
+        if len(response.content) > 65536:
+            raise SandboxError("resource probe response exceeds limit")
+        return SandboxResources.model_validate(response.json())
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult:
         final: ExecutionResult | None = None

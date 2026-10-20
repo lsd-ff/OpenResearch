@@ -1,12 +1,16 @@
 from openresearch.config import Settings
 from openresearch.errors import ContractError
+from openresearch.models.compute import ReproductionRequest
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task, TaskContract
 from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.code import code_permissions
+from openresearch.planner.compute import compute_task
 from openresearch.planner.documents import document_task
 from openresearch.research.ablation import requested_ablation_budget
-from openresearch.research.runtime_selection import runtime_for_intent, runtime_tools
+from openresearch.research.compute import compute_runtime
+from openresearch.research.reproduction_mode import request_from_intent
+from openresearch.research.runtime_selection import bound_profile, runtime_tools
 
 
 def research_task(kind: str, tools: list[str], outputs: list[str], settings: Settings) -> Task:
@@ -69,8 +73,14 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
 
 def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     spec = submission.research or ResearchSpec()
+    request = spec.reproduction or request_from_intent(submission.intent)
+    if spec.runtime and (profile := bound_profile(settings, spec.runtime)) and profile.gpu:
+        request = request or ReproductionRequest(device="gpu")
     spec = spec.model_copy(
-        update={"runtime": runtime_for_intent(settings, submission.intent, spec.runtime)}
+        update={
+            "runtime": compute_runtime(settings, submission.intent, request, spec.runtime),
+            "reproduction": request,
+        }
     )
     if not spec.ablations and not spec.ablation_search:
         budget = requested_ablation_budget(submission.intent)
@@ -102,6 +112,19 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         depend(design, nodes)
         depend(environment, [design])
         nodes.extend([design, environment])
+    if request:
+        compute = compute_task(settings, request, spec.runtime)
+        for node in nodes:
+            if node.type in {"research_design", "environment_lock"}:
+                depend(
+                    node,
+                    [
+                        next(item for item in nodes if item.id == parent)
+                        for parent in node.dependencies
+                    ]
+                    + [compute],
+                )
+        nodes.insert(0, compute)
     if spec.ablation_search:
         search = research_task(
             "ablation_design",
@@ -173,7 +196,32 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     execute.inputs["research"] = spec.model_dump()
     depend(execute, execution_parents)
     nodes.extend([prepare, *([preflight] if preflight else []), execute])
-    if submission.auto_design:
+    if request:
+        for node in nodes:
+            if node.type in {
+                "research_design",
+                "environment_lock",
+                "research_prepare",
+                "benchmark_preflight",
+                "research_execute",
+                "ablation_design",
+            }:
+                node.contract.allowed_tools.append("runtime.probe")
+                if spec.runtime and "runtime.select" not in node.contract.allowed_tools:
+                    node.contract.allowed_tools.append("runtime.select")
+            if (
+                node.type in {"benchmark_preflight", "research_execute"}
+                and "reproduction_decision" not in node.required_artifacts
+            ):
+                depend(
+                    node,
+                    [
+                        next(item for item in nodes if item.id == parent)
+                        for parent in node.dependencies
+                    ]
+                    + [compute],
+                )
+    if submission.auto_design or request:
         summary = research_task("chat_answer", ["chat.answer"], ["chat_answer"], settings)
         summary.name = "实际执行报告"
         summary.assigned_to = "chat_agent"

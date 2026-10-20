@@ -1,19 +1,23 @@
 import asyncio
+import json
 import time
 from contextlib import closing
 from dataclasses import dataclass
+from importlib import resources
 from typing import Any
 
 import docker
 
 from openresearch.config import Settings
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import docker_files
 from openresearch.sandbox.base import LogCallback
 from openresearch.sandbox.namespace import runtime_namespace
 from openresearch.sandbox.profiles import selected_profile
+from openresearch.sandbox.workspaces import remove_workspace, workspace_volume
 
 
 @dataclass
@@ -41,20 +45,29 @@ class DockerSandbox:
     def _create(self, plan_id: str, execution_id: str, runtime_profile: str | None = None) -> str:
         profile = selected_profile(self.settings, runtime_profile)
         with closing(docker.from_env(timeout=30)) as client:
-            container = client.containers.run(
-                profile.image if profile else self.settings.sandbox_image,
-                ["sleep", "infinity"],
+            image = profile.image if profile else self.settings.sandbox_image
+            if profile and profile.gpu:
+                try:
+                    client.containers.get("openresearch-gpu-slot")
+                except docker.errors.NotFound:
+                    pass
+                else:
+                    raise ResourceBusyError("GPU resource is held by another sandbox")
+            try:
+                client.images.get(image)
+            except docker.errors.ImageNotFound:
+                client.images.pull(image)
+            labels = {
+                "openresearch.managed": "true",
+                "openresearch.plan_id": plan_id,
+                "openresearch.execution_id": execution_id,
+                "openresearch.namespace": self.namespace,
+                "openresearch.created_at": str(time.time()),
+                **({"openresearch.runtime_profile": runtime_profile} if runtime_profile else {}),
+            }
+            options: dict[str, Any] = dict(
                 detach=True,
-                labels={
-                    "openresearch.managed": "true",
-                    "openresearch.plan_id": plan_id,
-                    "openresearch.execution_id": execution_id,
-                    "openresearch.namespace": self.namespace,
-                    "openresearch.created_at": str(time.time()),
-                    **(
-                        {"openresearch.runtime_profile": runtime_profile} if runtime_profile else {}
-                    ),
-                },
+                labels=labels,
                 mem_limit=f"{profile.memory_mb}m"
                 if profile and profile.memory_mb
                 else self.settings.sandbox_memory,
@@ -83,14 +96,87 @@ class DockerSandbox:
                     "OMP_NUM_THREADS": "1",
                     "MKL_NUM_THREADS": "1",
                     "NUMBA_NUM_THREADS": "1",
+                    "OPENRESEARCH_PROBE_GPU": "1" if profile and profile.gpu else "0",
                 },
             )
-            return str(container.id)
+            volume_name = None
+            container = None
+            try:
+                if profile and profile.gpu:
+                    # 固定 Docker 名称在同一守护进程内原子占位，跨 Worker/服务实例均不可重叠。
+                    options["name"] = "openresearch-gpu-slot"
+                if profile and profile.workspace_storage == "volume":
+                    volume_name = workspace_volume(client, image, labels)
+                    options["tmpfs"].pop("/workspace")
+                    options["volumes"] = {volume_name: {"bind": "/workspace", "mode": "rw"}}
+                    labels["openresearch.workspace_volume"] = volume_name
+                container = client.containers.create(image, ["sleep", "infinity"], **options)
+                container.start()
+                return str(container.id)
+            except BaseException as exc:
+                if container is not None:
+                    container.remove(force=True)
+                if volume_name:
+                    remove_workspace(client, volume_name, self.namespace)
+                if (
+                    profile
+                    and profile.gpu
+                    and isinstance(exc, docker.errors.APIError)
+                    and exc.status_code == 409
+                ):
+                    raise ResourceBusyError("GPU resource is held by another sandbox") from exc
+                raise
 
     async def create(
         self, plan_id: str, execution_id: str, runtime_profile: str | None = None
     ) -> str:
-        return await asyncio.to_thread(self._create, plan_id, execution_id, runtime_profile)
+        deadline = time.monotonic() + self.settings.gpu_wait_seconds
+        while True:
+            try:
+                # 只限制占位等待；不可取消正在创建资源的 SDK 线程而丢失真实容器句柄。
+                return await asyncio.to_thread(self._create, plan_id, execution_id, runtime_profile)
+            except ResourceBusyError:
+                if time.monotonic() >= deadline:
+                    raise ResourceBusyError("GPU resource admission timed out") from None
+                await asyncio.sleep(0.25)
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        async def discard(_: str, __: str) -> None:
+            pass
+
+        program = (
+            resources.files("openresearch.sandbox.programs")
+            .joinpath("resources.py")
+            .read_text(encoding="utf-8")
+        )
+        result = await self.execute(sandbox_id, program, discard)
+        if result.exit_code:
+            raise SandboxError("sandbox resource probe failed: " + result.stderr[-1000:])
+
+        def metadata() -> tuple[dict[str, Any], dict[str, Any]]:
+            with closing(docker.from_env(timeout=10)) as client:
+                return dict(client.info()), dict(client.containers.get(sandbox_id).attrs)
+
+        engine, container = await asyncio.to_thread(metadata)
+        raw = json.loads(result.stdout)
+        limits = container["HostConfig"]
+        raw["cpu_count"] = min(
+            raw["cpu_count"],
+            engine["NCPU"],
+            limits.get("NanoCpus", 0) / 1_000_000_000 or engine["NCPU"],
+        )
+        raw["memory_mb"] = min(
+            raw["memory_mb"],
+            engine["MemTotal"] // 1048576,
+            (limits.get("Memory") or engine["MemTotal"]) // 1048576,
+        )
+        raw["workspace_storage"] = (
+            "volume"
+            if container["Config"]["Labels"].get("openresearch.workspace_volume")
+            else "tmpfs"
+        )
+        raw["container_image_id"] = container["Image"]
+        return SandboxResources.model_validate(raw)
 
     async def put_files(self, sandbox_id: str, files: dict[str, bytes]) -> None:
         await asyncio.to_thread(docker_files.put_files, sandbox_id, files)
@@ -163,6 +249,11 @@ class DockerSandbox:
 
     def _close(self, sandbox_id: str) -> None:
         with closing(docker.from_env(timeout=10)) as client:
+            if sandbox_id.startswith("workspace-volume-"):
+                remove_workspace(
+                    client, sandbox_id.removeprefix("workspace-volume-"), self.namespace
+                )
+                return
             try:
                 container = client.containers.get(sandbox_id)
             except docker.errors.NotFound:
@@ -172,7 +263,10 @@ class DockerSandbox:
                 or container.labels.get("openresearch.namespace") != self.namespace
             ):
                 raise SandboxError("refusing to remove an unmanaged container")
+            volume_name = container.labels.get("openresearch.workspace_volume")
             container.remove(force=True)
+            if volume_name:
+                remove_workspace(client, volume_name, self.namespace)
 
     async def close(self, sandbox_id: str) -> None:
         await asyncio.to_thread(self._close, sandbox_id)
@@ -188,7 +282,7 @@ class DockerSandbox:
                     ]
                 },
             )
-            return [
+            managed = [
                 ManagedSandbox(
                     str(container.id),
                     container.labels["openresearch.execution_id"],
@@ -196,6 +290,23 @@ class DockerSandbox:
                 )
                 for container in containers
             ]
+            for volume in client.volumes.list(
+                filters={
+                    "label": [
+                        "openresearch.workspace=true",
+                        f"openresearch.namespace={self.namespace}",
+                    ]
+                }
+            ):
+                labels = volume.attrs["Labels"]
+                managed.append(
+                    ManagedSandbox(
+                        "workspace-volume-" + volume.name,
+                        labels["openresearch.execution_id"],
+                        float(labels["openresearch.created_at"]),
+                    )
+                )
+            return managed
 
     async def inventory(self) -> list[ManagedSandbox]:
         return await asyncio.to_thread(self._inventory)

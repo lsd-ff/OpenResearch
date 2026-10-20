@@ -30,6 +30,9 @@ def recovery_summary(report: CodeRecoveryReport) -> str:
                     if attempt.environment
                     else None,
                     "runtime": attempt.runtime.model_dump() if attempt.runtime else None,
+                    "reproduction": attempt.reproduction.model_dump()
+                    if attempt.reproduction
+                    else None,
                 }
                 for attempt in report.attempts
             ],

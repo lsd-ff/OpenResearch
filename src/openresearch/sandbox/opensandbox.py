@@ -11,6 +11,7 @@ from docker.utils import parse_bytes
 
 from openresearch.config import Settings
 from openresearch.errors import SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
@@ -63,6 +64,8 @@ class OpenSandbox:
         profile = selected_profile(self.settings, runtime_profile)
         if profile and profile.gpu:
             raise SandboxError("this OpenSandbox adapter cannot guarantee GPU runtime profiles")
+        if profile and profile.workspace_storage == "volume":
+            raise SandboxError("OpenSandbox cannot guarantee managed workspace volumes")
         value = await self.request(
             "POST",
             "v1/sandboxes",
@@ -103,6 +106,9 @@ class OpenSandbox:
         except BaseException:
             await self.close(identifier)
             raise
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        raise SandboxError("OpenSandbox resource limits cannot be attested by this adapter")
 
     async def endpoint(self, sandbox_id: str) -> tuple[str, dict[str, str]]:
         identifier = self.identifier(sandbox_id)

@@ -17,6 +17,7 @@ from openresearch.models.research import (
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.benchmark import Dataset, evaluate
 from openresearch.research.environment import install_environment
+from openresearch.research.reproduction_mode import decide_mode
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.sandbox.session import SandboxSessions
 
@@ -114,6 +115,41 @@ class ExperimentRunner:
         )
         async with session_context as session:
             lock_sha256 = hashlib.sha256(request.lock.model_dump_json().encode()).hexdigest()
+            decision = None
+            if request.spec.reproduction:
+                decision = decide_mode(
+                    self.settings,
+                    request.spec.reproduction,
+                    await session.adapter.resources(session.id),
+                )
+                decision.runtime = request.spec.runtime
+                if not decision.execution_allowed:
+                    attempt = RunAttempt(
+                        number=request.number,
+                        patch_sha256=hashlib.sha256(
+                            request.patch.model_dump_json().encode()
+                        ).hexdigest(),
+                        patch=request.patch,
+                        exit_code=None,
+                        stdout="",
+                        stderr="",
+                        phase="resources",
+                        error="actual resource admission refused execution: "
+                        + "; ".join(decision.reasons),
+                        sandbox_id=session.id,
+                        container_image_id=decision.probe.container_image_id,
+                        environment_lock_sha256=lock_sha256,
+                        runtime=request.spec.runtime,
+                    )
+                    return ExperimentOutput(
+                        ResearchRun(
+                            variant=request.variant.name,
+                            arguments=request.variant.arguments,
+                            attempts=[attempt],
+                            reproduction=decision,
+                        ),
+                        [],
+                    )
             try:
                 environment = await install_environment(session, request.lock, self.settings)
             except DependencyInstallError as exc:
@@ -172,6 +208,7 @@ class ExperimentRunner:
                 attempts=[attempt],
                 environment=environment,
                 execution_seconds=elapsed,
+                reproduction=decision,
             )
             predictions: list[dict[str, object]] = []
             if not result.exit_code and request.dataset and request.spec.benchmark:

@@ -4,6 +4,7 @@ from pydantic import Field, field_validator, model_validator
 
 from openresearch.models.ablation import AblationBudget, AblationPlan
 from openresearch.models.claims import RubricDraft
+from openresearch.models.compute import ReproductionDecision, ReproductionRequest
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.runtime import ContractModel
@@ -49,6 +50,9 @@ class ResearchSpec(ContractModel):
     environment: EnvironmentSpec = Field(default_factory=EnvironmentSpec)
     # 缺省字段不进入旧规范的序列化，保持已冻结预检的摘要可回放。
     runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
+    reproduction: ReproductionRequest | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     entrypoint: str = "openresearch_run.py"
     arguments: list[str] = Field(default_factory=list, max_length=16)
     patch_paths: list[str] = Field(default_factory=lambda: ["openresearch_run.py"], max_length=3)
@@ -120,7 +124,7 @@ class RunAttempt(ContractModel):
     stdout: str
     stderr: str
     error: str = ""
-    phase: Literal["install", "execute"] = "execute"
+    phase: Literal["install", "execute", "resources"] = "execute"
     sandbox_id: str | None = None
     container_image_id: str | None = None
     environment_lock_sha256: str = ""
@@ -136,6 +140,9 @@ class ResearchRun(ContractModel):
     metrics: dict[str, float] = Field(default_factory=dict)
     execution_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     module_calls: dict[str, list[str]] = Field(default_factory=dict)
+    reproduction: ReproductionDecision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class BenchmarkPreflightReport(ContractModel):
@@ -171,6 +178,9 @@ class ResearchReport(ContractModel):
     environment_lock_sha256: str = ""
     entrypoint: str = ""
     runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
+    reproduction: ReproductionDecision | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     source_integrity: SourceIntegrity | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
