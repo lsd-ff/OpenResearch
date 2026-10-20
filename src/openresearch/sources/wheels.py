@@ -13,6 +13,7 @@ from packaging.version import Version
 
 from openresearch.config import Settings
 from openresearch.errors import ContractError, EnvironmentLockError
+from openresearch.models.interpreters import InterpreterIdentity
 from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, LockedWheel
 from openresearch.sources.blobs import SourceBlobs
@@ -36,14 +37,18 @@ def target_tags(python: TargetPython = "3.12") -> set[Tag]:
 
 
 def validate_closure(
-    metadata: dict[str, dict[str, Any]], pins: dict[str, str], python: TargetPython = "3.12"
+    metadata: dict[str, dict[str, Any]],
+    pins: dict[str, str],
+    python: TargetPython = "3.12",
+    *,
+    full_version: str | None = None,
 ) -> None:
     environment = {key: str(value) for key, value in default_environment().items()}
     environment.update(
         python_version=python,
-        python_full_version=python + ".0",
+        python_full_version=full_version or python + ".0",
         implementation_name="cpython",
-        implementation_version=python + ".0",
+        implementation_version=full_version or python + ".0",
         sys_platform="linux",
         platform_system="Linux",
         platform_machine="x86_64",
@@ -61,18 +66,25 @@ def validate_closure(
 
 
 def validate_package(
-    metadata: dict[str, Any], name: str, version: str, python: TargetPython = "3.12"
+    metadata: dict[str, Any],
+    name: str,
+    version: str,
+    python: TargetPython = "3.12",
+    *,
+    full_version: str | None = None,
 ) -> None:
     info = metadata["info"]
     if canonicalize_name(info.get("name", "")) != name or Version(
         info.get("version", "0")
     ) != Version(version):
         raise ContractError("package metadata differs from the requested exact pin")
-    if python + ".0" not in SpecifierSet(info.get("requires_python") or ""):
+    if (full_version or python + ".0") not in SpecifierSet(info.get("requires_python") or ""):
         raise EnvironmentLockError("dependency does not support the locked Python version")
 
 
-def choose_wheel(metadata: dict[str, Any], python: TargetPython = "3.12") -> dict[str, Any]:
+def choose_wheel(
+    metadata: dict[str, Any], python: TargetPython = "3.12", *, full_version: str | None = None
+) -> dict[str, Any]:
     tags = target_tags(python)
     for asset in sorted(metadata["urls"], key=lambda item: item["filename"]):
         if asset.get("packagetype") != "bdist_wheel" or asset.get("yanked"):
@@ -84,7 +96,7 @@ def choose_wheel(metadata: dict[str, Any], python: TargetPython = "3.12") -> dic
             raise ContractError("wheel filename differs from package metadata")
         if not wheel_tags & tags:
             continue
-        if python + ".0" not in SpecifierSet(asset.get("requires_python") or ""):
+        if (full_version or python + ".0") not in SpecifierSet(asset.get("requires_python") or ""):
             continue
         parts = urlsplit(asset["url"])
         if parts.scheme != "https" or parts.netloc != "files.pythonhosted.org":
@@ -94,6 +106,15 @@ def choose_wheel(metadata: dict[str, Any], python: TargetPython = "3.12") -> dic
 
 
 class WheelSource:
+    def for_interpreter(self, interpreter: InterpreterIdentity) -> "WheelSource":
+        return (
+            self
+            if self.interpreter == interpreter
+            else WheelSource(
+                self.settings, self.transport, python=interpreter.python, interpreter=interpreter
+            )
+        )
+
     def for_python(self, python: TargetPython) -> "WheelSource":
         return (
             self
@@ -107,10 +128,14 @@ class WheelSource:
         transport: httpx.AsyncBaseTransport | None = None,
         *,
         python: TargetPython = "3.12",
+        interpreter: InterpreterIdentity | None = None,
     ) -> None:
         self.settings = settings
         self.transport = transport
         self.python = python
+        self.interpreter = interpreter
+        if interpreter and interpreter.python != python:
+            raise ContractError("wheel source interpreter differs from its target Python")
         self.blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
 
     async def _asset(self, client: httpx.AsyncClient, asset: dict[str, Any]) -> bytes:
@@ -131,7 +156,10 @@ class WheelSource:
         )
 
     async def fetch(self, spec: EnvironmentSpec) -> tuple[EnvironmentLock, dict[str, bytes]]:
-        lock = EnvironmentLock(python=self.python)
+        if spec.interpreter and spec.interpreter != self.interpreter:
+            raise ContractError("dependency resolution interpreter differs from the wheel target")
+        lock = EnvironmentLock(python=self.python, interpreter=self.interpreter)
+        full_version = self.interpreter.python_full_version if self.interpreter else None
         files: dict[str, bytes] = {}
         pins = dict(pin.split("==", 1) for pin in spec.requirements)
         async with httpx.AsyncClient(
@@ -148,13 +176,13 @@ class WheelSource:
                         client, f"https://pypi.org/pypi/{name}/{version}/json", 2 * 1024 * 1024
                     )
                 )
-                validate_package(metadata, name, version, self.python)
+                validate_package(metadata, name, version, self.python, full_version=full_version)
                 metadata_by_name[name] = metadata
-            validate_closure(metadata_by_name, pins, self.python)
+            validate_closure(metadata_by_name, pins, self.python, full_version=full_version)
             for pin in spec.requirements:
                 name, version = pin.split("==", 1)
                 metadata = metadata_by_name[name]
-                asset = choose_wheel(metadata, self.python)
+                asset = choose_wheel(metadata, self.python, full_version=full_version)
                 raw = await self._asset(client, asset)
                 digest = hashlib.sha256(raw).hexdigest()
                 if digest != asset["digests"]["sha256"]:

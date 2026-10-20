@@ -10,6 +10,7 @@ from openresearch.errors import ContractError
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.runtime_profiles import RuntimeBinding, TargetPython
 from openresearch.models.sources import EnvironmentLock
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.research.runtime_recovery import (
     RuntimeRecoveryPolicy,
     RuntimeResolutionError,
@@ -120,11 +121,12 @@ class DependencyRecovery:
         *,
         removals: list[str] | None = None,
         python: TargetPython = "3.12",
+        probe: InterpreterProbe | None = None,
     ) -> RecoveredEnvironment:
         try:
             result = await self.recover(
                 DependencyUpdate(current, proposed, constraints or [], missing, removals or []),
-                RuntimeRecoveryPolicy("", python=python),
+                RuntimeRecoveryPolicy("", python=python, probe=probe),
             )
         except RuntimeResolutionError as exc:
             raise exc.original from None

@@ -24,6 +24,11 @@ expected_python = globals().get("OPENRESEARCH_EXPECTED_PYTHON", (3, 12))
 assert sys.version_info[:2] == expected_python, (
     f"environment lock requires CPython {expected_python}"
 )
+expected_full_version = globals().get("OPENRESEARCH_EXPECTED_FULL_VERSION")
+assert expected_full_version is None or platform.python_version() == expected_full_version, (
+    "actual interpreter changed after dependency resolution: "
+    f"expected {expected_full_version}, got {platform.python_version()}"
+)
 assert platform.system() == "Linux" and platform.machine() == "x86_64", "unsupported target"
 assert tuple(int(part) for part in platform.libc_ver()[1].split(".")[:2]) >= (2, 36), (
     "runtime requires glibc >= 2.36"

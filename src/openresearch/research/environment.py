@@ -25,7 +25,7 @@ async def environment_files(lock: EnvironmentLock, settings: Settings) -> dict[s
     return files
 
 
-def installation_program(python: TargetPython = "3.12") -> str:
+def installation_program(python: TargetPython = "3.12", full_version: str | None = None) -> str:
     """生产与独立验收使用同一可信脚本，闭包校验不能依赖调用方临时注入。"""
     code = (
         resources.files("openresearch.sandbox.programs")
@@ -40,7 +40,10 @@ def installation_program(python: TargetPython = "3.12") -> str:
     # 复用可信元数据算法；容器使用 pip 自带的 packaging，无需在线安装校验器。
     closure = closure.replace("from packaging.", "from pip._vendor.packaging.")
     expected = tuple(int(part) for part in python.split("."))
-    return f"OPENRESEARCH_EXPECTED_PYTHON = {expected!r}\n" + closure + "\n" + code
+    return (
+        f"OPENRESEARCH_EXPECTED_PYTHON = {expected!r}\n"
+        f"OPENRESEARCH_EXPECTED_FULL_VERSION = {full_version!r}\n" + closure + "\n" + code
+    )
 
 
 async def install_environment(
@@ -49,8 +52,15 @@ async def install_environment(
     profile = selected_profile(settings, session.runtime_profile)
     if profile and profile.python != lock.python:
         raise SandboxError("runtime profile Python differs from the frozen environment lock")
+    if (
+        lock.interpreter
+        and lock.interpreter.container_image_id
+        and await session.adapter.image_identity(session.id) != lock.interpreter.container_image_id
+    ):
+        raise SandboxError("runtime image changed after interpreter and dependencies were frozen")
     await session.put_files(await environment_files(lock, settings))
-    result = await session.execute(installation_program(lock.python))
+    full_version = lock.interpreter.python_full_version if lock.interpreter else None
+    result = await session.execute(installation_program(lock.python, full_version))
     if result.exit_code:
         raise DependencyInstallError(result)
     raw = json.loads(await session.get_file("environment.json", 65536))

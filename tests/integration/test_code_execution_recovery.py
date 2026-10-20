@@ -22,6 +22,10 @@ class FailedThenActualFixture(FakeSandbox):
         self.error = "AttributeError: module 'json' has no attribute 'decode'"
 
     async def execute(self, sandbox_id, code, on_log):
+        if code.startswith(
+            ("# OpenResearch interpreter probe\n", "OPENRESEARCH_EXPECTED_PYTHON =")
+        ):
+            return await super().execute(sandbox_id, code, on_log)
         if code.startswith("# OpenResearch artifact collector\n"):
             return ExecutionResult(
                 stdout='{"version":"execution.files/v1","files":[]}', exit_code=0
@@ -64,7 +68,8 @@ async def test_runtime_repair_uses_new_container_and_retains_original_failure(
                 await asyncio.sleep(0.01)
         done = repository.get_plan(plan.id)
         assert done.status == Status.COMPLETED, [node.error for node in done.nodes]
-        assert len(sandbox.created) == 2 and sorted(sandbox.closed) == sorted(sandbox.created)
+        # 一个只读版本容器，加原程序与实际修复后的两个独立执行容器。
+        assert len(sandbox.created) == 3 and sorted(sandbox.closed) == sorted(sandbox.created)
         report = json.loads(files.read(done.artifacts["code_recovery_report"]))
         assert len(report["attempts"]) == 2
         assert report["attempts"][0]["output"]["exit_code"] == 1

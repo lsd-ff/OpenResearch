@@ -7,6 +7,7 @@ from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import EnvironmentSpec
 from openresearch.research.environment_policy import dependency_policy
 from openresearch.research.environment_preparation import EnvironmentPreparation
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.specifications import resolved_research
 from openresearch.sources.blobs import SourceBlobs
@@ -22,7 +23,12 @@ class EnvironmentAgent:
         self.preparation = EnvironmentPreparation(settings)
 
     async def execute(
-        self, task: Task, plan: Plan | None = None, files: ArtifactStore | None = None
+        self,
+        task: Task,
+        plan: Plan | None = None,
+        files: ArtifactStore | None = None,
+        *,
+        probe: InterpreterProbe | None = None,
     ) -> TaskResult:
         if "environment.lock" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to lock dependencies")
@@ -58,6 +64,7 @@ class EnvironmentAgent:
                 lock_wheels=True,
                 runtime=research.runtime,
                 allow_runtime_select="runtime.select" in task.contract.allowed_tools,
+                probe=probe,
             )
             outputs = {"environment_preparation_report": prepared.report.model_dump_json()}
             if not prepared.report.success or prepared.lock is None or prepared.spec is None:
@@ -77,7 +84,10 @@ class EnvironmentAgent:
                     "prepared_environment": prepared.spec.model_dump_json(),
                 },
             )
-        lock, wheels = await self.source.for_python(python).fetch(spec)
+        source = self.source.for_python(python)
+        if probe:
+            source = source.for_interpreter(await probe(research.runtime))
+        lock, wheels = await source.fetch(spec)
         for raw in wheels.values():
             await asyncio.to_thread(self.blobs.write, raw)
         return TaskResult(

@@ -23,6 +23,7 @@ from openresearch.models.sources import RepositorySnapshot
 from openresearch.research.benchmark import Dataset, parse_dataset
 from openresearch.research.environment_policy import dependency_policy, prepared_lock
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer
+from openresearch.research.interpreter import interpreter_probe
 from openresearch.research.outcomes import comparison, research_result
 from openresearch.research.patches import apply_patch
 from openresearch.research.preflight import BenchmarkPreflight, verify_preflight
@@ -125,6 +126,9 @@ class ResearchExecutor:
             allow_runtime_select="runtime.select" in task.contract.allowed_tools,
             runtime_fixed=ResearchSpec.model_validate(task.inputs.get("research", {})).runtime
             is not None,
+            interpreter_probe=interpreter_probe(
+                self.settings, self.runner.sessions, lease, task, plan.user_intent
+            ),
         )
         return PreparedExperiment(snapshot, sources, request)
 

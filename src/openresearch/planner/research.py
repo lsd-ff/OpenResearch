@@ -14,6 +14,14 @@ from openresearch.research.runtime_selection import bound_profile, runtime_tools
 
 
 def research_task(kind: str, tools: list[str], outputs: list[str], settings: Settings) -> Task:
+    if kind in {
+        "environment_lock",
+        "research_design",
+        "framework_design",
+        "benchmark_preflight",
+        "research_execute",
+    }:
+        tools = [*tools, "runtime.version"]
     role = {"repository_fetch": "librarian_agent", "claim_freeze": "data_agent"}.get(
         kind, "coder_agent"
     )

@@ -75,7 +75,7 @@ class CodeProgramRunner:
                             + "; ".join(attempt.reproduction.reasons)
                         )
                     attempt.phase = "install"
-                if lock.wheels or runtime:
+                if lock.wheels or runtime or lock.interpreter:
                     attempt.environment = await install_environment(session, lock, self.settings)
                 attempt.phase = "execute"
                 await session.put_files({"code.py": code.encode()})

@@ -24,7 +24,7 @@ def code_permissions(intent: str) -> tuple[list[str], list[str]]:
         re.search(r"(?:不要|禁止|不允许)(?:修改|修复|改动)(?:这段|原始|任何)?(?:代码|程序)", intent)
     )
     no_install = disabled or bool(re.search(r"(?:不要|禁止|不允许)安装", intent))
-    generate, execute = ["code.generate"], ["sandbox.python"]
+    generate, execute = ["code.generate"], ["sandbox.python", "runtime.version"]
     if not immutable:
         generate.append("code.repair")
         execute.append("code.repair")

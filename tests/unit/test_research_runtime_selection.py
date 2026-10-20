@@ -177,6 +177,7 @@ def test_preflight_cannot_be_reused_after_a_runtime_binding_changes(settings):
     from dataclasses import replace
 
     from openresearch.models.execution import ExecutionLease
+    from openresearch.models.interpreters import InterpreterIdentity
     from openresearch.models.research import (
         BenchmarkPreflightReport,
         ExperimentVariant,
@@ -196,7 +197,17 @@ def test_preflight_cannot_be_reused_after_a_runtime_binding_changes(settings):
         variant=ExperimentVariant(name="baseline"),
         files={},
         patch=ResearchPatch(),
-        lock=EnvironmentLock(python="3.13"),
+        lock=EnvironmentLock(
+            python="3.13",
+            interpreter=InterpreterIdentity(
+                python_full_version="3.13.16",
+                implementation="CPython",
+                system="Linux",
+                machine="x86_64",
+                libc="glibc",
+                libc_version="2.36",
+            ),
+        ),
         dataset=Dataset(
             inputs=[{"id": "1", "inputs": {"x": 1}}], targets={"1": "yes"}, sha256="d" * 64
         ),
@@ -213,6 +224,15 @@ def test_preflight_cannot_be_reused_after_a_runtime_binding_changes(settings):
         run=ResearchRun(variant="preflight", arguments=[], attempts=[]),
     )
     verify_preflight(checked, request)
+    patch_changed = request.lock.model_copy(
+        update={
+            "interpreter": request.lock.interpreter.model_copy(
+                update={"python_full_version": "3.13.17"}
+            )
+        }
+    )
+    with pytest.raises(ContractError, match="preflight does not match"):
+        verify_preflight(checked, replace(request, lock=patch_changed))
     settings.runtime_profiles["another13"] = settings.runtime_profiles["cpu13"].model_copy(
         update={"cpus": 2}
     )

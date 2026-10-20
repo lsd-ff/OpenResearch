@@ -40,6 +40,20 @@ class FakeSandbox:
         return identifier
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult:
+        if code.startswith("OPENRESEARCH_EXPECTED_PYTHON ="):
+            # 空锁安装器的离线回执；依赖安装与实际版本漂移另外走真实容器验收。
+            self.files["environment.json"] = (
+                b'{"python":"3.12.0","platform":"Linux","installed":{}}'
+            )
+            return ExecutionResult(exit_code=0)
+        if code.startswith("# OpenResearch interpreter probe\n"):
+            # 明确的离线元数据夹具；真实解释器/镜像验证由 Docker 验收覆盖。
+            return ExecutionResult(
+                stdout='{"python_full_version":"3.12.0",'
+                '"implementation":"CPython","system":"Linux","machine":"x86_64",'
+                '"libc":"glibc","libc_version":"2.36"}',
+                exit_code=0,
+            )
         if code.startswith("# OpenResearch artifact collector\n"):
             return ExecutionResult(
                 stdout='{"version":"execution.files/v1","files":[]}', exit_code=0

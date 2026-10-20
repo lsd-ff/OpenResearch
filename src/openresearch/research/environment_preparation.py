@@ -22,8 +22,9 @@ from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec
 from openresearch.research.dependency_recovery import merge_requests, protected_requests
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer
+from openresearch.research.interpreter import InterpreterProbe, compatible_interpreter
 from openresearch.research.package_evidence import package_evidence
-from openresearch.research.runtime_selection import compatible_runtime, runtime_python
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.sources.packages import PackageSource
@@ -93,6 +94,7 @@ class EnvironmentPreparation:
         lock_wheels: bool = False,
         runtime: RuntimeBinding | None = None,
         allow_runtime_select: bool = False,
+        probe: InterpreterProbe | None = None,
     ) -> PreparedEnvironment:
         limits = list(constraints)
         limits.extend(
@@ -114,6 +116,23 @@ class EnvironmentPreparation:
                 python = runtime_python(self.settings, report.runtime)
                 resolver = self.resolver.for_python(python)
                 source = self.source.for_python(python)
+                if probe:
+                    attempt.phase = "probe"
+                    attempt.interpreter = await probe(report.runtime)
+                    if attempt.interpreter.python != python:
+                        raise ContractError(
+                            "probed interpreter differs from the preparation target"
+                        )
+                    if (
+                        number == 1
+                        and initial_spec
+                        and initial_spec.interpreter
+                        and (initial_spec.interpreter != attempt.interpreter)
+                    ):
+                        raise ContractError("interpreter changed after dependency resolution")
+                    resolver = resolver.for_interpreter(attempt.interpreter)
+                    source = source.for_interpreter(attempt.interpreter)
+                attempt.phase = "resolve"
                 standard = [
                     Requirement(value).name
                     for value in current
@@ -134,6 +153,8 @@ class EnvironmentPreparation:
                         else resolver.resolve_recovery(current)
                     )
                 )
+                if attempt.interpreter and spec.interpreter is None:
+                    spec = spec.model_copy(update={"interpreter": attempt.interpreter})
                 attempt.exit_code = None if number == 1 and initial_spec is not None else 0
                 attempt.resolved_requirements = spec.requirements
                 versions = dict(item.split("==", 1) for item in spec.requirements)
@@ -166,6 +187,7 @@ class EnvironmentPreparation:
                 limits,
                 report,
                 allow_runtime_select=allow_runtime_select and runtime is None,
+                probe=probe,
             ):
                 break
             current = report.decisions[-1].after_requests
@@ -179,6 +201,7 @@ class EnvironmentPreparation:
         report: EnvironmentPreparationReport,
         *,
         allow_runtime_select: bool = False,
+        probe: InterpreterProbe | None = None,
     ) -> bool:
         attempt = report.attempts[-1]
         decision = EnvironmentPreparationDecision(before_requests=current)
@@ -188,13 +211,11 @@ class EnvironmentPreparation:
             decision.package_evidence = await self._package_evidence(current, constraints)
             # 只有真实失败后的公开 Requires-Python 证据允许换已注册 CPU 运行时。
             # 包版本、代码、验收规则和资源预算均不变；下一轮重新解析完整闭包。
-            alternate = (
-                compatible_runtime(
-                    self.settings, intent, report.runtime, decision.package_evidence, current
+            alternate = None
+            if allow_runtime_select:
+                alternate = await compatible_interpreter(
+                    self.settings, intent, report.runtime, decision.package_evidence, current, probe
                 )
-                if allow_runtime_select
-                else None
-            )
             if alternate is not None:
                 decision.runtime_before, decision.runtime_after = report.runtime, alternate
                 decision.after_requests, decision.accepted = list(current), True

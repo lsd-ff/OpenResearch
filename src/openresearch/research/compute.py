@@ -6,6 +6,7 @@ from openresearch.research.runtime_selection import (
     bind_runtime,
     bound_profile,
     intent_python,
+    possible_python,
     runtime_for_intent,
 )
 
@@ -28,7 +29,8 @@ def compute_runtime(
     candidates = [
         (name, profile)
         for name, profile in sorted(settings.runtime_profiles.items())
-        if profile.gpu == want_gpu and (requested is None or profile.python + ".0" in requested)
+        if profile.gpu == want_gpu
+        and (requested is None or possible_python(profile.python, requested))
     ]
     if request.mode == "full":
         # 优先选择管理员已明确配置足额的环境；真正准入仍以容器内探测为准。

@@ -49,7 +49,12 @@ async def test_eight_real_samples_precede_full_dataset_in_independent_containers
             len(json.loads(files.read(done.artifacts["benchmark_predictions"]))["baseline"]) == 12
         )
         assert preflight["patch_sha256"] == report["runs"][0]["attempts"][0]["patch_sha256"]
-        assert len(created) == 2 and len(set(created)) == 2
+        actual_runs = {
+            preflight["run"]["attempts"][-1]["sandbox_id"],
+            report["runs"][0]["attempts"][-1]["sandbox_id"],
+        }
+        assert len(actual_runs) == 2 and actual_runs <= set(created)
+        assert len(created) == len(set(created)) == 3  # 另一个是独立只读版本探测。
         assert repository.cleanup_candidates("docker") == []
     finally:
         await worker._shutdown()
@@ -163,7 +168,18 @@ async def test_actual_patch_recheck_blocks_full_retry_until_sample_passes(
         attempts = report["runs"][0]["attempts"]
         assert "TAIL_ROW_FAILURE" in attempts[0]["stderr"]
         assert len(attempts) == (1 if mode == "blocked" else 2)
-        assert len(set(created)) == {"passed": 4, "blocked": 3, "repaired": 5}[mode]
+        actual_runs = {
+            attempt["sandbox_id"]
+            for run in [
+                report["preflight"]["run"],
+                *[item["run"] for item in rechecks],
+                report["runs"][0],
+            ]
+            for attempt in run["attempts"]
+        }
+        expected_runs = {"passed": 4, "blocked": 3, "repaired": 5}[mode]
+        assert len(actual_runs) == expected_runs and actual_runs <= set(created)
+        assert len(created) == len(set(created)) == expected_runs + 1
         if mode == "blocked":
             assert not report["success"] and report["runs"][0]["metrics"] == {}
         else:

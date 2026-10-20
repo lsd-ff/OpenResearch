@@ -12,6 +12,7 @@ from openresearch.models.environment_preparation import EnvironmentPreparationRe
 from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, PackageDescription
 from openresearch.research.environment_preparation import EnvironmentPreparation
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.sources.packages import PackageSource
@@ -98,13 +99,17 @@ class FrameworkSources:
         return packages
 
     async def lock(
-        self, target: FrameworkTarget
+        self, target: FrameworkTarget, *, probe: InterpreterProbe | None = None
     ) -> tuple[EnvironmentSpec, EnvironmentLock, FrameworkSource]:
         target = await self.target(target)
         requests = framework_requests(target)
-        environment = await self.resolver.resolve(requests)
+        resolver, source = self.resolver, self.wheels
+        if probe:
+            identity = await probe(None)
+            resolver, source = resolver.for_interpreter(identity), source.for_interpreter(identity)
+        environment = await resolver.resolve(requests)
         packages = await self.describe(target, environment)
-        lock, wheels = await self.wheels.fetch(environment)
+        lock, wheels = await source.fetch(environment)
         for raw in wheels.values():
             await asyncio.to_thread(self.blobs.write, raw)
         roots = target.import_roots
@@ -125,6 +130,7 @@ class FrameworkSources:
         *,
         runtime: RuntimeBinding | None = None,
         allow_runtime_select: bool = False,
+        probe: InterpreterProbe | None = None,
     ) -> PreparedFramework:
         constraints = list(target.requirements)
         target = await self.target(target)
@@ -142,6 +148,7 @@ class FrameworkSources:
             lock_wheels=True,
             runtime=runtime,
             allow_runtime_select=allow_runtime_select,
+            probe=probe,
         )
         if not prepared.report.success or prepared.spec is None or prepared.lock is None:
             return PreparedFramework(prepared.report)

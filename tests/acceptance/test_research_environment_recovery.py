@@ -41,6 +41,7 @@ def fixture_wheel(name, module, source, requires=()):
 async def test_real_install_failure_is_diagnosed_then_new_environment_executes_benchmark(
     settings, repository, files, monkeypatch, repair
 ):
+    # 注册表夹具故意漏报 wheel 内依赖，以验证最后一道实际安装校验；正常完整元数据应提前拒绝。
     # 包来源、解析结果和修复提议为受控夹具；安装失败、安装校验、程序和指标均实际执行。
     requirement = "recovery-helper; python_full_version >= '3.12.1'"
     assets = {
@@ -61,7 +62,7 @@ async def test_real_install_failure_is_diagnosed_then_new_environment_executes_b
                         "name": name,
                         "version": "1.0",
                         "requires_python": ">=3.12",
-                        "requires_dist": [requirement] if name == "recovery-probe" else [],
+                        "requires_dist": [],
                     },
                     "urls": [
                         {
@@ -97,6 +98,9 @@ async def test_real_install_failure_is_diagnosed_then_new_environment_executes_b
 
     monkeypatch.setattr(repairer, "propose", propose)
     monkeypatch.setattr(repairer.dependencies.resolver, "resolve", resolve)
+    monkeypatch.setattr(
+        repairer.dependencies.resolver, "for_interpreter", lambda _: repairer.dependencies.resolver
+    )
     code = (
         "import recovery_probe\nassert recovery_probe.value == 31\n"
         "print('ACTUAL_HELPER', recovery_probe.value)\n" + PREDICTOR

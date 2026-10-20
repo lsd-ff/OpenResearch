@@ -13,6 +13,7 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.runtime import TaskResult
+from openresearch.research.interpreter import interpreter_probe
 from openresearch.research.source_context import document_context
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.session import SandboxSessions
@@ -26,6 +27,8 @@ class CoderAgent:
         self, settings: Settings, repository: Repository, files: ArtifactStore, sandbox: Sandbox
     ) -> None:
         self.files = files
+        self.settings = settings
+        self.sessions = SandboxSessions(repository, sandbox)
         self.code = CodeAgent(LLMClient(settings))
         self.execution = ExecutionTool(repository, sandbox, settings.max_output_bytes)
         self.code_execution = CodeExecutor(settings, repository, sandbox)
@@ -38,10 +41,11 @@ class CoderAgent:
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
+        probe = interpreter_probe(self.settings, self.sessions, lease, task, plan.user_intent)
         if task.type == "runtime_prepare":
             return await self.compute.execute(task, lease)
         if task.type == "framework_design":
-            return await self.frameworks.execute(plan, task)
+            return await self.frameworks.execute(plan, task, probe=probe)
         if task.type == "code_generate":
             sources = await asyncio.to_thread(document_context, plan, self.files)
             return await self.code.execute(task, sources, plan.user_intent)
@@ -51,9 +55,9 @@ class CoderAgent:
                 return await self.code_execution.execute(task, lease, code, plan.user_intent)
             return await self.execution.execute(task, lease, code)
         if task.type == "environment_lock":
-            return await self.environment.execute(task, plan, self.files)
+            return await self.environment.execute(task, plan, self.files, probe=probe)
         if task.type == "research_design":
-            return await self.designer.execute(plan, task)
+            return await self.designer.execute(plan, task, probe=probe)
         if task.type == "research_prepare":
             return await self.preparer.execute(plan, task)
         if task.type == "benchmark_preflight":

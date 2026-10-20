@@ -7,6 +7,7 @@ from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.runtime_profiles import RuntimeBinding, RuntimePreparationOptions
 from openresearch.research.framework_protocol import read_protocol
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.sources.frameworks import FrameworkSources
 from openresearch.storage.files import ArtifactStore
 
@@ -16,7 +17,9 @@ class FrameworkDesigner:
         self.sources = FrameworkSources(settings)
         self.files = files
 
-    async def execute(self, plan: Plan, task: Task) -> TaskResult:
+    async def execute(
+        self, plan: Plan, task: Task, *, probe: InterpreterProbe | None = None
+    ) -> TaskResult:
         if "framework.design" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to prepare a real framework")
         target = FrameworkTarget.model_validate(task.inputs["target"])
@@ -39,6 +42,7 @@ class FrameworkDesigner:
                 target,
                 plan.user_intent,
                 2 if "environment.repair" in task.contract.allowed_tools else 0,
+                probe=probe,
                 **runtime_options,
             )
             outputs["environment_preparation_report"] = prepared.report.model_dump_json()
@@ -57,7 +61,7 @@ class FrameworkDesigner:
             environment, lock, source = prepared.environment, prepared.lock, prepared.source
             runtime = prepared.report.runtime
         else:
-            environment, lock, source = await self.sources.lock(target)
+            environment, lock, source = await self.sources.lock(target, probe=probe)
         rubric = RubricDraft(
             paper_title="Actual framework execution protocol",
             claims=[

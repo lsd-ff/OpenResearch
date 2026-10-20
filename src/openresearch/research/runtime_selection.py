@@ -56,6 +56,17 @@ def runtime_python(settings: Settings, binding: RuntimeBinding | None) -> Target
     return profile.python if profile else "3.12"
 
 
+def possible_python(python: TargetPython, requested: SpecifierSet) -> bool:
+    # 模板只知道次版本；边界附近的整数补丁判断是否可能匹配，实际值必须随后在容器核验。
+    patches = {0, 1}
+    for specifier in requested:
+        match = re.fullmatch(re.escape(python) + r"\.([0-9]+)", specifier.version)
+        if match:
+            patch = int(match[1])
+            patches.update((max(0, patch - 1), patch, patch + 1))
+    return any(f"{python}.{patch}" in requested for patch in patches)
+
+
 def runtime_for_intent(
     settings: Settings,
     intent: str,
@@ -68,14 +79,14 @@ def runtime_for_intent(
     if profile:
         if profile.gpu and not allow_gpu:
             raise ContractError("research GPU profiles require GPU resource admission")
-        if requested is not None and profile.python + ".0" not in requested:
+        if requested is not None and not possible_python(profile.python, requested):
             raise ContractError("configured runtime conflicts with the requested Python version")
         return binding
     if requested is not None:
-        if "3.12.0" in requested:
+        if possible_python("3.12", requested):
             return None
         for name, candidate in sorted(settings.runtime_profiles.items()):
-            if candidate.python + ".0" in requested and not candidate.gpu:
+            if possible_python(candidate.python, requested) and not candidate.gpu:
                 return bind_runtime(settings, name)
         raise ContractError("no registered CPU runtime satisfies the requested Python version")
     return None
@@ -107,17 +118,52 @@ def compatible_runtime(
     current: RuntimeBinding | None,
     evidence: list[dict[str, str]],
     requests: list[str],
+    *,
+    versions: dict[str, str] | None = None,
 ) -> RuntimeBinding | None:
     requested = intent_python(intent)
-    if re.search(
-        r"(?:不(?:要|允许|得)?|禁止|请勿|不能).{0,6}(?:切换|调整|修改|更换|升级|降级).{0,8}(?:Python|运行时)|"
-        r"(?:固定|保持|保留).{0,6}(?:Python|运行时).{0,4}版本|"
-        r"(?:do not|never|without)\s+(?:switch|change|upgrade|downgrade).{0,12}(?:python|runtime)",
-        re.sub(r"```.*?```", "", intent, flags=re.S),
-        re.I,
-    ):
+    if runtime_change_forbidden(intent):
         return None
-    bounds = [
+    bounds = package_python_bounds(evidence, requests)
+    python = runtime_python(settings, current)
+    actual = versions.get(current.profile if current else "") if versions else python + ".0"
+    if not bounds or actual is None or all(actual in bound for bound in bounds):
+        return None
+    for name, candidate in sorted(
+        settings.runtime_profiles.items(), key=lambda item: item[1].python
+    ):
+        version = versions.get(name) if versions is not None else candidate.python + ".0"
+        different = (
+            name != (current.profile if current else "") if versions else candidate.python != python
+        )
+        if (
+            not candidate.gpu
+            and different
+            and version is not None
+            and (requested is None or version in requested)
+            and all(version in bound for bound in bounds)
+        ):
+            return bind_runtime(settings, name)
+    return None
+
+
+def runtime_change_forbidden(intent: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:不(?:要|允许|得)?|禁止|请勿|不能).{0,6}(?:切换|调整|修改|更换|升级|降级).{0,8}(?:Python|运行时)|"
+            r"(?:固定|保持|保留).{0,6}(?:Python|运行时).{0,4}版本|"
+            r"(?:do not|never|without)\s+(?:switch|change|upgrade|downgrade).{0,12}"
+            r"(?:python|runtime)",
+            re.sub(r"```.*?```", "", intent, flags=re.S),
+            re.I,
+        )
+    )
+
+
+def package_python_bounds(
+    evidence: list[dict[str, str]], requests: list[str]
+) -> list[SpecifierSet]:
+    return [
         SpecifierSet(item["requires_python"])
         for item in evidence
         if item["requires_python"]
@@ -127,17 +173,3 @@ def compatible_runtime(
             for value in requests
         )
     ]
-    python = runtime_python(settings, current)
-    if not bounds or all(python + ".0" in bound for bound in bounds):
-        return None
-    for name, candidate in sorted(
-        settings.runtime_profiles.items(), key=lambda item: item[1].python
-    ):
-        if (
-            not candidate.gpu
-            and candidate.python != python
-            and (requested is None or candidate.python + ".0" in requested)
-            and all(candidate.python + ".0" in bound for bound in bounds)
-        ):
-            return bind_runtime(settings, name)
-    return None

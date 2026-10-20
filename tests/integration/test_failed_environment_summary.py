@@ -38,6 +38,8 @@ async def test_initial_environment_failure_still_reports_actual_diagnostic_witho
     worker.executor.agents.coder.designer.dependencies.resolve = AsyncMock(
         side_effect=DependencyResolutionError("ACTUAL_PREPARATION_FAILURE", 7)
     )
+    resolver = worker.executor.agents.coder.designer.dependencies
+    resolver.for_interpreter = lambda _: resolver
     plan = PlanService(settings, repository).create(
         PlanSubmission(
             "run the provided scientific source",
@@ -55,7 +57,9 @@ async def test_initial_environment_failure_still_reports_actual_diagnostic_witho
                 await worker.tick()
                 await asyncio.sleep(0.01)
         done = repository.get_plan(plan.id)
-        assert done.status == Status.FAILED and not sandbox.created and len(calls) == 1
+        assert done.status == Status.FAILED and len(calls) == 1
+        # 只读解释器探测可以运行；后续科研容器不能被创建。
+        assert len(sandbox.created) == 1 and sandbox.closed == sandbox.created
         summary = next(node for node in done.nodes if node.type == "chat_answer")
         assert summary.status == Status.COMPLETED
         assert "未运行科研代码" in files.read(done.artifacts["chat_answer"])

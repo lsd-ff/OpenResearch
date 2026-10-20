@@ -6,6 +6,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from pydantic import Field, field_validator, model_validator
 
+from openresearch.models.interpreters import InterpreterIdentity
 from openresearch.models.runtime import ContractModel
 from openresearch.models.runtime_profiles import TargetPython
 from openresearch.sandbox.file_transfer import relative_path
@@ -64,6 +65,9 @@ class RepositorySnapshot(ContractModel):
 
 class EnvironmentSpec(ContractModel):
     requirements: list[str] = Field(default_factory=list, max_length=128)
+    interpreter: InterpreterIdentity | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("requirements")
     @classmethod
@@ -113,9 +117,14 @@ class EnvironmentLock(ContractModel):
     python: TargetPython = "3.12"
     platform: Literal["linux_x86_64"] = "linux_x86_64"
     wheels: list[LockedWheel] = Field(default_factory=list, max_length=128)
+    interpreter: InterpreterIdentity | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def unique_wheels(self) -> "EnvironmentLock":
+        if self.interpreter and self.interpreter.python != self.python:
+            raise ValueError("interpreter differs from the locked Python version")
         if len({wheel.requirement for wheel in self.wheels}) != len(self.wheels):
             raise ValueError("duplicate wheel requirements")
         return self

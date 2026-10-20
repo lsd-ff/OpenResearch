@@ -11,6 +11,7 @@ from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.environment_preparation import EnvironmentPreparation
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.research.repository_context import pytest_paths, repository_context
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.source_context import document_context
@@ -78,7 +79,9 @@ class ResearchDesigner:
         self.dependencies = DependencyResolver()
         self.environment = EnvironmentPreparation(settings)
 
-    async def execute(self, plan: Plan, task: Task) -> TaskResult:
+    async def execute(
+        self, plan: Plan, task: Task, *, probe: InterpreterProbe | None = None
+    ) -> TaskResult:
         if "research.design" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to design an experiment")
         spec = ResearchSpec.model_validate(task.inputs["research"])
@@ -151,6 +154,7 @@ class ResearchDesigner:
                 spec.max_repairs if "environment.repair" in task.contract.allowed_tools else 0,
                 runtime=spec.runtime,
                 allow_runtime_select="runtime.select" in task.contract.allowed_tools,
+                probe=probe,
             )
             outputs["dependency_resolution_report"] = prepared.report.model_dump_json()
             if not prepared.report.success or prepared.spec is None:
@@ -164,7 +168,10 @@ class ResearchDesigner:
             environment = prepared.spec
             effective_runtime = prepared.report.runtime
         else:
-            environment = await self.dependencies.for_python(python).resolve(design.dependencies)
+            resolver = self.dependencies.for_python(python)
+            if probe:
+                resolver = resolver.for_interpreter(await probe(spec.runtime))
+            environment = await resolver.resolve(design.dependencies)
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),

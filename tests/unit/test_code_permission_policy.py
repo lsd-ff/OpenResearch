@@ -27,7 +27,7 @@ def test_explicit_immutable_code_can_only_recover_the_environment():
 
 def test_explicit_disable_removes_both_recovery_capabilities():
     generate, execute = code_permissions("运行原代码，不要自动修复")
-    assert generate == ["code.generate"] and execute == ["sandbox.python"]
+    assert generate == ["code.generate"] and execute == ["sandbox.python", "runtime.version"]
 
 
 def test_words_inside_source_are_not_user_permission_instructions():

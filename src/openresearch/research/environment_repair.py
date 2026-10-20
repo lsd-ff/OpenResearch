@@ -22,6 +22,7 @@ from openresearch.research.dependency_recovery import (
     DependencyUpdate,
     protected_requests,
 )
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.research.runner import ExperimentInput
 from openresearch.research.runtime_recovery import (
     RuntimeRecoveryPolicy,
@@ -42,6 +43,7 @@ class EnvironmentRevision:
 class RecoveryOptions(TypedDict, total=False):
     removals: list[str]
     python: TargetPython
+    probe: InterpreterProbe
 
 
 def lock_digest(lock: EnvironmentLock) -> str:
@@ -183,6 +185,8 @@ class ResearchEnvironmentRepairer:
             )
             if request.lock.python != "3.12":
                 arguments["python"] = request.lock.python
+            if request.interpreter_probe:
+                arguments["probe"] = request.interpreter_probe
             if request.allow_runtime_select:
                 revised = await self.dependencies.recover(
                     DependencyUpdate(
@@ -193,7 +197,12 @@ class ResearchEnvironmentRepairer:
                         proposal.remove_requirements,
                     ),
                     RuntimeRecoveryPolicy(
-                        intent, runtime, lock.python, runtime_budget, request.runtime_fixed
+                        intent,
+                        runtime,
+                        lock.python,
+                        runtime_budget,
+                        request.runtime_fixed,
+                        probe=request.interpreter_probe,
                     ),
                 )
                 decision.preparation = revised.preparation

@@ -9,6 +9,7 @@ from pathlib import Path
 from packaging.requirements import InvalidRequirement, Requirement
 
 from openresearch.errors import ContractError, DependencyResolutionError
+from openresearch.models.interpreters import InterpreterIdentity
 from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentSpec
 from openresearch.sources.processes import close_process
@@ -41,8 +42,20 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 
 
 class DependencyResolver:
-    def __init__(self, python: TargetPython = "3.12") -> None:
+    def __init__(
+        self, python: TargetPython = "3.12", *, interpreter: InterpreterIdentity | None = None
+    ) -> None:
         self.python = python
+        self.interpreter = interpreter
+        if interpreter and interpreter.python != python:
+            raise ContractError("resolver interpreter differs from its target Python")
+
+    def for_interpreter(self, interpreter: InterpreterIdentity) -> "DependencyResolver":
+        return (
+            self
+            if self.interpreter == interpreter
+            else DependencyResolver(interpreter.python, interpreter=interpreter)
+        )
 
     def for_python(self, python: TargetPython) -> "DependencyResolver":
         # Agent 实例可能被并行分支共享，不能修改当前解析器的目标版本。
@@ -58,7 +71,7 @@ class DependencyResolver:
     async def _resolve(self, requests: list[str], limit: int) -> EnvironmentSpec:
         dependencies = dependency_requests(requests, limit=limit)
         if not dependencies:
-            return EnvironmentSpec()
+            return EnvironmentSpec(interpreter=self.interpreter)
         executable = shutil.which("uv")
         if executable is None:
             raise ContractError("automatic dependency resolution requires the bundled uv runtime")
@@ -72,7 +85,7 @@ class DependencyResolver:
             line.strip() for line in raw.splitlines() if line.strip() and not line.startswith("#")
         ]
         try:
-            return EnvironmentSpec(requirements=pins)
+            return EnvironmentSpec(requirements=pins, interpreter=self.interpreter)
         except ValueError:
             raise ContractError(
                 "automatic dependency lock is unsupported or exceeds limits"
@@ -96,7 +109,7 @@ class DependencyResolver:
                 "--output-file",
                 str(root / "requirements.txt"),
                 "--python-version",
-                self.python,
+                self.interpreter.python_full_version if self.interpreter else self.python,
                 "--python-platform",
                 "x86_64-manylinux_2_36",
                 "--no-build",

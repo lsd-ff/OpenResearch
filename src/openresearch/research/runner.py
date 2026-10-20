@@ -17,6 +17,7 @@ from openresearch.models.research import (
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.benchmark import Dataset, evaluate
 from openresearch.research.environment import install_environment
+from openresearch.research.interpreter import InterpreterProbe
 from openresearch.research.reproduction_mode import decide_mode
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.sandbox.session import SandboxSessions
@@ -40,6 +41,7 @@ class ExperimentInput:
     allow_patch_repair: bool = True
     allow_runtime_select: bool = False
     runtime_fixed: bool = True
+    interpreter_probe: InterpreterProbe | None = None
 
 
 @dataclass(frozen=True)

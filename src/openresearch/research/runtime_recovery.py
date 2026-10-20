@@ -12,8 +12,9 @@ from openresearch.models.environment_preparation import (
 )
 from openresearch.models.runtime_profiles import RuntimeBinding, TargetPython
 from openresearch.models.sources import EnvironmentLock
+from openresearch.research.interpreter import InterpreterProbe, compatible_interpreter
 from openresearch.research.package_evidence import package_evidence
-from openresearch.research.runtime_selection import compatible_runtime, runtime_python
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.sources.packages import PackageSource
@@ -28,6 +29,7 @@ class RuntimeRecoveryPolicy:
     python: TargetPython = "3.12"
     maximum_changes: int = 0
     runtime_fixed: bool = False
+    probe: InterpreterProbe | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,15 @@ class RuntimeResolver:
                     else policy.python
                 )
                 resolver = self.resolver.for_python(python)
+                source = self.source.for_python(python)
+                if policy.probe:
+                    attempt.phase = "probe"
+                    attempt.interpreter = await policy.probe(report.runtime)
+                    if attempt.interpreter.python != python:
+                        raise ContractError("probed interpreter differs from the recovery target")
+                    resolver = resolver.for_interpreter(attempt.interpreter)
+                    source = source.for_interpreter(attempt.interpreter)
+                attempt.phase = "resolve"
                 spec = await (
                     resolver.resolve(requests)
                     if len(requests) <= 32
@@ -104,7 +115,7 @@ class RuntimeResolver:
                 )
                 attempt.exit_code, attempt.resolved_requirements = 0, spec.requirements
                 attempt.phase, attempt.exit_code = "lock", None
-                lock, wheels = await self.source.for_python(python).fetch(spec)
+                lock, wheels = await source.fetch(spec)
                 if missing:
                     await asyncio.to_thread(wheel_sources, wheels, [missing])
                 for raw in wheels.values():
@@ -135,12 +146,13 @@ class RuntimeResolver:
         report.decisions.append(decision)
         try:
             decision.package_evidence = await package_evidence(self.packages, requests, constraints)
-            alternate = compatible_runtime(
+            alternate = await compatible_interpreter(
                 self.settings,
                 policy.intent,
                 report.runtime,
                 decision.package_evidence,
                 requests,
+                policy.probe,
             )
             if alternate is None:
                 decision.error = (

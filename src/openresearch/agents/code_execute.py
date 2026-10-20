@@ -22,6 +22,7 @@ from openresearch.models.sources import EnvironmentLock
 from openresearch.research.code_execution import CodeProgramRunner, ProgramOptions, ProgramOutcome
 from openresearch.research.code_guards import code_digest
 from openresearch.research.dependency_recovery import DependencyRecovery, DependencyUpdate
+from openresearch.research.interpreter import InterpreterProbe, interpreter_probe
 from openresearch.research.runtime_recovery import (
     RuntimeRecoveryPolicy,
     RuntimeResolutionError,
@@ -40,6 +41,7 @@ class CodeState:
     requests: list[str]
     lock: EnvironmentLock
     runtime: RuntimeBinding | None = None
+    probe: InterpreterProbe | None = None
 
 
 class CodeExecutor:
@@ -70,8 +72,14 @@ class CodeExecutor:
         if compute and "runtime.probe" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to admit compute resources")
         report = CodeRecoveryReport(max_repairs=maximum, original_code_sha256=code_digest(code))
+        probe = interpreter_probe(self.settings, self.runner.sessions, lease, task, intent)
+        identity = await probe(binding) if probe else None
         state = CodeState(
-            code, [], EnvironmentLock(python=runtime_python(self.settings, binding)), binding
+            code,
+            [],
+            EnvironmentLock(python=runtime_python(self.settings, binding), interpreter=identity),
+            binding,
+            probe,
         )
         remaining = maximum
         while True:
@@ -167,6 +175,7 @@ class CodeExecutor:
                     state.lock.python,
                     remaining,
                     runtime_fixed=task.inputs.get("runtime") is not None,
+                    probe=state.probe,
                 ),
             )
             decision.preparation = recovered.preparation
@@ -174,7 +183,11 @@ class CodeExecutor:
                 raise ContractError("runtime recovery exceeds the shared repair budget")
         else:
             recovered = await self.dependencies.resolve(
-                state.requests, proposal.requirements, missing_module(error), constraints
+                state.requests,
+                proposal.requirements,
+                missing_module(error),
+                constraints,
+                probe=state.probe,
             )
         return replace(
             state,
