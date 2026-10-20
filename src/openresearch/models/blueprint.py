@@ -26,6 +26,7 @@ TaskKind = Literal[
 class NodeBlueprint(ContractModel):
     ref: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     type: TaskKind
+    template_task_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     name: str = Field(min_length=1, max_length=160)
     assigned_to: Literal["chat_agent", "librarian_agent", "data_agent", "coder_agent"]
     description: str = Field(min_length=1, max_length=4000)

@@ -35,20 +35,41 @@ def extra_task(node: NodeBlueprint, plan: Plan, settings: Settings) -> Task:
     return task
 
 
-def materialize(blueprint: PlanBlueprint, template: Plan, settings: Settings) -> Plan:
-    originals = {task.type: task for task in template.nodes}
-    types = [node.type for node in blueprint.nodes]
-    refs = [node.ref for node in blueprint.nodes]
-    if len(set(refs)) != len(refs) or len(set(types)) != len(types):
-        raise ContractError("planner task types and references must be unique")
-    if set(originals) - set(types):
+def bind_stages(blueprint: PlanBlueprint, template: Plan) -> dict[str, Task]:
+    originals = {task.id: task for task in template.nodes}
+    bound: dict[str, Task] = {}
+    used: set[str] = set()
+    for node in blueprint.nodes:
+        matches = [task for task in template.nodes if task.type == node.type]
+        original = originals.get(node.template_task_id or "")
+        if node.template_task_id and (original is None or original.type != node.type):
+            raise ContractError("planner referenced an unknown or incompatible stage identity")
+        if original is None and len(matches) == 1:
+            original = matches[0]
+        elif original is None and matches:
+            raise ContractError("parallel branch stages require template_task_id")
+        if original is None:
+            continue
+        if original.id in used:
+            raise ContractError("planner reused a required workflow stage")
+        bound[node.ref] = original
+        used.add(original.id)
+    if set(originals) - used:
         raise ContractError("planner omitted a required workflow stage")
-    if len(types) > template.budget.max_task_attempts:
+    return bound
+
+
+def materialize(blueprint: PlanBlueprint, template: Plan, settings: Settings) -> Plan:
+    refs = [node.ref for node in blueprint.nodes]
+    if len(set(refs)) != len(refs):
+        raise ContractError("planner references must be unique")
+    originals = bind_stages(blueprint, template)
+    if len(refs) > template.budget.max_task_attempts:
         raise ContractError("planner graph exceeds the configured attempt budget")
     tasks: dict[str, Task] = {}
     for node in blueprint.nodes:
         validate_role(node.type, node.assigned_to)
-        original = originals.get(node.type)
+        original = originals.get(node.ref)
         # 基础节点的源码、资产、工具和产物契约由服务器保存，模型不能覆盖。
         task = (
             Task.model_validate(original.model_dump())
