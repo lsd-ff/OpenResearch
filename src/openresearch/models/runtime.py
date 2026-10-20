@@ -45,6 +45,7 @@ class Task(ContractModel):
     description: str = ""
     assigned_to: str
     artifact_scope: str | None = Field(default=None, pattern=r"^framework_[1-9][0-9]*$")
+    trigger_rule: Literal["all_success", "all_done"] = "all_success"
     status: Status = Status.PENDING
     dependencies: list[str] = Field(default_factory=list)
     required_artifacts: list[str] = Field(default_factory=list)

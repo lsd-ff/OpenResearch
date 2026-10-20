@@ -88,6 +88,13 @@ def materialize(blueprint: PlanBlueprint, template: Plan, settings: Settings) ->
             raise ContractError("planner referenced an unknown dependency")
         task = tasks[node.ref]
         task.dependencies = [tasks[ref].id for ref in node.dependencies]
+        original = originals.get(node.ref)
+        if (
+            original
+            and original.trigger_rule == "all_done"
+            and not set(original.dependencies).issubset(task.dependencies)
+        ):
+            raise ContractError("planner removed a final report's completion barrier")
         if node.type == "chat_answer":
             task.required_artifacts = [
                 key for ref in node.dependencies for key in tasks[ref].output_artifacts

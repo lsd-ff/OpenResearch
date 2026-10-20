@@ -80,6 +80,7 @@ class PlannerAgent:
                         "required_artifacts": task.required_artifacts,
                         "output_artifacts": task.output_artifacts,
                         "allowed_tools": task.contract.allowed_tools,
+                        "trigger_rule": task.trigger_rule,
                     }
                     for task in plan.nodes
                 ],

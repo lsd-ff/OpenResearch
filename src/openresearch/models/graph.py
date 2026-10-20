@@ -8,6 +8,12 @@ if TYPE_CHECKING:
 def artifact_producers(nodes: dict[str, "Task"]) -> dict[str, str]:
     producers: dict[str, str] = {}
     for node in nodes.values():
+        if node.trigger_rule == "all_done" and (
+            node.type not in {"framework_report", "chat_answer"}
+            or node.assigned_to not in {"chat_agent", "data_agent"}
+            or set(node.contract.allowed_tools) - {"chat.answer", "comparison.report"}
+        ):
+            raise ValueError("failure finalizers must be read-only report tasks")
         if set(node.contract.input_artifacts) != set(node.required_artifacts):
             raise ValueError("task input contract does not match required artifacts")
         if set(node.contract.output_artifacts) != set(node.output_artifacts):
@@ -55,6 +61,8 @@ def validate_graph(plan: "Plan") -> None:
     producers = artifact_producers(nodes)
     ancestors = ancestor_map(nodes)
     for node in nodes.values():
+        if node.trigger_rule == "all_done" and (set(nodes) - {node.id}) - ancestors[node.id]:
+            raise ValueError("a final report must wait for every other task")
         if any(producers.get(key) not in ancestors[node.id] for key in node.required_artifacts):
             raise ValueError("required artifact must be produced by an ancestor")
     for edge in plan.edges:
