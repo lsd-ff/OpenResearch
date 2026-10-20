@@ -118,6 +118,7 @@ class LegacyTaskOrigin(ContractModel):
     task_name: str = Field(default="", max_length=256)
     assigned_to: str = Field(default="", max_length=64)
     native_task_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    staged: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 class Plan(ContractModel):

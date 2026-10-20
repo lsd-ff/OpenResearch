@@ -7,13 +7,19 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError, NotFoundError
 from openresearch.models.context import Identity
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
-from openresearch.models.runtime import Plan, Status
+from openresearch.models.runtime import LegacyTaskOrigin, Plan, Status
 from openresearch.services.legacy_inputs import text_input, uploaded_inputs
 from openresearch.services.legacy_plans import (
     CODE_KINDS,
     basic_legacy_plan,
     legacy_kind,
     validate_legacy_request,
+)
+from openresearch.services.legacy_stages import (
+    STAGES,
+    build_stage_plan,
+    select_stage,
+    workflow_plan_id,
 )
 from openresearch.services.plans import PlanService
 from openresearch.services.uploads import UploadService
@@ -27,6 +33,7 @@ from openresearch.storage.upload_files import UploadSubmission
 class DirectSelection:
     plan: Plan
     task_id: str
+    operation: str | None = None
 
 
 class LegacyExecutionService:
@@ -47,13 +54,18 @@ class LegacyExecutionService:
         self.files = files
 
     async def prepare(self, payload: DirectExecutionRequest, identity: Identity) -> DirectSelection:
+        reference = text_input(payload.inputs, "workflow_ref", limit=80)
+        if reference:
+            return await self._continuation(payload, identity, reference)
         existing = await self._existing(payload, identity)
         if existing:
             return existing
         if not payload.task_description.strip():
             raise ContractError("provide a saved task_id or a legacy task_description")
-        validate_legacy_request(payload)
+        kind = validate_legacy_request(payload)
         payload = await self._paper(payload, identity)
+        if kind in STAGES:
+            return await self._new_stage(payload, identity, kind)
         state = await self._environment(payload, identity)
         plan = await asyncio.to_thread(basic_legacy_plan, payload, identity, self.plans, state)
         await asyncio.to_thread(self.repository.save_plan, plan)
@@ -80,7 +92,12 @@ class LegacyExecutionService:
         plan = await asyncio.to_thread(self.repository.get_plan, plan_id, identity.user_id)
         if not any(node.id == payload.task_id for node in plan.nodes):
             raise NotFoundError("task not found")
-        if plan.legacy and payload.task_id == plan.legacy.native_task_id:
+        if plan.legacy and plan.legacy.staged:
+            if plan.status != Status.AWAITING_APPROVAL:
+                await asyncio.to_thread(
+                    self.repository.tasks.queue_stage, plan.id, payload.task_id, identity.user_id
+                )
+        elif plan.legacy and payload.task_id == plan.legacy.native_task_id:
             # 已保存的旧请求可在审批后恢复或断线重读；绝不以新输入覆盖冻结契约。
             if plan.status == Status.PENDING:
                 await asyncio.to_thread(self.repository.queue_plan, plan.id, identity.user_id)
@@ -92,10 +109,56 @@ class LegacyExecutionService:
             await asyncio.to_thread(self.repository.get_plan, plan.id), payload.task_id
         )
 
+    async def _new_stage(
+        self, payload: DirectExecutionRequest, identity: Identity, kind: str
+    ) -> DirectSelection:
+        plan, target_id = await asyncio.to_thread(
+            build_stage_plan, payload, identity, self.plans, kind
+        )
+        plan.legacy = LegacyTaskOrigin(
+            task_id=payload.task_id,
+            task_type=kind,
+            requested_type=payload.task_type,
+            task_name=payload.task_name,
+            assigned_to=payload.assigned_to,
+            native_task_id=target_id,
+            staged=True,
+        )
+        await asyncio.to_thread(self.repository.save_plan, plan)
+        if not plan.approval.required:
+            await asyncio.to_thread(
+                self.repository.tasks.queue_stage, plan.id, target_id, identity.user_id
+            )
+        return DirectSelection(
+            await asyncio.to_thread(self.repository.get_plan, plan.id), target_id, kind
+        )
+
+    async def _continuation(
+        self, payload: DirectExecutionRequest, identity: Identity, reference: str
+    ) -> DirectSelection:
+        kind = validate_legacy_request(payload)
+        if kind not in STAGES:
+            raise ContractError("this operation does not select a managed scientific stage")
+        if payload.plan_id or set(payload.inputs) - {"workflow_ref", "stage_task_id"}:
+            raise ContractError(
+                "continuation only selects a saved stage; new inputs cannot replace its contract"
+            )
+        plan = await asyncio.to_thread(
+            self.repository.get_plan, workflow_plan_id(reference), identity.user_id
+        )
+        target = select_stage(plan, payload, kind)
+        if plan.status != Status.AWAITING_APPROVAL:
+            await asyncio.to_thread(
+                self.repository.tasks.queue_stage, plan.id, target.id, identity.user_id
+            )
+        return DirectSelection(
+            await asyncio.to_thread(self.repository.get_plan, plan.id), target.id, kind
+        )
+
     async def _paper(
         self, payload: DirectExecutionRequest, identity: Identity
     ) -> DirectExecutionRequest:
-        if legacy_kind(payload) != "paper_parse" or uploaded_inputs(payload):
+        if legacy_kind(payload) not in STAGES.keys() | {"paper_parse"} or uploaded_inputs(payload):
             return payload
         url = text_input(payload.inputs, "pdf_url", "paper_url", limit=4096)
         if url is None:

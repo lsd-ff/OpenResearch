@@ -67,7 +67,9 @@ workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已�
 
 repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来源，多个候选需要显式选择。ref 在准备时固定为完整提交 SHA。research.benchmark 包含 upload_id、format、input_columns、target_column、id_column、task 和 metrics；其协议见 experiments.md。rubric 支持来源页引用、数值阈值、容差、比较操作和指定运行 variant，规则先于实验冻结。
 
-`/api/execute` 支持两种请求：用服务端 `task_id`（可带 `plan_id`）选择已保存节点，或用 `task_type`、非空 `task_description`、`assigned_to`、`inputs` 创建旧接口兼容计划。前者仍不允许客户端类型、角色和输入覆盖持久契约；后者的外部 `task_id` 仅作来源标记，实际计划和节点 ID 由服务端生成。当前仅接通代码、依赖/环境、所属数据分析及 PDF 解析基础阶段，其他旧科研任务类型保持 422，完整范围见 [旧接口迁移](legacy-api.md)。
+`/api/execute` 支持用服务端 `task_id`（可带 `plan_id`）选择已保存节点，或用 `task_type`、非空 `task_description`、`assigned_to`、`inputs` 创建旧接口兼容计划。前者仍不允许客户端类型、角色和输入覆盖持久契约；后者的外部 `task_id` 仅作来源标记，实际计划和节点 ID 由服务端生成。已接通代码、依赖/环境、所属数据/PDF 基础阶段及部分科研分步类型；未接通类型仍为 422，完整范围见 [旧接口迁移](legacy-api.md)。
+
+科研阶段可用 `inputs.research` 创建完整冻结图，再通过结果中的 `workflow_ref` 选择后续阶段；续请求只接收该引用和可选实际 `stage_task_id`，不接受新源码等契约覆盖。只执行目标及其必要祖先，保留后继和全部已有结果；阶段完成时整图仍可能 pending。多分支同名阶段必须显式选择。审批、所属身份、累计尝试及首次执行起算时间持续生效，从其他执行入口恢复也不重置时间预算。
 
 兼容入口 SSE 输出 log、result、error；流响应头 `X-OpenResearch-Plan-Id`、`X-OpenResearch-Task-Id` 返回实际 ID。开启审批时先返回 202 JSON（`approval_required`、`plan_id`、`task_id`、`plan_graph`），审批后以实际 ID 再次调用。已保存的兼容计划重读结果不会重新执行，也不会采用新提交的源码；未保存的新请求会创建新计划。首次匿名响应保留身份 Cookie。结果兼容 Go 的 `image_base_64` 并保留原 `image_base64`，`outputs` 包含本阶段实际产物。环境引用是所属配置和锁的回执，每次实际执行仍创建受管容器。该 POST 流没有游标续传；要按游标读取持久事件使用整图 GET 流。
 

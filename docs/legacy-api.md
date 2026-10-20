@@ -38,10 +38,40 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | `install_dependencies` | 必须引用所属准备回执，实际解析/复核锁并在新受管容器离线安装，保存真实安装回执 |
 | `dataset_profile` | 分析所属上传数据，返回实际统计及图像，使用原生 DataAgent |
 | `paper_parse` | 解析所属 PDF 上传；也可通过 `pdf_url` / `paper_url` 下载公共 PDF 后解析，沿用固定公共地址连接与重定向校验 |
+| `claim_rubric_extract` | 读取实际 PDF 页后提取并冻结主张，核对引文、页码与来源 SHA；只推进到主张阶段 |
+| `repo_prepare` | 固定实际仓库提交、校验文件摘要并准备受约束的适配器；返回实际清单、源码和工作区配置引用，不运行实验 |
+| `ablation_design` | 在已声明的有界预算内生成、评分和选择消融候选；设计估计与实际指标分别保存 |
+| `benchmark_adapter_generate` | 按所属数据及冻结规范准备真实适配器，不提前执行预检或正式实验 |
+| `benchmark_adapter_preflight` | 执行必要前序阶段及最多 8 条真实样本预检，失败阻止正式阶段 |
+| `benchmark_execute` | 在原工作流上通过预检后运行全部实际数据，保留预测、重算指标、环境及证据 |
+| `paper_code_execute` | 走原生科研执行器，读取固定仓库/给定源码、依赖锁及冻结验收规则，实际运行并保留回执 |
 
 拼写别名：`code_generate` → `generate_code`；`code_execute` → `execute_code`；`data_analyze` → `dataset_profile`；`document_extract` → `paper_parse`；`env_setup` / `prepare_environment` / `setup_runtime` / `test_environment` → `prepare_runtime`；`dependency_install` → `install_dependencies`。
 
 省略类型时，`sandbox_agent` 默认执行代码，`data_agent` 默认分析数据，`librarian_agent` 默认解析 PDF，其他默认生成代码。显式角色必须与操作兼容，不接受客户端执行器权限。
+
+## 科研阶段续执行
+
+这些科研类型保留完整持久图，只将目标及其必要祖先纳入本次执行范围，不删除后继，不将阶段成功冒充整图完成。首次请求可在 `inputs.research` 声明与 `/api/plan` 相同的 `ResearchSpec`，提供给定 `code` / `generated_code`、所属论文附件或实际仓库；`inputs.auto_design=true` 可走原生自动设计。Benchmark 必须声明所属数据、输入/目标/ID 列及指标；目标列仍由评估端保存，不交给预测程序。`repo_url`、精确版本 `dependency_spec` 和管理员注册 `runtime_profile` 可作为便捷声明，与 `research` 冲突时拒绝，不静默丢弃约束；科研固定环境当前只接受精确版本，范围声明仍使用原生自动设计或独立依赖入口。
+
+阶段结果包含 `workflow_ref: openresearch:<plan_id>`。后续请求只选择同一份受管工作流，例如：
+
+```json
+{
+  "task_type": "benchmark_adapter_preflight",
+  "task_description": "继续既定工作流，完成真实样本预检",
+  "assigned_to": "research_coding_agent",
+  "inputs": {"workflow_ref": "openresearch:<plan_id>"}
+}
+```
+
+通过后，将类型改为 `benchmark_execute` 即可运行正式阶段；已经完成的前序节点、源码、数据和锁不会重新生成。引用也可选择由原生 `/api/plan` 创建的所属科研计划。多框架图存在多个同类型分支时必须额外指定实际 `stage_task_id`，服务端核对其类型与分支，不任意挑选。此选择能力不代表旧框架研究/准备名称已经全部适配。
+
+续请求的 `inputs` 仅接受 `workflow_ref` 与可选 `stage_task_id`；新源码、数据、运行时和客户端声称的执行报告不能替换冻结契约。相同阶段正在执行时可重读；另一个尚不在当前范围内的阶段返回 409。终态重读不重跑，失败必须显式重试；审批后用服务端实际任务 ID 恢复时也只推进原选中阶段。累计节点尝试和首次执行起算时间贯穿阶段，切换到整图/原生单节点入口也不重置时间预算。
+
+`repo_prepare` / `benchmark_adapter_generate` 的 `code` 和 `outputs.generated_code` 来自实际快照与校验补丁合成后的入口；同时返回相对 `code_file_path`、`workspace_ref`，有仓库时返回真实 `repo_manifest`。旧 `workspace_path` 字段也是同一配置引用，不是宿主目录。主张阶段另返回基于实际冻结产物的 `claim_rubric_report`。SSE 按所选节点终态结束，此时整图可能仍为 pending，未请求的后继不会执行。
+
+候选消融参数只包含应用参数；Python 与入口脚本由执行器添加。重复脚本/解释器被拒，最多两次模型候选请求，原提议和错误写入 `proposal_rejections`；失败可使用明确标注的已有源码/设计候选，但回退也须通过相同参数校验。两次模型提议及一次回退的拒绝记录最多三组，没有可用候选则保留失败审计并阻止执行。纠正不静默删改 argv，不将设计估计标为实测。
 
 ## 输入与环境生命周期
 
@@ -62,9 +92,9 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | 范围 | 尚未适配的 Go 类型 |
 | --- | --- |
 | 框架研究与对比 | `framework_research`、`framework_recommendation`，以及按分支生成的 fit/index/prepare 类型 |
-| 论文、仓库与证据 | `paper_code_execute`、`claim_rubric_extract`、`repo_discovery`、`repo_prepare`、`ablation_design`、`paper_compare`、`claim_evidence_build` |
+| 论文、仓库与证据 | `repo_discovery`、`paper_compare`、`claim_evidence_build` |
 | 结果及恢复阶段 | `result_visualization`、`fix_and_rerun`、`verify_result`、`render_plot` |
 | 通用研究 | `general_research`、`general_synthesis`、`general_process` |
-| 独立 Benchmark 阶段 | `benchmark_adapter_generate`、`benchmark_adapter_preflight`、`benchmark_execute`、`benchmark_validate` |
+| 独立 Benchmark 阶段 | `benchmark_validate`（原生执行器已核验指标，旧独立阶段尚未适配） |
 
 单文件发行、独立 docker-core 能力和最终统一部署另按 [实施与验收](implementation-plan.md) 跟踪。本接口的基础兼容验收不替代这些范围，也不证明论文大规模训练结果。

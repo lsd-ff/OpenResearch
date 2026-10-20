@@ -88,6 +88,7 @@ async def direct_execution(
                     "approval_required": True,
                     "plan_id": plan_id,
                     "task_id": task_id,
+                    "workflow_ref": "openresearch:" + plan_id,
                     "plan_graph": plan_payload(selected.plan),
                 },
             ),
@@ -95,8 +96,12 @@ async def direct_execution(
         )
     return _identity_response(
         StreamingResponse(
-            legacy_events(request, runtime, plan_id)
-            if selected.plan.legacy and task_id == selected.plan.legacy.native_task_id
+            legacy_events(request, runtime, plan_id, task_id, selected.operation)
+            if selected.operation
+            or (
+                selected.plan.legacy
+                and (selected.plan.legacy.staged or task_id == selected.plan.legacy.native_task_id)
+            )
             else direct_events(request, runtime, plan_id, task_id),
             media_type="text/event-stream",
             headers={

@@ -2,13 +2,19 @@ import re
 
 from openresearch.agents.context import AgentContext
 from openresearch.errors import ContractError
-from openresearch.models.runtime import TaskResult
+from openresearch.models.runtime import Plan, Task, TaskResult
 
 
 def scoped_context(context: AgentContext) -> AgentContext:
-    task, plan = context.task, context.plan
-    if task.artifact_scope is None:
+    if context.task.artifact_scope is None:
         return context
+    plan, task = scoped_plan_task(context.plan, context.task)
+    return AgentContext(plan, task, context.lease)
+
+
+def scoped_plan_task(plan: Plan, task: Task) -> tuple[Plan, Task]:
+    if task.artifact_scope is None:
+        return plan, task
     if plan.intent_type != "Framework_Comparison":
         raise ContractError("artifact scopes are restricted to comparison branches")
     prefix = task.artifact_scope + "__"
@@ -41,9 +47,7 @@ def scoped_context(context: AgentContext) -> AgentContext:
         for key, artifact in plan.artifacts.items()
         if key.startswith(prefix) or not re.match(r"^framework_[1-9][0-9]*__", key)
     }
-    return AgentContext(
-        plan.model_copy(update={"artifacts": artifacts}), projected_task, context.lease
-    )
+    return plan.model_copy(update={"artifacts": artifacts}), projected_task
 
 
 def scoped_result(context: AgentContext, result: TaskResult) -> TaskResult:

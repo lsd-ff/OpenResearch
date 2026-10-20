@@ -1,4 +1,5 @@
 import re
+from pathlib import PurePosixPath
 
 from openresearch.errors import ContractError
 from openresearch.models.ablation import (
@@ -33,6 +34,22 @@ def requested_ablation_budget(intent: str) -> AblationBudget | None:
         max_wall_minutes=max(1, min(1440, int(wall[1]))) if wall else 60,
         max_gpu_minutes=max(0, min(1440, int(gpu[1]))) if gpu else 0,
     )
+
+
+def adapter_argument_error(proposal: AblationCandidates, entrypoint: str) -> str:
+    for candidate in proposal.candidates:
+        if not candidate.arguments:
+            continue
+        first = candidate.arguments[0].removeprefix("./")
+        if first in {entrypoint, PurePosixPath(entrypoint).name} or re.fullmatch(
+            r"python(?:[0-9]+(?:\.[0-9]+)*)?(?:\.exe)?", first, re.I
+        ):
+            return (
+                f"Candidate {candidate.id}: arguments must contain application arguments only; "
+                "the launcher already supplies Python and the entrypoint. Remove the launcher "
+                "and script path, preserving supported flags and values."
+            )
+    return ""
 
 
 def score_candidate(

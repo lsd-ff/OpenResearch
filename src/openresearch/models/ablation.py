@@ -57,6 +57,15 @@ class AblationEvaluations(ContractModel):
     evaluations: list[AblationEvaluation] = Field(min_length=1, max_length=8)
 
 
+class AblationProposalRejection(ContractModel):
+    number: int = Field(ge=1, le=3)
+    source: Literal["model", "fallback"] = Field(
+        default="model", exclude_if=lambda value: value == "model"
+    )
+    candidates: AblationCandidates
+    error: str = Field(min_length=1, max_length=1000)
+
+
 class ScoredAblation(AblationCandidate):
     information_gain: UnitScore
     relevance: UnitScore
@@ -78,3 +87,6 @@ class AblationPlan(ContractModel):
     selection_reason: str
     generation_source: Literal["model", "design_fallback", "source_fallback"] = "model"
     scoring_source: Literal["model", "deterministic_prior"] = "model"
+    proposal_rejections: list[AblationProposalRejection] = Field(
+        default_factory=list, max_length=3, exclude_if=lambda value: not value
+    )

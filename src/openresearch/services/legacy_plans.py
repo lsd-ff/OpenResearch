@@ -29,6 +29,7 @@ from openresearch.services.legacy_environment import (
     environment_node,
 )
 from openresearch.services.legacy_inputs import legacy_requirements, text_input, uploaded_inputs
+from openresearch.services.legacy_stages import STAGES
 from openresearch.services.plans import PlanService
 
 CODE_KINDS = {"generate_code", "code_execution", "execute_code", "baseline_run", "run_benchmark"}
@@ -53,7 +54,7 @@ def legacy_kind(payload: DirectExecutionRequest) -> str:
 
 def validate_legacy_request(payload: DirectExecutionRequest) -> str:
     kind = legacy_kind(payload)
-    if kind not in CODE_KINDS | ENV_KINDS | {"dataset_profile", "paper_parse"}:
+    if kind not in CODE_KINDS | ENV_KINDS | STAGES.keys() | {"dataset_profile", "paper_parse"}:
         raise ContractError(
             "legacy operation requires a managed continuation or is not yet mapped: " + kind
         )
@@ -70,6 +71,8 @@ def validate_legacy_request(payload: DirectExecutionRequest) -> str:
     )
     if kind == "generate_code":
         roles = {"coder_agent"}
+    if kind in STAGES:
+        roles = set(STAGES[kind].roles)
     if payload.assigned_to and payload.assigned_to not in roles:
         raise ContractError("legacy task role is incompatible with its declared operation")
     return kind
