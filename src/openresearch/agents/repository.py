@@ -7,6 +7,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.discovery import SearchRequest, SearchResult
 from openresearch.models.documents import SourceIndex
 from openresearch.models.planning import PendingPlanning, SourceSelection
+from openresearch.models.repository_discovery import RepositoryDiscoveryReport
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySpec
@@ -28,6 +29,13 @@ class RepositoryAgent:
         self.blobs = SourceBlobs(settings.data_dir / "sources", settings.source_max_file_bytes)
 
     def _spec(self, plan: Plan, task: Task) -> RepositorySpec:
+        if task.inputs.get("from_discovery"):
+            report = RepositoryDiscoveryReport.model_validate_json(
+                self.files.read(plan.artifacts["repository_discovery"])
+            )
+            if report.selected is None:
+                raise ContractError("discovery has no actual selected repository to prepare")
+            return report.selected
         if "repository" in task.inputs:
             return RepositorySpec.model_validate(task.inputs["repository"])
         if "source_index" not in plan.artifacts:

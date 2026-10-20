@@ -6,6 +6,7 @@ from openresearch.errors import ContractError
 from openresearch.models.audit import AUDIT_ROLES
 from openresearch.models.compute import ReproductionRequest
 from openresearch.models.context import Identity
+from openresearch.models.knowledge import KNOWLEDGE_ROLES
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
 from openresearch.models.runtime import (
     Approval,
@@ -36,7 +37,12 @@ from openresearch.services.plans import PlanService
 
 CODE_KINDS = {"generate_code", "code_execution", "execute_code", "baseline_run", "run_benchmark"}
 SUPPORTED_KINDS = (
-    CODE_KINDS | ENV_KINDS | STAGES.keys() | AUDIT_ROLES.keys() | {"dataset_profile", "paper_parse"}
+    CODE_KINDS
+    | ENV_KINDS
+    | STAGES.keys()
+    | AUDIT_ROLES.keys()
+    | KNOWLEDGE_ROLES.keys()
+    | {"dataset_profile", "paper_parse"}
 )
 ALIASES = {
     "code_generate": "generate_code",
@@ -83,6 +89,8 @@ def validate_legacy_request(payload: DirectExecutionRequest) -> str:
         roles = AUDIT_ROLES[kind]
     if framework:
         roles = set(framework.roles)
+    if kind in KNOWLEDGE_ROLES:
+        roles = KNOWLEDGE_ROLES[kind]
     if payload.assigned_to and payload.assigned_to not in roles:
         raise ContractError("legacy task role is incompatible with its declared operation")
     return kind

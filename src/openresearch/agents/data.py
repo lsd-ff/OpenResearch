@@ -37,6 +37,8 @@ class DataAgent:
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task = context.plan, context.task
+        if task.type in {"knowledge_synthesis", "knowledge_process"}:
+            return await self.librarian.knowledge.execute(plan, task)
         if task.type == "result_audit":
             return await self.auditor.execute(plan, task)
         if task.type == "framework_catalog":

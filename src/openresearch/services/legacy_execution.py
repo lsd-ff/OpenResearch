@@ -7,6 +7,7 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError, NotFoundError
 from openresearch.models.audit import AUDIT_ROLES
 from openresearch.models.context import Identity
+from openresearch.models.knowledge import KNOWLEDGE_ROLES
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
 from openresearch.models.runtime import LegacyTaskOrigin, Plan, Status
 from openresearch.services.legacy_frameworks import (
@@ -16,6 +17,7 @@ from openresearch.services.legacy_frameworks import (
     select_framework_stage,
 )
 from openresearch.services.legacy_inputs import text_input, uploaded_inputs
+from openresearch.services.legacy_knowledge import build_knowledge_stage, select_knowledge_stage
 from openresearch.services.legacy_plans import (
     CODE_KINDS,
     basic_legacy_plan,
@@ -74,7 +76,7 @@ class LegacyExecutionService:
         if kind in AUDIT_ROLES:
             raise ContractError("result review requires an owned workflow_ref with saved evidence")
         payload = await self._paper(payload, identity)
-        if kind in STAGES or framework_stage(kind):
+        if kind in STAGES or framework_stage(kind) or kind in KNOWLEDGE_ROLES:
             return await self._new_stage(payload, identity, kind)
         state = await self._environment(payload, identity)
         plan = await asyncio.to_thread(basic_legacy_plan, payload, identity, self.plans, state)
@@ -127,6 +129,10 @@ class LegacyExecutionService:
             plan, target_id = await asyncio.to_thread(
                 build_framework_stage, payload, identity, self.plans, kind, spec
             )
+        elif kind in KNOWLEDGE_ROLES:
+            plan, target_id = await asyncio.to_thread(
+                build_knowledge_stage, payload, identity, self.plans, kind
+            )
         else:
             plan, target_id = await asyncio.to_thread(
                 build_stage_plan, payload, identity, self.plans, kind
@@ -164,7 +170,7 @@ class LegacyExecutionService:
                 await asyncio.to_thread(self.repository.get_plan, plan.id), plan.nodes[0].id, kind
             )
         framework = framework_stage(kind)
-        if kind not in STAGES and framework is None:
+        if kind not in STAGES and framework is None and kind not in KNOWLEDGE_ROLES:
             raise ContractError("this operation does not select a managed scientific stage")
         if payload.plan_id or set(payload.inputs) - {"workflow_ref", "stage_task_id"}:
             raise ContractError(
@@ -173,7 +179,13 @@ class LegacyExecutionService:
         plan = await asyncio.to_thread(
             self.repository.get_plan, workflow_plan_id(reference), identity.user_id
         )
-        selector = select_framework_stage if framework else select_stage
+        selector = (
+            select_framework_stage
+            if framework
+            else select_knowledge_stage
+            if kind in KNOWLEDGE_ROLES
+            else select_stage
+        )
         target = selector(plan, payload, kind)
         if plan.status != Status.AWAITING_APPROVAL:
             await asyncio.to_thread(
@@ -186,7 +198,9 @@ class LegacyExecutionService:
     async def _paper(
         self, payload: DirectExecutionRequest, identity: Identity
     ) -> DirectExecutionRequest:
-        if legacy_kind(payload) not in STAGES.keys() | {"paper_parse"} or uploaded_inputs(payload):
+        if legacy_kind(payload) not in STAGES.keys() | KNOWLEDGE_ROLES.keys() | {
+            "paper_parse"
+        } or uploaded_inputs(payload):
             return payload
         url = text_input(payload.inputs, "pdf_url", "paper_url", limit=4096)
         if url is None:

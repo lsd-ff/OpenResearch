@@ -198,6 +198,9 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
             const analysis = graph.nodes.find(node => node.type === 'framework_report')
               ?? graph.nodes.find(node => node.type === 'chat_answer')
               ?? graph.nodes.find(node => node.type === 'paper_analyze')
+              ?? graph.nodes.find(node => node.type === 'knowledge_synthesis')
+              ?? graph.nodes.find(node => node.type === 'knowledge_process')
+              ?? graph.nodes.find(node => node.type === 'knowledge_research')
               ?? graph.nodes.find(node => node.type === 'result_audit')
               ?? graph.nodes.find(node => node.type === 'code_execute');
             const report = analysis?.type === 'code_execute' ? codeSummary(graph, analysis) : analysis?.result;

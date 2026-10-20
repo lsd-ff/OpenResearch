@@ -1,10 +1,11 @@
-"""网页 CI 的分类、候选和预定 API 修复提议；不提供实验结果。"""
+"""网页 CI 的分类、候选、预定修复及指定通用回答；不提供实验结果。"""
 
 import json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
+from openresearch.models.knowledge import KnowledgeProposal
 from openresearch.models.planning import IntentDraft, SourceSelection
 from openresearch.models.recovery import RecoveryProposal
 
@@ -25,6 +26,13 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
             reason="Controlled JSON API correction.",
             code=context["code"].replace("json.decode", "json.loads"),
         )
+    elif any('"title": "KnowledgeProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if context["stage"] != "knowledge_process" or context["sources"] or context["pages"]:
+            raise HTTPException(
+                400, "only the unsourced general response display fixture is supported"
+            )
+        result = KnowledgeProposal(response="这是通用回答展示夹具；没有执行代码、测试或实验。")
     elif any('"title": "SourceSelection"' in schema for schema in schemas):
         result = SourceSelection(choice=1, reason="Controlled matching source fixture")
     elif any('"title": "IntentDraft"' in schema for schema in schemas):

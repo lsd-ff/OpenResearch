@@ -50,15 +50,36 @@ def repair_tools(intent: str) -> list[str]:
 
 def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Settings) -> list[Task]:
     nodes = [document_task(settings)] if submission.attachments else []
-    if spec.repository is not None or submission.attachments:
+    if submission.repository_search:
+        discover = research_task(
+            "repository_discover",
+            ["repository.discover"],
+            [
+                "repository_discovery",
+                "candidate_repositories",
+                "repo_validation_report",
+                "repo_url",
+            ],
+            settings,
+        )
+        discover.assigned_to = "librarian_agent"
+        discover.inputs["discovery"] = submission.repository_search.model_dump()
+        depend(discover, nodes)
+        nodes.append(discover)
+    if spec.repository is not None or submission.attachments or submission.repository_search:
         repository = research_task(
             "repository_fetch", ["repository.fetch"], ["repository_snapshot"], settings
         )
-        if spec.repository:
+        if submission.repository_search:
+            depend(repository, nodes)
+            repository.inputs["from_discovery"] = True
+        elif spec.repository:
             repository.inputs["repository"] = spec.repository.model_dump()
         elif nodes:
             depend(repository, nodes)
-        repository.inputs["auto_discover"] = submission.auto_design
+        repository.inputs["auto_discover"] = (
+            submission.auto_design and not submission.repository_search
+        )
         nodes.append(repository)
     environment = research_task(
         "environment_lock",
@@ -76,6 +97,9 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
     )
     environment.inputs["environment"] = spec.environment.model_dump()
     environment.inputs["research"] = spec.model_dump()
+    if submission.repository_search:
+        # 候选未确定或下载失败时，不能继续准备其执行环境。
+        depend(environment, [nodes[-1]])
     return [*nodes, environment]
 
 
@@ -96,7 +120,12 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
             spec = ResearchSpec(**{**spec.model_dump(), "ablation_search": budget.model_dump()})
     if submission.workflow == "benchmark" and spec.benchmark is None:
         raise ContractError("benchmark requires an uploaded dataset and explicit column mapping")
-    if spec.repository is None and not submission.attachments and submission.code is None:
+    if (
+        spec.repository is None
+        and not submission.attachments
+        and submission.code is None
+        and not submission.repository_search
+    ):
         raise ContractError("provide repository, paper attachments, or explicit experiment code")
     nodes = source_tasks(submission, spec, settings)
     if submission.auto_design:

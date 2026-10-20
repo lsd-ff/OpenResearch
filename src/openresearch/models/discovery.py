@@ -22,3 +22,6 @@ class SearchResult(ContractModel):
     pdf_url: str | None = None
     paper_url: str | None = None
     fallback_used: bool = False
+    stars: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
+    archived: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    fork: bool | None = Field(default=None, exclude_if=lambda value: value is None)

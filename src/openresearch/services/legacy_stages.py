@@ -14,6 +14,7 @@ from openresearch.models.runtime import Plan, Task
 from openresearch.models.sources import EnvironmentSpec, RepositorySpec
 from openresearch.models.submissions import PlanSubmission
 from openresearch.research.runtime_selection import bind_runtime
+from openresearch.services.legacy_discovery import DISCOVERY_INPUTS, discovery_request
 from openresearch.services.legacy_inputs import legacy_requirements, text_input, uploaded_inputs
 from openresearch.services.plans import PlanService
 
@@ -28,6 +29,7 @@ class StageRule:
 
 
 STAGES = {
+    "repo_discovery": StageRule("repository_discover", frozenset({"coder_agent"})),
     "claim_rubric_extract": StageRule(
         "claim_freeze", frozenset({"librarian_agent", "data_agent"}), paper=True
     ),
@@ -90,7 +92,10 @@ def build_stage_plan(
 ) -> tuple[Plan, str]:
     spec = stage_spec(payload, plans)
     code = text_input(payload.inputs, "generated_code", "code")
-    auto_design = payload.inputs.get("auto_design", False)
+    if kind != "repo_discovery" and set(payload.inputs) & DISCOVERY_INPUTS:
+        raise ContractError("discovery declarations require the repository discovery stage")
+    discovery = discovery_request(payload, spec.repository) if kind == "repo_discovery" else None
+    auto_design = payload.inputs.get("auto_design", bool(discovery and code is None))
     if not isinstance(auto_design, bool):
         raise ContractError("auto_design must be a boolean")
     plan = plans.build(
@@ -102,6 +107,7 @@ def build_stage_plan(
             "benchmark" if spec.benchmark else "reproduce",
             spec,
             auto_design,
+            repository_search=discovery,
         )
     )
     target = select_stage(plan, payload, kind)
@@ -131,7 +137,7 @@ def stage_spec(payload: DirectExecutionRequest, plans: PlanService) -> ResearchS
         "requirements",
         "dependencies",
     }
-    if set(payload.inputs) - supported:
+    if set(payload.inputs) - (supported | DISCOVERY_INPUTS):
         raise ContractError(
             "scientific stages accept declarations or workflow_ref, not raw execution artifacts"
         )

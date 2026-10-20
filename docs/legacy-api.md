@@ -39,6 +39,7 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | `dataset_profile` | 分析所属上传数据，返回实际统计及图像，使用原生 DataAgent |
 | `paper_parse` | 解析所属 PDF 上传；也可通过 `pdf_url` / `paper_url` 下载公共 PDF 后解析，沿用固定公共地址连接与重定向校验 |
 | `claim_rubric_extract` | 读取实际 PDF 页后提取并冻结主张，核对引文、页码与来源 SHA；只推进到主张阶段 |
+| `repo_discovery` | 从所属文档链接、实际 HF/GitHub 查询或明确声明发现仓库，保存候选与选择依据；下载、固定提交及执行由后续阶段核验 |
 | `repo_prepare` | 固定实际仓库提交、校验文件摘要并准备受约束的适配器；返回实际清单、源码和工作区配置引用，不运行实验 |
 | `ablation_design` | 在已声明的有界预算内生成、评分和选择消融候选；设计估计与实际指标分别保存 |
 | `benchmark_adapter_generate` | 按所属数据及冻结规范准备真实适配器，不提前执行预检或正式实验 |
@@ -55,6 +56,9 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | `framework_prepare_left/right`、`framework_prepare_1..4` | 选择对应实际分支，依据冻结来源版本解析锁、冻结规则并准备真实适配器；不将锁或代码称作安装回执 |
 | `framework_run_left/right`、`framework_run_1..4` | 在同图对应分支完成独立预检及真实库调用、预测和指标，保留原来源、共同数据及累计预算 |
 | `framework_recommendation`、`framework_report` | 通过原生最终汇总输出来源选型或实际比较报告；失败仍明确保存，不能把分析节点完成称作实验成功 |
+| `general_research` | 对实际检索元数据或所属文档生成带来源的背景分析，保存 `background_context`；空材料不能用模型记忆代替 |
+| `general_synthesis` | 在同图读取既有来源及背景报告，生成 `general_response`，保留实际引用与输入摘要 |
+| `general_process` | 生成只读通用回答或代码提议，未提供来源时明确未外部核验；不把回答标为代码执行或测试成功 |
 
 拼写别名：`code_generate` → `generate_code`；`code_execute` → `execute_code`；`data_analyze` → `dataset_profile`；`document_extract` → `paper_parse`；`env_setup` / `prepare_environment` / `setup_runtime` / `test_environment` → `prepare_runtime`；`dependency_install` → `install_dependencies`。
 
@@ -133,6 +137,35 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 审批只恢复选定阶段；已终止阶段重读不重跑，切换分支或最终报告不重置首次起算时间和累计尝试。来源或某次运行失败后，只允许恢复图中既定、只读且带 `all_done` 屏障的最终框架报告；失败节点不会被重新排队。最终报告可以完成失败分析，原计划仍保持失败。预算、取消和原权限继续有效，不能通过报告入口追加修复机会或隐藏错误。
 
+## 仓库发现
+
+`repo_discovery` 使用完整科研图中的原生发现节点，默认只推进发现及必要的文档解析；后续通过同一 `workflow_ref` 调用 `repo_prepare`、`paper_code_execute` 或其他兼容科研阶段。可以只提供论文/方法名称、所属附件，也可声明 `inputs.search`（`kind=repository`，provider 为 auto/huggingface/github）、`paper_arxiv_id`、`paper_title`、`paper_search_query` 或 `paper_method_name`。没有显式查询时使用实际文档标题/arXiv ID，或用户已给出的名称。显式查询优先；`preferred_repo_url` / `repo_url` 是用户声明的 HTTPS GitHub 地址，`repository_ref` 保留分支或提交要求，互相冲突时拒绝。
+
+```json
+{
+  "task_type": "repo_discovery",
+  "task_description": "查找 Attention Is All You Need 的原始 Transformer 实现",
+  "assigned_to": "coder_agent",
+  "inputs": {"paper_title": "Attention Is All You Need"}
+}
+```
+
+缺少给定代码时默认保留原生自动设计后继，发现阶段不会提前调用设计模型或运行实验。明确仓库、所属文档中的实际链接及真实 HF/GitHub 候选分别标记来源；地址经过相同 GitHub 格式校验。最多两条查询，匹配词、来源关联及可取得的真实星数参与有界排名；已知归档或 fork 的搜索候选排除，星数不能把没有名称对应的结果变成相关实现。无匹配、仅不相关候选或外部服务不可用分别记录，不虚构检索成功。原 Go 内置的原始 Transformer 参考回退保留为 `curated_fallback` 声明，不假装本次已查到或下载；不会拿它自动替代 Vision Transformer 等其他变体。
+
+成功选中时顶层 `result` 和 `outputs.repo_url` 是实际规范化地址。`candidate_repositories` 保存兼容候选字段；`repository_discovery` / `repo_validation_report` 保存查询、来源、排名、选择依据及 `clone_verified=false`。该标志描述发现阶段，不在后续改写为成功。真正下载后另有含完整提交、归档及文件 SHA 的 `repo_manifest`。未选中时也保留可读发现报告和空 `repo_url`，这只表示发现任务结束；后续下载和环境阶段阻断，不执行程序。声明回退和来源排名不保证实现完整或适合论文验收。
+
+客户端不能导入 `parsed_paper`、候选正文或执行报告作为真实来源；公共 PDF 先按原下载边界保存为所属附件，再进入真实解析器。发现产物在后续读取时重新核验实际文件摘要，不能通过续请求换仓库或代码；下载失败不继续准备执行环境。已完成发现的重读不重新查询，审批及累计预算沿用科研阶段约束。原始候选不足时可以建立明确声明首选仓库的新工作流，旧记录保留。
+
+## 通用研究与回答
+
+`general_research` / `general_synthesis` 在同一持久图上分步完成来源收集、背景分析和最终汇总。首请求接受所属文档字段、公共 PDF 地址、可选 `search` 及实际 `stage_task_id`，拒绝客户端声称的背景报告或执行结果。没有附件或显式查询时按用户已给出的名称做论文检索；已有附件时默认只读实际文档，除非明确提供检索。直接请求 synthesis 会先完成必要的实际来源和背景阶段。后续引用同一 `workflow_ref` 不重复检索或解析，也不能更换目标和来源。
+
+研究角色为 `librarian_agent`，汇总为 `data_agent`；`general_process` 兼容 `general_agent`、`coder_agent`、`chat_agent`，在服务端路由到只读回答器。通用回答可以包含解释或代码提议，但没有执行权限；需要实际运行仍使用代码或科研执行入口。没有来源的回答明确为未外部核验的模型内容。研究/汇总则必须有实际可读页或检索记录，并至少引用一项，不能从空检索结果推断论文结论。
+
+模型只选择实际检索编号，服务器绑定对应 URL、标题及原摘要片段；PDF 引文同时核对已提供片段、原始提取页、所属文档 ID 和页码。未知/重复编号、虚构 PDF 引文、错误页码及非实际来源地址拒绝。`sources` 是元数据/摘要，不表示阅读全文；`source_sha256` 是保存的结构化检索记录摘要，不是论文全文或网页原始字节摘要。文档本身另有原上传字节 SHA，缺少文本的页仍明确需要 OCR。引用存在不等于模型解释或科学结论已独立证明。
+
+每个新回答节点保存 `<native_task_type>_validation`。语义引用检查最多两轮提议，保留原提议、拒绝原因及是否接受，沿用客户端既有有界格式重试；不删除错误引文、不替换源材料，也不重置原任务超时。两轮仍不合规保持任务失败。旧持久任务不自动增加产物权限。`background_context` / `general_response` 保存响应、原来源、原文引文及输入 SHA；顶层 `result` 展示响应、证据范围和服务器绑定的参考链接。网页使用“资料研究”或“通用回答”标签，恢复实际报告，不套用实验成功文案。
+
 ## 输入与环境生命周期
 
 源码字段 `generated_code` / `code` 同时出现时必须相同。依赖字段 `dependency_spec` / `requirements` / `dependencies` 支持字符串列表、JSON 字符串、含 `requirements` / `dependencies` / `packages` 的对象、换行或逗号分隔字符串；版本范围内的逗号保留。多个字段须声明等价集合。公开包名称规范化，旧别名 `pytorch` → `torch`、`msgpack-python` → `msgpack`，保留版本约束。禁止 URL、额外源、pip 命令参数及当前契约不支持的 extras/marker；显式依赖最多 128 条，自动导入推导仍有独立上限。
@@ -151,8 +184,6 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 | 范围 | 尚未适配的 Go 类型 |
 | --- | --- |
-| 仓库发现 | `repo_discovery` |
 | 独立恢复阶段 | `fix_and_rerun` |
-| 通用研究 | `general_research`、`general_synthesis`、`general_process` |
 
 单文件发行、独立 docker-core 能力和最终统一部署另按 [实施与验收](implementation-plan.md) 跟踪。本接口的基础兼容验收不替代这些范围，也不证明论文大规模训练结果。

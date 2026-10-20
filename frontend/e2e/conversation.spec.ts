@@ -1,6 +1,32 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pdfFixture } from './pdfFixture';
 
+test('通用只读回答显示实际报告，刷新后不误报实验完成', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const response = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'general_process', assigned_to: 'general_agent', task_name: '通用只读回答',
+    task_description: '解释通用回答界面，不运行任何代码', inputs: {},
+  } });
+  expect(response.status()).toBe(200);
+  const event = (await response.text()).split('\n\n').find(item => item.startsWith('event: result\n'));
+  expect(event).toBeDefined();
+  const actual = JSON.parse(event!.split('data: ', 2)[1]);
+  const report = JSON.parse(actual.outputs.general_response);
+  expect(report.sources).toEqual([]);
+  expect(report.scope).toContain('未作外部来源核验');
+  await page.goto(`/?plan=${actual.plan_id}`);
+  await expect(page.getByText('通用回答', { exact: true })).toBeVisible();
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await expect(page.getByText('这是通用回答展示夹具；没有执行代码、测试或实验。')).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('general-response.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('这是通用回答展示夹具；没有执行代码、测试或实验。')).toHaveCount(1);
+});
+
 test('按链接打开 API 创建的计划并执行，刷新后保留真实结果', async ({ page }) => {
   await page.goto('/');
   const initial = await send(page, '运行 smoke 冒烟测试');

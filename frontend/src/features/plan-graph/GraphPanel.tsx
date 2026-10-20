@@ -31,6 +31,8 @@ const intentLabels: Record<string, string> = {
   Paper_Analysis: '论文阅读',
   Benchmark: '数据评测',
   Result_Review: '结果复核',
+  Knowledge_Research: '资料研究',
+  General_Response: '通用回答',
 };
 
 export function GraphPanel(props: GraphPanelProps) {

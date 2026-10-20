@@ -1,6 +1,10 @@
 from openresearch.errors import ContractError
 
 ROLES: dict[str, set[str]] = {
+    "knowledge_research": {"librarian_agent"},
+    "knowledge_synthesis": {"data_agent"},
+    "knowledge_process": {"data_agent"},
+    "repository_discover": {"librarian_agent"},
     "framework_catalog": {"data_agent"},
     "result_audit": {"data_agent"},
     "legacy_environment": {"coder_agent"},
