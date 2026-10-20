@@ -9,6 +9,12 @@ from openresearch.models.audit import AUDIT_ROLES
 from openresearch.models.context import Identity
 from openresearch.models.legacy import DirectExecutionRequest, LegacyEnvironmentState
 from openresearch.models.runtime import LegacyTaskOrigin, Plan, Status
+from openresearch.services.legacy_frameworks import (
+    build_framework_stage,
+    framework_spec,
+    framework_stage,
+    select_framework_stage,
+)
 from openresearch.services.legacy_inputs import text_input, uploaded_inputs
 from openresearch.services.legacy_plans import (
     CODE_KINDS,
@@ -68,7 +74,7 @@ class LegacyExecutionService:
         if kind in AUDIT_ROLES:
             raise ContractError("result review requires an owned workflow_ref with saved evidence")
         payload = await self._paper(payload, identity)
-        if kind in STAGES:
+        if kind in STAGES or framework_stage(kind):
             return await self._new_stage(payload, identity, kind)
         state = await self._environment(payload, identity)
         plan = await asyncio.to_thread(basic_legacy_plan, payload, identity, self.plans, state)
@@ -116,9 +122,15 @@ class LegacyExecutionService:
     async def _new_stage(
         self, payload: DirectExecutionRequest, identity: Identity, kind: str
     ) -> DirectSelection:
-        plan, target_id = await asyncio.to_thread(
-            build_stage_plan, payload, identity, self.plans, kind
-        )
+        if framework_stage(kind):
+            spec = await framework_spec(payload, self.plans)
+            plan, target_id = await asyncio.to_thread(
+                build_framework_stage, payload, identity, self.plans, kind, spec
+            )
+        else:
+            plan, target_id = await asyncio.to_thread(
+                build_stage_plan, payload, identity, self.plans, kind
+            )
         plan.legacy = LegacyTaskOrigin(
             task_id=payload.task_id,
             task_type=kind,
@@ -151,7 +163,8 @@ class LegacyExecutionService:
             return DirectSelection(
                 await asyncio.to_thread(self.repository.get_plan, plan.id), plan.nodes[0].id, kind
             )
-        if kind not in STAGES:
+        framework = framework_stage(kind)
+        if kind not in STAGES and framework is None:
             raise ContractError("this operation does not select a managed scientific stage")
         if payload.plan_id or set(payload.inputs) - {"workflow_ref", "stage_task_id"}:
             raise ContractError(
@@ -160,7 +173,8 @@ class LegacyExecutionService:
         plan = await asyncio.to_thread(
             self.repository.get_plan, workflow_plan_id(reference), identity.user_id
         )
-        target = select_stage(plan, payload, kind)
+        selector = select_framework_stage if framework else select_stage
+        target = selector(plan, payload, kind)
         if plan.status != Status.AWAITING_APPROVAL:
             await asyncio.to_thread(
                 self.repository.tasks.queue_stage, plan.id, target.id, identity.user_id

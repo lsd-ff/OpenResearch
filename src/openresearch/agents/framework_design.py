@@ -1,11 +1,11 @@
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.claims import ClaimDraft, CriterionDraft, RubricDraft
-from openresearch.models.comparison import FrameworkTarget
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.runtime_profiles import RuntimeBinding, RuntimePreparationOptions
+from openresearch.research.framework_catalog import catalog_target
 from openresearch.research.framework_protocol import read_protocol
 from openresearch.research.interpreter import InterpreterProbe
 from openresearch.sources.frameworks import FrameworkSources
@@ -22,7 +22,7 @@ class FrameworkDesigner:
     ) -> TaskResult:
         if "framework.design" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to prepare a real framework")
-        target = FrameworkTarget.model_validate(task.inputs["target"])
+        target = catalog_target(plan, task, self.files)
         protocol = read_protocol(plan, self.files)
         if protocol.benchmark is None:
             raise ContractError("framework execution requires a shared benchmark protocol")

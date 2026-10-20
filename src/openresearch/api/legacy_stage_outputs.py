@@ -5,6 +5,7 @@ from contextlib import suppress
 
 from openresearch.agents.scopes import scoped_plan_task
 from openresearch.api.dependencies import Runtime
+from openresearch.api.legacy_framework_outputs import framework_outputs
 from openresearch.models.claims import FrozenRubric
 from openresearch.models.research import ResearchPatch
 from openresearch.models.runtime import Plan, Task
@@ -16,6 +17,7 @@ from openresearch.sources.blobs import SourceBlobs
 
 def stage_outputs(runtime: Runtime, plan: Plan, task: Task) -> dict[str, str]:
     projected, target = scoped_plan_task(plan, task)
+    extra = framework_outputs(projected, target, runtime.files)
     if target.type == "claim_freeze" and "claim_rubric" in projected.artifacts:
         rubric = FrozenRubric.model_validate_json(
             runtime.files.read(projected.artifacts["claim_rubric"])
@@ -31,7 +33,7 @@ def stage_outputs(runtime: Runtime, plan: Plan, task: Task) -> dict[str, str]:
             )
         }
     if target.type != "research_prepare":
-        return {}
+        return extra
     spec = resolved_research(projected, target, runtime.files)
     snapshot = (
         RepositorySnapshot.model_validate_json(runtime.files.read(artifact))
@@ -47,6 +49,7 @@ def stage_outputs(runtime: Runtime, plan: Plan, task: Task) -> dict[str, str]:
     )
     prepared = apply_patch(sources, patch, spec)
     outputs = {
+        **extra,
         "workspace_ref": "openresearch:" + plan.id,
         "workspace_path": "openresearch:" + plan.id,
         "code_file_path": spec.entrypoint,

@@ -109,6 +109,7 @@ class FrameworkAssessment(ContractModel):
 class FrameworkResearchReport(ContractModel):
     name: str
     packages: list[PackageDescription]
+    target: FrameworkTarget | None = Field(default=None, exclude_if=lambda value: value is None)
     fit: FrameworkFit | None = None
     error: str = ""
 

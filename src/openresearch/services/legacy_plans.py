@@ -29,11 +29,15 @@ from openresearch.services.legacy_environment import (
     attach_environment,
     environment_node,
 )
+from openresearch.services.legacy_frameworks import framework_stage
 from openresearch.services.legacy_inputs import legacy_requirements, text_input, uploaded_inputs
 from openresearch.services.legacy_stages import STAGES
 from openresearch.services.plans import PlanService
 
 CODE_KINDS = {"generate_code", "code_execution", "execute_code", "baseline_run", "run_benchmark"}
+SUPPORTED_KINDS = (
+    CODE_KINDS | ENV_KINDS | STAGES.keys() | AUDIT_ROLES.keys() | {"dataset_profile", "paper_parse"}
+)
 ALIASES = {
     "code_generate": "generate_code",
     "code_execute": "execute_code",
@@ -55,10 +59,8 @@ def legacy_kind(payload: DirectExecutionRequest) -> str:
 
 def validate_legacy_request(payload: DirectExecutionRequest) -> str:
     kind = legacy_kind(payload)
-    if kind not in CODE_KINDS | ENV_KINDS | STAGES.keys() | AUDIT_ROLES.keys() | {
-        "dataset_profile",
-        "paper_parse",
-    }:
+    framework = framework_stage(kind)
+    if framework is None and kind not in SUPPORTED_KINDS:
         raise ContractError(
             "legacy operation requires a managed continuation or is not yet mapped: " + kind
         )
@@ -79,6 +81,8 @@ def validate_legacy_request(payload: DirectExecutionRequest) -> str:
         roles = set(STAGES[kind].roles)
     if kind in AUDIT_ROLES:
         roles = AUDIT_ROLES[kind]
+    if framework:
+        roles = set(framework.roles)
     if payload.assigned_to and payload.assigned_to not in roles:
         raise ContractError("legacy task role is incompatible with its declared operation")
     return kind

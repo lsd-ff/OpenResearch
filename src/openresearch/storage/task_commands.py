@@ -81,7 +81,14 @@ class TaskCommands:
                 if plan.execution_scope is None or task_id in plan.execution_scope:
                     return
                 raise ConflictError("another stage is already executing in this plan")
-            if plan.status != Status.PENDING:
+            # 阶段失败后仍可生成既定只读总报告；失败节点不重排，原预算和错误继续保留。
+            finalizing = (
+                plan.status == Status.FAILED
+                and node.type == "framework_report"
+                and node.trigger_rule == "all_done"
+                and node.contract.allowed_tools == ["comparison.report"]
+            )
+            if plan.status != Status.PENDING and not finalizing:
                 raise ConflictError(
                     "stage execution requires a pending plan; retry failures explicitly"
                 )

@@ -22,7 +22,7 @@ class FrameworkResearcher:
             raise ContractError("task is not authorized to research framework sources")
         target = await self.sources.target(FrameworkTarget.model_validate(task.inputs["target"]))
         packages = await self.sources.describe(target)
-        report = FrameworkResearchReport(name=target.name, packages=packages)
+        report = FrameworkResearchReport(name=target.name, packages=packages, target=target)
         spans = [
             FrameworkEvidence(package=package.name, field=field, quote=quote[:1000])
             for package in packages

@@ -50,6 +50,11 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 | `paper_compare` | 读取原实验及执行前冻结的论文主张，报告实际差距与缺失证据；不生成新的论文指标 |
 | `claim_evidence_build` | 对实际来源、原运行和冻结规则重新建立证据图，不把旧判定图或源码当作新执行证据 |
 | `result_visualization`、`render_plot` | 将经校验的实际指标或执行次数绘制为 SVG，保存完整图表数据；不申请实验容器 |
+| `framework_research` | 收集并冻结 2–4 个框架的实际公开包来源及有引用的适用性分析，返回共享目录；不安装依赖或运行实验 |
+| `framework_fit_left/right`、`framework_fit_1..4` | 选择对应分支已经保存的来源与适用性结果，缺少时仅运行该分支必要的来源阶段 |
+| `framework_prepare_left/right`、`framework_prepare_1..4` | 选择对应实际分支，依据冻结来源版本解析锁、冻结规则并准备真实适配器；不将锁或代码称作安装回执 |
+| `framework_run_left/right`、`framework_run_1..4` | 在同图对应分支完成独立预检及真实库调用、预测和指标，保留原来源、共同数据及累计预算 |
+| `framework_recommendation`、`framework_report` | 通过原生最终汇总输出来源选型或实际比较报告；失败仍明确保存，不能把分析节点完成称作实验成功 |
 
 拼写别名：`code_generate` → `generate_code`；`code_execute` → `execute_code`；`data_analyze` → `dataset_profile`；`document_extract` → `paper_parse`；`env_setup` / `prepare_environment` / `setup_runtime` / `test_environment` → `prepare_runtime`；`dependency_install` → `install_dependencies`。
 
@@ -101,6 +106,33 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 当前独立指标重算覆盖已声明的原生 `accuracy`、`macro_f1`、`mse`、`mae`、`r2` 协议。读取原始所属数据并核对完整样本 ID、目标及保存预测；没有 Benchmark 协议时拒绝把任意数值字段视作已验证指标。旧回执未单独保存预测原始字节，审核只能校验不可变的结构化预测，不能声称重现原始预测字节摘要；预检也只能核验已有回执、覆盖范围和独立容器，不能从未保存的预检预测重新计算指标。源码、补丁、仓库提交、实际锁、执行环境及每个已声明消融均按已有记录核对，历史缺失的环境身份明确记为限制。数值主张依据实际指标；语义主张只允许模型引用实际运行报告并经服务器校验，缺少证据保持不可验证。四行功能样例、程序断言或零退出码不证明论文完整效果。
 
+## 框架分步比较
+
+新框架请求可直接在描述中列出待比较名称，也可用 `inputs.frameworks` 明确声明 2–4 个名称；需要固定包、版本、导入根、数据或比较模式时，传入与原生规划相同的 `inputs.comparison`。名称推导只能使用人类请求中存在的名称，模型提议仍须通过校验。来源选型使用 `mode=research`，实际运行使用 `mode=benchmark`；Benchmark 未提供所属数据时沿用原生明确标注的共同合成功能样例，不冒充实际业务数据。
+
+```json
+{
+  "task_type": "framework_research",
+  "task_description": "比较 LangChain 和 LlamaIndex 的实际检索，保留共同协议和原来源",
+  "assigned_to": "librarian_agent",
+  "inputs": {
+    "comparison": {
+      "mode": "benchmark",
+      "answer_mode": "none",
+      "targets": [{"name": "LangChain"}, {"name": "LlamaIndex"}]
+    }
+  }
+}
+```
+
+结果的 `workflow_ref` 持续指向同一比较图。先以该引用调用 `framework_prepare_left`、`framework_prepare_right`，再调用 `framework_run_1`、`framework_run_2`，最后请求 `framework_report`；若只做资料选型则请求 `framework_recommendation`。数字按首次声明的目标顺序，left/right 固定为 1/2；超出实际目标数、错误模式、另一分支的 `stage_task_id` 或角色不兼容返回 422。来源/fit 角色为 `librarian_agent`，prepare 为 `coder_agent`，run 接受 `sandbox_agent`、`research_coding_agent` 或 `coder_agent`，最终报告为 `data_agent`。
+
+来源和适用性分析由同一原生来源任务共同完成，目录聚合真实保存的分支报告；后续 fit 读取该结果，不再次调用模型。直接从某个 fit 开始时只推进该分支的必要祖先，其他分支仍保留。目录记录实际包版本、元数据摘要、来源任务和报告 SHA；后续新设计固定使用这些包及版本，并核对原包约束和导入根，不能因重新查询 latest 而切换已经研究的来源。各执行分支的源码、锁、预测、失败和产物仍保持独立命名空间，只有明确共享的公开来源目录及共同协议可跨分支读取。既有原生图不新增目录或改变冻结契约，缺少所请求阶段时返回 422。
+
+旧结果名来自实际产物投影：来源阶段返回 `framework_research_report`；fit 返回 `framework_fit_report_N` 及前两项的 `left_fit_report` / `right_fit_report`；run 返回 `framework_metrics_N` 及 `left_metrics` / `right_metrics`；最终报告返回 `evaluation_report`。prepare 的 `left_env` / `right_env` 和 `framework_environment_N` 是带所属工作流、实际阶段及锁摘要的配置声明，`state=code_and_lock_prepared`、`installation_verified=false`，不提供宿主路径或长期容器 ID。随后运行仍在新受管容器中离线安装并核验，只有实际执行回执证明安装或运行成功。原代码及入口另按科研准备阶段返回。
+
+审批只恢复选定阶段；已终止阶段重读不重跑，切换分支或最终报告不重置首次起算时间和累计尝试。来源或某次运行失败后，只允许恢复图中既定、只读且带 `all_done` 屏障的最终框架报告；失败节点不会被重新排队。最终报告可以完成失败分析，原计划仍保持失败。预算、取消和原权限继续有效，不能通过报告入口追加修复机会或隐藏错误。
+
 ## 输入与环境生命周期
 
 源码字段 `generated_code` / `code` 同时出现时必须相同。依赖字段 `dependency_spec` / `requirements` / `dependencies` 支持字符串列表、JSON 字符串、含 `requirements` / `dependencies` / `packages` 的对象、换行或逗号分隔字符串；版本范围内的逗号保留。多个字段须声明等价集合。公开包名称规范化，旧别名 `pytorch` → `torch`、`msgpack-python` → `msgpack`，保留版本约束。禁止 URL、额外源、pip 命令参数及当前契约不支持的 extras/marker；显式依赖最多 128 条，自动导入推导仍有独立上限。
@@ -119,7 +151,6 @@ SSE 使用 `log`、`result`、`error`，心跳不代表任务成功。成功结�
 
 | 范围 | 尚未适配的 Go 类型 |
 | --- | --- |
-| 框架研究与对比 | `framework_research`、`framework_recommendation`、`framework_report`，以及 `framework_fit_*`、`framework_prepare_*`、`framework_run_*`（含数字编号及 left/right 分支） |
 | 仓库发现 | `repo_discovery` |
 | 独立恢复阶段 | `fix_and_rerun` |
 | 通用研究 | `general_research`、`general_synthesis`、`general_process` |
