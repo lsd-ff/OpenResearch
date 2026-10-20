@@ -62,7 +62,7 @@ class RepositorySnapshot(ContractModel):
 
 
 class EnvironmentSpec(ContractModel):
-    requirements: list[str] = Field(default_factory=list, max_length=32)
+    requirements: list[str] = Field(default_factory=list, max_length=128)
 
     @field_validator("requirements")
     @classmethod
@@ -111,10 +111,21 @@ class EnvironmentLock(ContractModel):
     version: Literal["environment.lock/v1"] = "environment.lock/v1"
     python: Literal["3.12"] = "3.12"
     platform: Literal["linux_x86_64"] = "linux_x86_64"
-    wheels: list[LockedWheel] = Field(default_factory=list, max_length=32)
+    wheels: list[LockedWheel] = Field(default_factory=list, max_length=128)
 
     @model_validator(mode="after")
     def unique_wheels(self) -> "EnvironmentLock":
         if len({wheel.requirement for wheel in self.wheels}) != len(self.wheels):
             raise ValueError("duplicate wheel requirements")
         return self
+
+
+class PackageDescription(ContractModel):
+    name: str
+    version: str
+    summary: str = Field(default="", max_length=2000)
+    description: str = Field(default="", max_length=12000)
+    requires_python: str = Field(default="", max_length=256)
+    project_urls: dict[str, str] = Field(default_factory=dict, max_length=10)
+    metadata_url: str
+    metadata_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
