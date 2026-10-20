@@ -6,9 +6,11 @@ from openresearch.models.execution import ExecutionLease
 from openresearch.models.output_files import OutputFiles
 from openresearch.models.recovery import CodeAttempt
 from openresearch.models.runtime import ExecutionResult
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.code_guards import code_digest
 from openresearch.research.environment import install_environment
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.sandbox.collect import collect_files
 from openresearch.sandbox.session import SandboxSessions
 
@@ -25,7 +27,13 @@ class CodeProgramRunner:
         self.settings, self.sessions = settings, sessions
 
     async def run(
-        self, lease: ExecutionLease, code: str, lock: EnvironmentLock, number: int
+        self,
+        lease: ExecutionLease,
+        code: str,
+        lock: EnvironmentLock,
+        number: int,
+        *,
+        runtime: RuntimeBinding | None = None,
     ) -> ProgramOutcome:
         attempt = CodeAttempt(
             number=number,
@@ -33,14 +41,20 @@ class CodeProgramRunner:
             code=code,
             code_sha256=code_digest(code),
             environment_lock=lock,
+            runtime=runtime,
         )
         output = None
         bundle = OutputFiles()
         try:
-            async with self.sessions.open(lease) as session:
+            if runtime_python(self.settings, runtime) != lock.python:
+                raise ContractError("code runtime differs from the frozen dependency lock")
+            context = (
+                self.sessions.open(lease, runtime.profile) if runtime else self.sessions.open(lease)
+            )
+            async with context as session:
                 attempt.sandbox_id = session.id
                 attempt.container_image_id = await session.adapter.image_identity(session.id)
-                if lock.wheels:
+                if lock.wheels or runtime:
                     attempt.environment = await install_environment(session, lock, self.settings)
                 attempt.phase = "execute"
                 await session.put_files({"code.py": code.encode()})

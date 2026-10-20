@@ -120,6 +120,9 @@ class ResearchExecutor:
             dependency_constraints=constraints,
             allow_environment_repair="environment.repair" in task.contract.allowed_tools,
             allow_patch_repair="research.patch" in task.contract.allowed_tools,
+            allow_runtime_select="runtime.select" in task.contract.allowed_tools,
+            runtime_fixed=ResearchSpec.model_validate(task.inputs.get("research", {})).runtime
+            is not None,
         )
         return PreparedExperiment(snapshot, sources, request)
 

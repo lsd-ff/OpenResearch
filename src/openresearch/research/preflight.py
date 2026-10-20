@@ -48,7 +48,7 @@ class BenchmarkPreflight:
         return BenchmarkPreflightReport(
             status="failed" if run.attempts[-1].error else "passed",
             dataset_sha256=request.dataset.sha256,
-            spec_sha256=checksum(request.spec.model_dump_json()),
+            spec_sha256=checksum(outcome.request.spec.model_dump_json()),
             environment_lock_sha256=checksum(outcome.request.lock.model_dump_json()),
             patch_sha256=checksum(outcome.request.patch.model_dump_json()),
             sample_ids=[str(row["id"]) for row in sample.inputs],
@@ -58,6 +58,7 @@ class BenchmarkPreflight:
             environment_lock=outcome.request.lock if request.allow_environment_repair else None,
             environment_changes=list(outcome.environment_changes),
             dependency_requests=list(outcome.request.dependency_requests),
+            runtime=outcome.request.spec.runtime,
         )
 
 

@@ -6,17 +6,22 @@ import io
 import tokenize
 
 from openresearch.errors import ContractError
+from openresearch.models.runtime_profiles import TargetPython
 
 
 def code_digest(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
-def syntax_tree(code: str) -> ast.Module:
+def validate_code_size(code: str) -> None:
     if not code.strip() or len(code.encode()) > 131072:
         raise ContractError("Python code must be nonempty and at most 128 KiB")
+
+
+def syntax_tree(code: str, python: TargetPython = "3.12") -> ast.Module:
+    validate_code_size(code)
     try:
-        return ast.parse(code, feature_version=(3, 12))
+        return ast.parse(code, feature_version=(3, int(python.split(".")[1])))
     except SyntaxError as exc:
         raise ContractError(f"SyntaxError at line {exc.lineno}: {exc.msg}") from exc
 
@@ -135,12 +140,12 @@ def syntax_tokens(code: str) -> list[tuple[int, str]]:
     ]
 
 
-def validate_code_repair(original: str, candidate: str) -> None:
-    tree = syntax_tree(candidate)
+def validate_code_repair(original: str, candidate: str, python: TargetPython = "3.12") -> None:
+    tree = syntax_tree(candidate, python)
     if original == candidate:
         raise ContractError("code repair did not change the failing program")
     try:
-        previous = ast.parse(original, feature_version=(3, 12))
+        previous = ast.parse(original, feature_version=(3, int(python.split(".")[1])))
     except SyntaxError:
         # 旧程序无法建树时也保留显式断言/raise 文本，不能借修复语法删除验收。
         lines = {line.rstrip() for line in candidate.splitlines()}

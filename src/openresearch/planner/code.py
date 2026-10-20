@@ -3,6 +3,7 @@ import re
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task, TaskContract
+from openresearch.research.runtime_selection import runtime_for_intent, runtime_tools
 
 SMOKE_CODE = """import json
 import platform
@@ -46,6 +47,9 @@ def build_code_plan(
     if code is None and not settings.llm_api_key.get_secret_value():
         raise ContractError("provide Python code, request a smoke experiment, or configure an LLM")
     preparation_tools, execution_tools = code_permissions(intent)
+    runtime = runtime_for_intent(settings, intent)
+    preparation_tools.extend(runtime_tools(settings))
+    execution_tools.extend(runtime_tools(settings))
     generate = Task(
         name="Prepare Python Code",
         type="code_generate",
@@ -84,6 +88,9 @@ def build_code_plan(
             allowed_tools=execution_tools,
         ),
     )
+    if runtime:
+        generate.inputs["runtime"] = runtime.model_dump()
+        execute.inputs["runtime"] = runtime.model_dump()
     approval = Approval(
         required=settings.require_approval,
         status="pending" if settings.require_approval else "not_required",

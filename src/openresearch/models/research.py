@@ -124,6 +124,7 @@ class RunAttempt(ContractModel):
     sandbox_id: str | None = None
     container_image_id: str | None = None
     environment_lock_sha256: str = ""
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ResearchRun(ContractModel):
@@ -151,6 +152,7 @@ class BenchmarkPreflightReport(ContractModel):
     environment_lock: EnvironmentLock | None = None
     environment_changes: list[EnvironmentRepairDecision] = Field(default_factory=list, max_length=2)
     dependency_requests: list[str] = Field(default_factory=list, max_length=128)
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SourceIntegrity(ContractModel):

@@ -22,6 +22,7 @@ from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec
 from openresearch.research.dependency_recovery import merge_requests, protected_requests
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer
+from openresearch.research.package_evidence import package_evidence
 from openresearch.research.runtime_selection import compatible_runtime, runtime_python
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
@@ -259,45 +260,4 @@ class EnvironmentPreparation:
     async def _package_evidence(
         self, requests: list[str], constraints: list[str]
     ) -> list[dict[str, str]]:
-        selected = {}
-        candidates = [*constraints, *requests]
-        # 用户精确约束及当前固定版本先于裸包名；最新发行版不代表失败的实际版本。
-        candidates.sort(
-            key=lambda value: (
-                not any(
-                    pin.operator == "==" and "*" not in pin.version
-                    for pin in Requirement(value).specifier
-                )
-            )
-        )
-        for value in candidates:
-            requirement = Requirement(value)
-            name = canonicalize_name(requirement.name)
-            if is_stdlib(name):
-                continue
-            if name in selected:
-                continue
-            pins = list(requirement.specifier)
-            selected[name] = (
-                pins[0].version if len(pins) == 1 and pins[0].operator == "==" else None
-            )
-            if len(selected) == 4:
-                break
-        try:
-            async with asyncio.timeout(10):
-                descriptions = await asyncio.gather(
-                    *(self.packages.describe(name, version) for name, version in selected.items()),
-                    return_exceptions=True,
-                )
-        except TimeoutError:
-            return []
-        # 查不到只表示本次来源不可用；不能据此断言该版本不存在。
-        return [
-            {
-                key: str(value)
-                for key, value in description.model_dump().items()
-                if key in {"name", "version", "requires_python", "metadata_url", "metadata_sha256"}
-            }
-            for description in descriptions
-            if not isinstance(description, BaseException)
-        ]
+        return await package_evidence(self.packages, requests, constraints)

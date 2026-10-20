@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass, replace
 
 from packaging.requirements import Requirement
 
@@ -13,20 +14,36 @@ from openresearch.config import Settings
 from openresearch.errors import ContractError, ModelError
 from openresearch.llm.client import LLMClient
 from openresearch.models.execution import ExecutionLease
-from openresearch.models.recovery import CodeRecoveryReport, RecoveryDecision
+from openresearch.models.recovery import CodeRecoveryReport, RecoveryDecision, RecoveryProposal
 from openresearch.models.runtime import Task, TaskResult
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.code_execution import CodeProgramRunner, ProgramOutcome
 from openresearch.research.code_guards import code_digest
-from openresearch.research.dependency_recovery import DependencyRecovery
+from openresearch.research.dependency_recovery import DependencyRecovery, DependencyUpdate
+from openresearch.research.runtime_recovery import (
+    RuntimeRecoveryPolicy,
+    RuntimeResolutionError,
+    runtime_change_count,
+)
+from openresearch.research.runtime_selection import runtime_python, task_runtime
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.session import SandboxSessions
 from openresearch.sources.stdlib import is_stdlib
 from openresearch.storage.repository import Repository
 
 
+@dataclass(frozen=True)
+class CodeState:
+    code: str
+    requests: list[str]
+    lock: EnvironmentLock
+    runtime: RuntimeBinding | None = None
+
+
 class CodeExecutor:
     def __init__(self, settings: Settings, repository: Repository, sandbox: Sandbox) -> None:
+        self.settings = settings
         self.runner = CodeProgramRunner(settings, SandboxSessions(repository, sandbox))
         self.repairer = CodeRepairer(LLMClient(settings))
         self.dependencies = DependencyRecovery(settings)
@@ -42,14 +59,21 @@ class CodeExecutor:
             if {"code.repair", "environment.lock"}.intersection(task.contract.allowed_tools)
             else 0
         )
+        intent = goal or task.description
+        binding = task_runtime(self.settings, task, intent)
         report = CodeRecoveryReport(max_repairs=maximum, original_code_sha256=code_digest(code))
-        requests: list[str] = []
-        lock = EnvironmentLock()
-        for number in range(1, maximum + 2):
-            outcome = await self.runner.run(lease, code, lock, number)
+        state = CodeState(
+            code, [], EnvironmentLock(python=runtime_python(self.settings, binding)), binding
+        )
+        remaining = maximum
+        while True:
+            arguments = {"runtime": state.runtime} if state.runtime else {}
+            outcome = await self.runner.run(
+                lease, state.code, state.lock, len(report.attempts) + 1, **arguments
+            )
             report.attempts.append(outcome.attempt)
             error = outcome.attempt.error
-            if not error or number > maximum:
+            if not error or remaining <= 0:
                 break
             recoverable = (outcome.attempt.phase == "install" and outcome.output is not None) or (
                 outcome.attempt.phase == "execute" and RECOVERABLE.search(error)
@@ -58,56 +82,96 @@ class CodeExecutor:
                 break
             decision = RecoveryDecision(accepted=False)
             report.decisions.append(decision)
+            remaining -= 1
             module = missing_module(error)
             allow_dependencies = "environment.lock" in task.contract.allowed_tools and not (
                 module and is_stdlib(module.split(".")[0])
             )
             try:
                 proposal = await self.repairer.propose(
-                    goal or task.description,
-                    code,
+                    intent,
+                    state.code,
                     error,
-                    [wheel.requirement for wheel in lock.wheels] or requests,
+                    [wheel.requirement for wheel in state.lock.wheels] or state.requests,
                     allow_dependencies,
+                    **({"python": state.lock.python} if state.lock.python != "3.12" else {}),
                 )
                 decision.proposal = proposal
                 validate_proposal(
                     proposal,
-                    code,
+                    state.code,
                     allow_dependencies,
                     allow_code="code.repair" in task.contract.allowed_tools,
+                    python=state.lock.python,
                 )
                 if proposal.action == "stop":
                     break
                 if proposal.action == "code":
-                    code = proposal.code or code
+                    state = replace(state, code=proposal.code or state.code)
                 else:
                     if "environment.lock" not in task.contract.allowed_tools:
                         raise ContractError("task is not authorized to recover dependencies")
-                    environment = await self.dependencies.resolve(
-                        requests,
-                        proposal.requirements,
-                        missing_module(error),
-                        constraints=[
-                            constraint
-                            for value in [*requests, *proposal.requirements]
-                            if (
-                                constraint := dependency_constraint(
-                                    goal or task.description, Requirement(value).name
-                                )
-                            )
-                        ],
+                    state = await self._dependencies(
+                        task, intent, state, proposal, error, remaining, decision
                     )
-                    requests, lock = environment.requests, environment.lock
+                    remaining -= runtime_change_count(decision.preparation)
                 decision.accepted = True
+            except RuntimeResolutionError as exc:
+                decision.preparation = exc.report
+                decision.error = str(exc)
+                report.error = f"repair unavailable: {exc}"
+                break
             except (ContractError, ModelError, ValueError) as exc:
                 decision.error = str(exc)
                 report.error = f"repair unavailable: {exc}"
                 break
         report.success = not report.attempts[-1].error
         report.error = report.attempts[-1].error + ("; " + report.error if report.error else "")
-        report.final_code_sha256 = code_digest(code)
-        return code_result(task, report, outcome, code)
+        report.runtime = state.runtime
+        report.final_code_sha256 = code_digest(state.code)
+        return code_result(task, report, outcome, state.code)
+
+    async def _dependencies(
+        self,
+        task: Task,
+        intent: str,
+        state: CodeState,
+        proposal: RecoveryProposal,
+        error: str,
+        remaining: int,
+        decision: RecoveryDecision,
+    ) -> CodeState:
+        constraints = [
+            constraint
+            for value in [*state.requests, *proposal.requirements]
+            if (constraint := dependency_constraint(intent, Requirement(value).name))
+        ]
+        if "runtime.select" in task.contract.allowed_tools:
+            recovered = await self.dependencies.recover(
+                DependencyUpdate(
+                    state.requests, proposal.requirements, constraints, missing_module(error)
+                ),
+                RuntimeRecoveryPolicy(
+                    intent,
+                    state.runtime,
+                    state.lock.python,
+                    remaining,
+                    runtime_fixed=task.inputs.get("runtime") is not None,
+                ),
+            )
+            decision.preparation = recovered.preparation
+            if runtime_change_count(recovered.preparation) > remaining:
+                raise ContractError("runtime recovery exceeds the shared repair budget")
+        else:
+            recovered = await self.dependencies.resolve(
+                state.requests, proposal.requirements, missing_module(error), constraints
+            )
+        return replace(
+            state,
+            requests=recovered.requests,
+            lock=recovered.lock,
+            runtime=recovered.runtime or state.runtime,
+        )
 
 
 def code_result(
@@ -135,7 +199,9 @@ def code_result(
     if not report.success:
         outputs.pop("execution_files")
     stdout = outcome.output.stdout if outcome.output and outcome.attempt.phase != "install" else ""
-    repairs = sum(item.accepted for item in report.decisions)
+    repairs = sum(
+        item.accepted + runtime_change_count(item.preparation) for item in report.decisions
+    )
     note = f"程序运行/安装尝试 {len(report.attempts)} 次，采用 {repairs} 次修复。"
     return TaskResult(
         success=report.success,

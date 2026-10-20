@@ -46,20 +46,39 @@ class RepairPipeline:
         failure = attempts[-1]
         rechecks = []
         environment_changes = []
-        for _ in range(request.spec.max_repairs if allow_repairs else 0):
+        remaining = request.spec.max_repairs if allow_repairs else 0
+        while remaining > 0:
             if not failure.error:
                 break
             try:
+                remaining -= 1
                 if self.environment_repairer and dependency_failure(request, failure):
-                    revision = await self.environment_repairer.revise(intent, request, failure)
+                    revision = await self.environment_repairer.revise(
+                        intent,
+                        request,
+                        failure,
+                        **({"runtime_budget": remaining} if request.allow_runtime_select else {}),
+                    )
                     environment_changes.append(revision.decision)
                     if not revision.decision.accepted:
                         failure.error += "; environment repair unavailable: " + (
                             revision.decision.error or "no justified dependency change"
                         )
                         break
+                    if revision.decision.repair_cost > remaining + 1:
+                        revision.decision.accepted = False
+                        revision.decision.error = (
+                            "environment recovery exceeds the shared repair budget"
+                        )
+                        raise ContractError("environment recovery exceeds the shared repair budget")
+                    remaining -= revision.decision.repair_cost - 1
                     request = replace(
-                        request, lock=revision.lock, dependency_requests=revision.requests
+                        request,
+                        lock=revision.lock,
+                        dependency_requests=revision.requests,
+                        spec=request.spec.model_copy(update={"runtime": revision.runtime})
+                        if revision.decision.runtime_after
+                        else request.spec,
                     )
                 else:
                     request = await self._revise(intent, original, request, failure)
@@ -79,7 +98,8 @@ class RepairPipeline:
             failure = attempts[-1]
         output.run.attempts = attempts
         if rechecks and rechecks[-1].status != "passed":
-            attempts[-1].error += "; revised benchmark preflight failed: " + failure.error[-2000:]
+            details = "; ".join(item for item in (failure.error, failure.stderr) if item)
+            attempts[-1].error += "; revised benchmark preflight failed: " + details[-4000:]
         return RepairOutcome(output, request, tuple(rechecks), tuple(environment_changes))
 
     async def _revise(
@@ -97,6 +117,7 @@ class RepairPipeline:
                 "stderr": failure.stderr[-5000:],
                 "phase": failure.phase,
                 "effective_environment": [wheel.requirement for wheel in request.lock.wheels],
+                "runtime_python": request.lock.python,
             },
             ensure_ascii=False,
         )

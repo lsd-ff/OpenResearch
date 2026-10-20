@@ -37,6 +37,8 @@ class ExperimentInput:
     dependency_constraints: tuple[str, ...] = ()
     allow_environment_repair: bool = False
     allow_patch_repair: bool = True
+    allow_runtime_select: bool = False
+    runtime_fixed: bool = True
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,7 @@ class ExperimentRunner:
                     sandbox_id=session.id,
                     container_image_id=await session.adapter.image_identity(session.id),
                     environment_lock_sha256=lock_sha256,
+                    runtime=request.spec.runtime,
                 )
                 return ExperimentOutput(
                     ResearchRun(
@@ -161,6 +164,7 @@ class ExperimentRunner:
                 sandbox_id=session.id,
                 container_image_id=environment.container_image_id,
                 environment_lock_sha256=lock_sha256,
+                runtime=request.spec.runtime,
             )
             run = ResearchRun(
                 variant=request.variant.name,

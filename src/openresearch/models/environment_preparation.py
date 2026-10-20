@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from openresearch.models.environment_repair import EnvironmentRepairProposal
+from openresearch.models.environment_actions import EnvironmentRepairProposal
 from openresearch.models.runtime import ContractModel
 from openresearch.models.runtime_profiles import RuntimeBinding
 

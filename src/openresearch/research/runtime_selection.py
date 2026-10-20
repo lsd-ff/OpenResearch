@@ -8,6 +8,7 @@ from packaging.utils import canonicalize_name
 
 from openresearch.config import Settings
 from openresearch.errors import ContractError
+from openresearch.models.runtime import Task
 from openresearch.models.runtime_profiles import RuntimeBinding, RuntimeProfile, TargetPython
 from openresearch.sandbox.profiles import profile_fingerprint, selected_profile
 
@@ -84,6 +85,16 @@ def runtime_tools(settings: Settings) -> list[str]:
     )
 
 
+def task_runtime(settings: Settings, task: Task, intent: str) -> RuntimeBinding | None:
+    raw = task.inputs.get("runtime")
+    binding = RuntimeBinding.model_validate(raw) if raw is not None else None
+    if "runtime.select" not in task.contract.allowed_tools:
+        if binding:
+            raise ContractError("task is not authorized to select a runtime")
+        return None
+    return runtime_for_intent(settings, intent, binding)
+
+
 def compatible_runtime(
     settings: Settings,
     intent: str,
@@ -91,7 +102,8 @@ def compatible_runtime(
     evidence: list[dict[str, str]],
     requests: list[str],
 ) -> RuntimeBinding | None:
-    if intent_python(intent) or re.search(
+    requested = intent_python(intent)
+    if re.search(
         r"(?:不(?:要|允许|得)?|禁止|请勿|不能).{0,6}(?:切换|调整|修改|更换|升级|降级).{0,8}(?:Python|运行时)|"
         r"(?:固定|保持|保留).{0,6}(?:Python|运行时).{0,4}版本|"
         r"(?:do not|never|without)\s+(?:switch|change|upgrade|downgrade).{0,12}(?:python|runtime)",
@@ -118,6 +130,7 @@ def compatible_runtime(
         if (
             not candidate.gpu
             and candidate.python != python
+            and (requested is None or candidate.python + ".0" in requested)
             and all(candidate.python + ".0" in bound for bound in bounds)
         ):
             return bind_runtime(settings, name)

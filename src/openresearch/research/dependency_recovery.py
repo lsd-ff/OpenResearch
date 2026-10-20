@@ -1,6 +1,5 @@
-import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -8,12 +7,17 @@ from packaging.utils import canonicalize_name
 from openresearch.agents.code_repair import MODULE_PACKAGES
 from openresearch.config import Settings
 from openresearch.errors import ContractError
-from openresearch.models.runtime_profiles import TargetPython
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
+from openresearch.models.runtime_profiles import RuntimeBinding, TargetPython
 from openresearch.models.sources import EnvironmentLock
-from openresearch.sources.blobs import SourceBlobs
+from openresearch.research.runtime_recovery import (
+    RuntimeRecoveryPolicy,
+    RuntimeResolutionError,
+    RuntimeResolver,
+)
 from openresearch.sources.dependency_resolution import DependencyResolver, dependency_requests
+from openresearch.sources.packages import PackageSource
 from openresearch.sources.stdlib import is_stdlib
-from openresearch.sources.wheel_modules import wheel_sources
 from openresearch.sources.wheels import WheelSource
 
 
@@ -21,6 +25,17 @@ from openresearch.sources.wheels import WheelSource
 class RecoveredEnvironment:
     requests: list[str]
     lock: EnvironmentLock
+    runtime: RuntimeBinding | None = None
+    preparation: EnvironmentPreparationReport | None = None
+
+
+@dataclass(frozen=True)
+class DependencyUpdate:
+    current: list[str]
+    proposed: list[str]
+    constraints: list[str] = field(default_factory=list)
+    missing: str | None = None
+    removals: list[str] = field(default_factory=list)
 
 
 def protected_requests(intent: str, current: list[str]) -> list[str]:
@@ -91,9 +106,10 @@ def merge_requests(
 
 class DependencyRecovery:
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.resolver = DependencyResolver()
         self.source = WheelSource(settings)
-        self.blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
+        self.packages = PackageSource(settings)
 
     async def resolve(
         self,
@@ -105,21 +121,25 @@ class DependencyRecovery:
         removals: list[str] | None = None,
         python: TargetPython = "3.12",
     ) -> RecoveredEnvironment:
-        if not proposed and not removals:
+        try:
+            result = await self.recover(
+                DependencyUpdate(current, proposed, constraints or [], missing, removals or []),
+                RuntimeRecoveryPolicy("", python=python),
+            )
+        except RuntimeResolutionError as exc:
+            raise exc.original from None
+        return RecoveredEnvironment(result.requests, result.lock)
+
+    async def recover(
+        self, update: DependencyUpdate, policy: RuntimeRecoveryPolicy
+    ) -> RecoveredEnvironment:
+        if not update.proposed and not update.removals:
             raise ContractError("dependency repair must name an actual package")
-        requests = merge_requests(current, proposed, constraints or [], removals)
-        if requests == current:
-            raise ContractError("dependency repair did not change the requested environment")
-        resolver = self.resolver.for_python(python)
-        spec = await (
-            resolver.resolve(requests)
-            if len(requests) <= 32
-            else resolver.resolve_recovery(requests)
+        requests = merge_requests(
+            update.current, update.proposed, update.constraints, update.removals
         )
-        lock, wheels = await self.source.for_python(python).fetch(spec)
-        if missing:
-            # 只能采用确实包含缺失模块的已校验 wheel，不在宿主机导入依赖。
-            await asyncio.to_thread(wheel_sources, wheels, [missing])
-        for raw in wheels.values():
-            await asyncio.to_thread(self.blobs.write, raw)
-        return RecoveredEnvironment(requests, lock)
+        if requests == update.current:
+            raise ContractError("dependency repair did not change the requested environment")
+        engine = RuntimeResolver(self.settings, self.resolver, self.source, self.packages)
+        result = await engine.resolve(requests, update.constraints, policy, update.missing)
+        return RecoveredEnvironment(requests, result.lock, result.runtime, result.report)

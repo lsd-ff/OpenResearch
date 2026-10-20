@@ -15,10 +15,19 @@ from openresearch.models.environment_repair import (
     EnvironmentRepairProposal,
 )
 from openresearch.models.research import RunAttempt
-from openresearch.models.runtime_profiles import TargetPython
+from openresearch.models.runtime_profiles import RuntimeBinding, TargetPython
 from openresearch.models.sources import EnvironmentLock
-from openresearch.research.dependency_recovery import DependencyRecovery, protected_requests
+from openresearch.research.dependency_recovery import (
+    DependencyRecovery,
+    DependencyUpdate,
+    protected_requests,
+)
 from openresearch.research.runner import ExperimentInput
+from openresearch.research.runtime_recovery import (
+    RuntimeRecoveryPolicy,
+    RuntimeResolutionError,
+    runtime_change_count,
+)
 from openresearch.sources.stdlib import is_stdlib
 
 
@@ -27,6 +36,7 @@ class EnvironmentRevision:
     decision: EnvironmentRepairDecision
     lock: EnvironmentLock
     requests: tuple[str, ...]
+    runtime: RuntimeBinding | None = None
 
 
 class RecoveryOptions(TypedDict, total=False):
@@ -142,10 +152,16 @@ class ResearchEnvironmentRepairer:
         )
 
     async def revise(
-        self, intent: str, request: ExperimentInput, failure: RunAttempt
+        self,
+        intent: str,
+        request: ExperimentInput,
+        failure: RunAttempt,
+        *,
+        runtime_budget: int = 0,
     ) -> EnvironmentRevision:
         decision = EnvironmentRepairDecision(before_sha256=lock_digest(request.lock))
         lock, requests = request.lock, request.dependency_requests
+        runtime = request.spec.runtime
         try:
             if not dependency_failure(request, failure):
                 raise ContractError("task is not authorized to recover this environment failure")
@@ -154,7 +170,7 @@ class ResearchEnvironmentRepairer:
             if proposal.action == "stop":
                 if proposal.requirements or proposal.remove_requirements:
                     raise ContractError("a stop proposal cannot change dependencies")
-                return EnvironmentRevision(decision, lock, requests)
+                return EnvironmentRevision(decision, lock, requests, runtime)
             constraints = list(request.dependency_constraints)
             constraints.extend(protected_requests(intent, list(requests)))
             constraints.extend(
@@ -167,13 +183,32 @@ class ResearchEnvironmentRepairer:
             )
             if request.lock.python != "3.12":
                 arguments["python"] = request.lock.python
-            revised = await self.dependencies.resolve(
-                list(requests),
-                proposal.requirements,
-                missing_module(failure.stderr),
-                constraints,
-                **arguments,
-            )
+            if request.allow_runtime_select:
+                revised = await self.dependencies.recover(
+                    DependencyUpdate(
+                        list(requests),
+                        proposal.requirements,
+                        constraints,
+                        missing_module(failure.stderr),
+                        proposal.remove_requirements,
+                    ),
+                    RuntimeRecoveryPolicy(
+                        intent, runtime, lock.python, runtime_budget, request.runtime_fixed
+                    ),
+                )
+                decision.preparation = revised.preparation
+                decision.repair_cost = 1 + runtime_change_count(revised.preparation)
+                if revised.runtime != runtime:
+                    decision.runtime_before, decision.runtime_after = runtime, revised.runtime
+                    runtime = revised.runtime
+            else:
+                revised = await self.dependencies.resolve(
+                    list(requests),
+                    proposal.requirements,
+                    missing_module(failure.stderr),
+                    constraints,
+                    **arguments,
+                )
             before = {canonicalize_name(Requirement(item).name) for item in requests} - set(
                 proposal.remove_requirements
             )
@@ -191,6 +226,10 @@ class ResearchEnvironmentRepairer:
             decision.after_sha256, decision.accepted = lock_digest(lock), True
             # 每次采用的完整锁单独保存，连续两次修复时仍能回放中间环境而非只有摘要。
             decision.environment_lock = lock
+        except RuntimeResolutionError as exc:
+            decision.preparation = exc.report
+            decision.repair_cost = 1 + runtime_change_count(exc.report)
+            decision.error = str(exc)
         except (ContractError, ModelError, ValueError) as exc:
             decision.error = str(exc)
-        return EnvironmentRevision(decision, lock, requests)
+        return EnvironmentRevision(decision, lock, requests, runtime)

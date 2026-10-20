@@ -2,8 +2,10 @@ from typing import Literal
 
 from pydantic import Field
 
+from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.research import EnvironmentReport
 from openresearch.models.runtime import ContractModel, ExecutionResult
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock
 
 
@@ -18,11 +20,14 @@ class RecoveryDecision(ContractModel):
     proposal: RecoveryProposal | None = None
     accepted: bool
     error: str = ""
+    preparation: EnvironmentPreparationReport | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CodeAttempt(ContractModel):
     number: int = Field(ge=1, le=3)
-    phase: Literal["syntax", "install", "execute", "outputs"]
+    phase: Literal["syntax", "syntax_pending", "install", "execute", "outputs"]
     code: str = Field(max_length=131072)
     code_sha256: str
     output: ExecutionResult | None = None
@@ -33,6 +38,7 @@ class CodeAttempt(ContractModel):
     environment_lock: EnvironmentLock = Field(default_factory=EnvironmentLock)
     environment: EnvironmentReport | None = None
     error: str = ""
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class CodeRecoveryReport(ContractModel):
@@ -44,3 +50,7 @@ class CodeRecoveryReport(ContractModel):
     original_code_sha256: str
     final_code_sha256: str = ""
     error: str = ""
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
+    syntax_validation: Literal["host_ast", "deferred_to_sandbox"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )

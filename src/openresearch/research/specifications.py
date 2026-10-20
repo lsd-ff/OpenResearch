@@ -1,5 +1,6 @@
+from openresearch.errors import ContractError
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
-from openresearch.models.research import ResearchSpec
+from openresearch.models.research import BenchmarkPreflightReport, ResearchSpec
 from openresearch.models.runtime import Plan, Task
 from openresearch.models.sources import EnvironmentSpec
 from openresearch.storage.files import ArtifactStore
@@ -22,4 +23,12 @@ def resolved_research(plan: Plan, task: Task, files: ArtifactStore) -> ResearchS
             report = EnvironmentPreparationReport.model_validate_json(files.read(artifact))
             if report.success and report.runtime:
                 spec = spec.model_copy(update={"runtime": report.runtime})
+    if "benchmark_preflight_report" in task.required_artifacts:
+        checked = BenchmarkPreflightReport.model_validate_json(
+            files.read(plan.artifacts["benchmark_preflight_report"])
+        )
+        if checked.runtime:
+            if "runtime.select" not in task.contract.allowed_tools:
+                raise ContractError("task cannot adopt a recovered preflight runtime")
+            spec = spec.model_copy(update={"runtime": checked.runtime})
     return spec
