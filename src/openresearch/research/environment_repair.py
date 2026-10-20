@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import TypedDict
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -14,6 +15,7 @@ from openresearch.models.environment_repair import (
     EnvironmentRepairProposal,
 )
 from openresearch.models.research import RunAttempt
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.dependency_recovery import DependencyRecovery, protected_requests
 from openresearch.research.runner import ExperimentInput
@@ -25,6 +27,11 @@ class EnvironmentRevision:
     decision: EnvironmentRepairDecision
     lock: EnvironmentLock
     requests: tuple[str, ...]
+
+
+class RecoveryOptions(TypedDict, total=False):
+    removals: list[str]
+    python: TargetPython
 
 
 def lock_digest(lock: EnvironmentLock) -> str:
@@ -75,6 +82,7 @@ class ResearchEnvironmentRepairer:
             list(request.dependency_requests),
             list(request.dependency_constraints),
             [wheel.requirement for wheel in request.lock.wheels],
+            **({"python": request.lock.python} if request.lock.python != "3.12" else {}),
         )
 
     async def diagnose(
@@ -86,6 +94,8 @@ class ResearchEnvironmentRepairer:
         requests: list[str],
         constraints: list[str],
         locked: list[str] | None = None,
+        *,
+        python: TargetPython = "3.12",
     ) -> EnvironmentRepairProposal:
         return await self.llm.request_typed(
             [
@@ -104,7 +114,7 @@ class ResearchEnvironmentRepairer:
                         "Verified public package metadata "
                         "in diagnostics overrides your prior knowledge about available versions. "
                         "Do not change source, tests, data, rubric, resource budgets or runtime. "
-                        "The target is CPython 3.12 Linux x86_64, CPU, wheel-only "
+                        f"The target is CPython {python} Linux x86_64, CPU, wheel-only "
                         "and offline installation. "
                         "Never propose shell commands, URLs, source builds or mock replacements. "
                         "The server validates full pinned wheels and reruns in new containers. "
@@ -152,9 +162,11 @@ class ResearchEnvironmentRepairer:
                 for value in [*requests, *proposal.requirements]
                 if (constraint := dependency_constraint(intent, Requirement(value).name))
             )
-            arguments = (
+            arguments: RecoveryOptions = (
                 {"removals": proposal.remove_requirements} if proposal.remove_requirements else {}
             )
+            if request.lock.python != "3.12":
+                arguments["python"] = request.lock.python
             revised = await self.dependencies.resolve(
                 list(requests),
                 proposal.requirements,

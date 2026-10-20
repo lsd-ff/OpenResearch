@@ -108,6 +108,16 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
     execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
     if include_history:
+        if report.source_integrity:
+            identity = report.source_integrity
+            # 代码摘要只用于汇总中的来源说明，不进入论文主张的执行数值证据。
+            output["source_integrity"] = json.dumps(
+                {
+                    **identity.model_dump(),
+                    "provided_code_preserved": identity.provided_code_sha256
+                    == identity.prepared_entrypoint_sha256,
+                }
+            )
         output["environment_preparation"] = json.dumps(
             [
                 json.loads(preparation_summary(prepared))

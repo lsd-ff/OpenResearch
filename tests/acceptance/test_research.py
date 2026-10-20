@@ -32,10 +32,10 @@ print('real predictions written')
 """
 
 
-async def finish(worker, repository, plan_id) -> None:
+async def finish(worker, repository, plan_id, timeout_seconds=120) -> None:
     import asyncio
 
-    async with asyncio.timeout(120):
+    async with asyncio.timeout(timeout_seconds):
         while repository.get_plan(plan_id).status not in {Status.COMPLETED, Status.FAILED}:
             await worker.tick()
             await asyncio.sleep(0.02)

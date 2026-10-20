@@ -7,6 +7,7 @@ from openresearch.models.claims import RubricDraft
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
 from openresearch.models.environment_repair import EnvironmentRepairDecision
 from openresearch.models.runtime import ContractModel
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, RepositorySpec
 from openresearch.sandbox.file_transfer import relative_path
 
@@ -46,6 +47,8 @@ class ExperimentVariant(ContractModel):
 class ResearchSpec(ContractModel):
     repository: RepositorySpec | None = None
     environment: EnvironmentSpec = Field(default_factory=EnvironmentSpec)
+    # 缺省字段不进入旧规范的序列化，保持已冻结预检的摘要可回放。
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
     entrypoint: str = "openresearch_run.py"
     arguments: list[str] = Field(default_factory=list, max_length=16)
     patch_paths: list[str] = Field(default_factory=lambda: ["openresearch_run.py"], max_length=3)
@@ -150,6 +153,11 @@ class BenchmarkPreflightReport(ContractModel):
     dependency_requests: list[str] = Field(default_factory=list, max_length=128)
 
 
+class SourceIntegrity(ContractModel):
+    provided_code_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    prepared_entrypoint_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class ResearchReport(ContractModel):
     version: Literal["research.report/v1"] = "research.report/v1"
     repository_commit: str | None
@@ -160,6 +168,10 @@ class ResearchReport(ContractModel):
     dataset_sha256: str | None = None
     environment_lock_sha256: str = ""
     entrypoint: str = ""
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
+    source_integrity: SourceIntegrity | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     preflight: BenchmarkPreflightReport | None = None
     preflight_rechecks: list[BenchmarkPreflightReport] = Field(default_factory=list, max_length=2)
     environment_changes: list[EnvironmentRepairDecision] = Field(default_factory=list, max_length=2)

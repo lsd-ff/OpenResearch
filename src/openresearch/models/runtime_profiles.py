@@ -1,11 +1,21 @@
 import re
-from typing import Literal
+from typing import Literal, TypedDict
 
 from pydantic import Field, field_validator
 
 from openresearch.models.runtime import ContractModel
 
 TargetPython = Literal["3.11", "3.12", "3.13"]
+
+
+class RuntimeBinding(ContractModel):
+    profile: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class RuntimePreparationOptions(TypedDict, total=False):
+    runtime: RuntimeBinding | None
+    allow_runtime_select: bool
 
 
 class RuntimeProfile(ContractModel):

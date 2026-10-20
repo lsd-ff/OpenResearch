@@ -12,6 +12,7 @@ from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.environment_preparation import EnvironmentPreparation
 from openresearch.research.repository_context import pytest_paths, repository_context
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.source_context import document_context
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.storage.files import ArtifactStore
@@ -58,6 +59,13 @@ DESIGN_PROMPT = (
     "require additional adapter-generated checks or printed tensors absent from the suite. "
     "Keep entrypoint a NEW adapter path, arguments/ablations empty, and include pytest in "
     "dependencies. Use an empty test_paths list for benchmarks or goals needing custom code."
+    " Preserve requested_requirements exactly. When a fixed package needs another registered "
+    "CPU Python, keep the package; the server may select that runtime after actual failure "
+    "and verified Requires-Python evidence. Do not invent a runtime or claim it already ran."
+    " If provided_source exists, it will be used unchanged in the selected entrypoint. "
+    "Do not propose or describe removing its assertions to fit the initial runtime. "
+    "A request for a Chinese final report is handled by the later chat summary; do not "
+    "turn it into an extra stdout-language criterion absent from the supplied code."
 )
 
 
@@ -74,6 +82,9 @@ class ResearchDesigner:
         if "research.design" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to design an experiment")
         spec = ResearchSpec.model_validate(task.inputs["research"])
+        python = runtime_python(self.settings, spec.runtime)
+        if spec.runtime and "runtime.select" not in task.contract.allowed_tools:
+            raise ContractError("task is not authorized to select a research runtime")
         snapshot, sources = await asyncio.to_thread(self.preparer.workspace, plan)
         context = {
             "goal": plan.user_intent,
@@ -87,10 +98,20 @@ class ResearchDesigner:
             "ablation_search": spec.ablation_search.model_dump() if spec.ablation_search else None,
             "sandbox_memory": self.settings.sandbox_memory,
             "dependency_bytes": self.settings.dependency_max_bytes,
+            "runtime_python": python,
+            "requested_requirements": spec.environment.requirements,
+            "available_cpu_runtimes": {
+                name: profile.python
+                for name, profile in self.settings.runtime_profiles.items()
+                if not profile.gpu and "runtime.select" in task.contract.allowed_tools
+            },
         }
         design = await self.llm.request_typed(
             [
-                {"role": "system", "content": DESIGN_PROMPT},
+                {
+                    "role": "system",
+                    "content": DESIGN_PROMPT.replace("Python 3.12", f"Python {python}"),
+                },
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)},
             ],
             ExperimentDesign,
@@ -113,6 +134,7 @@ class ResearchDesigner:
         if design.entrypoint not in sources and design.entrypoint not in design.patch_paths:
             raise ContractError("automatic entrypoint must exist or be an allowed new patch path")
         outputs = {"experiment_design": design.model_dump_json()}
+        effective_runtime = spec.runtime
         if "dependency_resolution_report" in task.output_artifacts:
             self.environment.resolver = self.dependencies
             prepared = await self.environment.run(
@@ -120,6 +142,8 @@ class ResearchDesigner:
                 design.dependencies,
                 spec.environment.requirements,
                 spec.max_repairs if "environment.repair" in task.contract.allowed_tools else 0,
+                runtime=spec.runtime,
+                allow_runtime_select="runtime.select" in task.contract.allowed_tools,
             )
             outputs["dependency_resolution_report"] = prepared.report.model_dump_json()
             if not prepared.report.success or prepared.spec is None:
@@ -131,8 +155,9 @@ class ResearchDesigner:
                     outputs=outputs,
                 )
             environment = prepared.spec
+            effective_runtime = prepared.report.runtime
         else:
-            environment = await self.dependencies.resolve(design.dependencies)
+            environment = await self.dependencies.for_python(python).resolve(design.dependencies)
         resolved = ResearchSpec(
             **{
                 **spec.model_dump(),
@@ -148,10 +173,13 @@ class ResearchDesigner:
                 else [variant.model_dump() for variant in design.ablations],
                 "rubric": (spec.rubric if spec.rubric.claims else design.rubric).model_dump(),
                 "environment": environment.model_dump(),
+                "runtime": effective_runtime,
             }
         )
+        target_python = runtime_python(self.settings, effective_runtime)
         return TaskResult(
-            result=design.rationale,
+            result=f"实验设计与依赖解析已完成，目标 CPython {target_python}；"
+            "执行结果由后续节点产生。",
             structured_data=design.model_dump_json(),
             outputs={**outputs, "research_spec": resolved.model_dump_json()},
         )

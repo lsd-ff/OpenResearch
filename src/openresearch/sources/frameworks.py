@@ -9,6 +9,7 @@ from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.comparison import FrameworkSource, FrameworkTarget
 from openresearch.models.environment_preparation import EnvironmentPreparationReport
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, PackageDescription
 from openresearch.research.environment_preparation import EnvironmentPreparation
 from openresearch.sources.blobs import SourceBlobs
@@ -117,7 +118,13 @@ class FrameworkSources:
         )
 
     async def prepare(
-        self, target: FrameworkTarget, intent: str, max_repairs: int
+        self,
+        target: FrameworkTarget,
+        intent: str,
+        max_repairs: int,
+        *,
+        runtime: RuntimeBinding | None = None,
+        allow_runtime_select: bool = False,
     ) -> PreparedFramework:
         constraints = list(target.requirements)
         target = await self.target(target)
@@ -128,7 +135,13 @@ class FrameworkSources:
         self.preparation.resolver, self.preparation.source = self.resolver, self.wheels
         self.preparation.packages = self.packages
         prepared = await self.preparation.run(
-            intent, requests, constraints, max_repairs, lock_wheels=True
+            intent,
+            requests,
+            constraints,
+            max_repairs,
+            lock_wheels=True,
+            runtime=runtime,
+            allow_runtime_select=allow_runtime_select,
         )
         if not prepared.report.success or prepared.spec is None or prepared.lock is None:
             return PreparedFramework(prepared.report)

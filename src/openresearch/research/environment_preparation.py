@@ -18,9 +18,11 @@ from openresearch.models.environment_preparation import (
     EnvironmentPreparationDecision,
     EnvironmentPreparationReport,
 )
+from openresearch.models.runtime_profiles import RuntimeBinding
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec
 from openresearch.research.dependency_recovery import merge_requests, protected_requests
 from openresearch.research.environment_repair import ResearchEnvironmentRepairer
+from openresearch.research.runtime_selection import compatible_runtime, runtime_python
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver
 from openresearch.sources.packages import PackageSource
@@ -40,6 +42,7 @@ def preparation_summary(report: EnvironmentPreparationReport) -> str:
     return json.dumps(
         {
             "success": report.success,
+            "runtime": report.runtime.model_dump() if report.runtime else None,
             "attempts": [
                 {
                     "number": attempt.number,
@@ -56,6 +59,9 @@ def preparation_summary(report: EnvironmentPreparationReport) -> str:
                     "proposal": decision.proposal.model_dump() if decision.proposal else None,
                     "accepted": decision.accepted,
                     "error": decision.error[-1000:],
+                    "runtime_after": decision.runtime_after.model_dump()
+                    if decision.runtime_after
+                    else None,
                 }
                 for decision in report.decisions
             ],
@@ -68,6 +74,7 @@ class EnvironmentPreparation:
     """先保存真实准备错误，再有界调整依赖；只有实际解析/下载校验成功才交付锁。"""
 
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.resolver = DependencyResolver()
         self.source = WheelSource(settings)
         self.packages = PackageSource(settings)
@@ -83,6 +90,8 @@ class EnvironmentPreparation:
         *,
         initial_spec: EnvironmentSpec | None = None,
         lock_wheels: bool = False,
+        runtime: RuntimeBinding | None = None,
+        allow_runtime_select: bool = False,
     ) -> PreparedEnvironment:
         limits = list(constraints)
         limits.extend(
@@ -92,13 +101,18 @@ class EnvironmentPreparation:
         )
         limits = merge_requests([], [], limits)
         current = merge_requests(requests, [], limits)
-        report = EnvironmentPreparationReport(constraints=limits)
+        if runtime and not allow_runtime_select:
+            raise ContractError("task is not authorized to select a research runtime")
+        report = EnvironmentPreparationReport(constraints=limits, runtime=runtime)
         for number in range(1, max_repairs + 2):
             attempt = EnvironmentPreparationAttempt(
-                number=number, phase="resolve", requests=current
+                number=number, phase="resolve", requests=current, runtime=report.runtime
             )
             report.attempts.append(attempt)
             try:
+                python = runtime_python(self.settings, report.runtime)
+                resolver = self.resolver.for_python(python)
+                source = self.source.for_python(python)
                 standard = [
                     Requirement(value).name
                     for value in current
@@ -114,9 +128,9 @@ class EnvironmentPreparation:
                     initial_spec
                     if number == 1 and initial_spec is not None
                     else await (
-                        self.resolver.resolve(current)
+                        resolver.resolve(current)
                         if len(current) <= 32
-                        else self.resolver.resolve_recovery(current)
+                        else resolver.resolve_recovery(current)
                     )
                 )
                 attempt.exit_code = None if number == 1 and initial_spec is not None else 0
@@ -133,7 +147,7 @@ class EnvironmentPreparation:
                 lock = None
                 if lock_wheels:
                     attempt.phase, attempt.exit_code = "lock", None
-                    lock, wheels = await self.source.fetch(spec)
+                    lock, wheels = await source.fetch(spec)
                     for raw in wheels.values():
                         await asyncio.to_thread(self.blobs.write, raw)
                 report.success = True
@@ -145,7 +159,13 @@ class EnvironmentPreparation:
                 recoverable = isinstance(exc, (DependencyResolutionError, EnvironmentLockError))
                 if not recoverable or number > max_repairs:
                     break
-            if not await self._revise(intent, current, limits, report):
+            if not await self._revise(
+                intent,
+                current,
+                limits,
+                report,
+                allow_runtime_select=allow_runtime_select and runtime is None,
+            ):
                 break
             current = report.decisions[-1].after_requests
         return PreparedEnvironment(report, current)
@@ -156,6 +176,8 @@ class EnvironmentPreparation:
         current: list[str],
         constraints: list[str],
         report: EnvironmentPreparationReport,
+        *,
+        allow_runtime_select: bool = False,
     ) -> bool:
         attempt = report.attempts[-1]
         decision = EnvironmentPreparationDecision(before_requests=current)
@@ -163,6 +185,20 @@ class EnvironmentPreparation:
         try:
             constraints = list(constraints) + protected_requests(intent, current)
             decision.package_evidence = await self._package_evidence(current, constraints)
+            # 只有真实失败后的公开 Requires-Python 证据允许换已注册 CPU 运行时。
+            # 包版本、代码、验收规则和资源预算均不变；下一轮重新解析完整闭包。
+            alternate = (
+                compatible_runtime(
+                    self.settings, intent, report.runtime, decision.package_evidence, current
+                )
+                if allow_runtime_select
+                else None
+            )
+            if alternate is not None:
+                decision.runtime_before, decision.runtime_after = report.runtime, alternate
+                decision.after_requests, decision.accepted = list(current), True
+                report.runtime = alternate
+                return True
             diagnostic = (
                 attempt.diagnostic
                 + "\nVerified public package metadata (not installed):\n"
@@ -176,6 +212,11 @@ class EnvironmentPreparation:
                 current,
                 constraints,
                 attempt.resolved_requirements,
+                **(
+                    {"python": runtime_python(self.settings, report.runtime)}
+                    if report.runtime
+                    else {}
+                ),
             )
             decision.proposal = proposal
             if proposal.action == "stop":
@@ -219,7 +260,17 @@ class EnvironmentPreparation:
         self, requests: list[str], constraints: list[str]
     ) -> list[dict[str, str]]:
         selected = {}
-        for value in [*constraints, *requests]:
+        candidates = [*constraints, *requests]
+        # 用户精确约束及当前固定版本先于裸包名；最新发行版不代表失败的实际版本。
+        candidates.sort(
+            key=lambda value: (
+                not any(
+                    pin.operator == "==" and "*" not in pin.version
+                    for pin in Requirement(value).specifier
+                )
+            )
+        )
+        for value in candidates:
             requirement = Requirement(value)
             name = canonicalize_name(requirement.name)
             if is_stdlib(name):

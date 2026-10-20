@@ -4,6 +4,7 @@ from pydantic import Field
 
 from openresearch.models.environment_repair import EnvironmentRepairProposal
 from openresearch.models.runtime import ContractModel
+from openresearch.models.runtime_profiles import RuntimeBinding
 
 
 class EnvironmentPreparationAttempt(ContractModel):
@@ -14,6 +15,7 @@ class EnvironmentPreparationAttempt(ContractModel):
     exit_code: int | None = None
     diagnostic: str = Field(default="", max_length=16000)
     error: str = Field(default="", max_length=4000)
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class EnvironmentPreparationDecision(ContractModel):
@@ -23,6 +25,12 @@ class EnvironmentPreparationDecision(ContractModel):
     after_requests: list[str] = Field(default_factory=list, max_length=128)
     error: str = Field(default="", max_length=4000)
     package_evidence: list[dict[str, str]] = Field(default_factory=list, max_length=4)
+    runtime_before: RuntimeBinding | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    runtime_after: RuntimeBinding | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class EnvironmentPreparationReport(ContractModel):
@@ -31,3 +39,4 @@ class EnvironmentPreparationReport(ContractModel):
     constraints: list[str] = Field(default_factory=list, max_length=128)
     attempts: list[EnvironmentPreparationAttempt] = Field(default_factory=list, max_length=3)
     decisions: list[EnvironmentPreparationDecision] = Field(default_factory=list, max_length=2)
+    runtime: RuntimeBinding | None = Field(default=None, exclude_if=lambda value: value is None)

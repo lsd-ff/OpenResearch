@@ -4,6 +4,7 @@ from openresearch.models.comparison import ComparisonSpec
 from openresearch.models.runtime import Approval, Budget, Edge, Plan, Status, Task
 from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.research import depend, repair_tools, research_task
+from openresearch.research.runtime_selection import runtime_for_intent, runtime_tools
 
 
 def namespace_task(task: Task, scope: str) -> None:
@@ -25,6 +26,7 @@ def benchmark_branch(
         "framework_design",
         [
             "framework.design",
+            *runtime_tools(settings),
             *(["environment.repair"] if "environment.repair" in repair_tools(intent) else []),
         ],
         [
@@ -38,6 +40,9 @@ def benchmark_branch(
     )
     design.inputs["target"] = target.model_dump()
     design.inputs["comparison"] = spec.model_dump()
+    runtime = runtime_for_intent(settings, intent)
+    if runtime:
+        design.inputs["runtime"] = runtime.model_dump()
     depend(design, [protocol])
     freeze = research_task("claim_freeze", ["claims.freeze"], ["claim_rubric"], settings)
     freeze.assigned_to = "data_agent"
@@ -46,7 +51,7 @@ def benchmark_branch(
     depend(prepare, [design, freeze, protocol])
     preflight = research_task(
         "benchmark_preflight",
-        ["benchmark.preflight", *repair_tools(intent)],
+        ["benchmark.preflight", *repair_tools(intent), *runtime_tools(settings)],
         [
             "benchmark_preflight_report",
             "benchmark_preflight_patch",
@@ -56,7 +61,7 @@ def benchmark_branch(
     depend(preflight, [design, freeze, prepare, protocol])
     execute = research_task(
         "research_execute",
-        ["research.run", *repair_tools(intent), "benchmark.preflight"],
+        ["research.run", *repair_tools(intent), "benchmark.preflight", *runtime_tools(settings)],
         [
             "research_report",
             "benchmark_predictions",

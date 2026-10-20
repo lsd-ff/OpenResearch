@@ -18,6 +18,7 @@ from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.ablation import select_candidates
 from openresearch.research.ablation_fallback import fallback_candidates
 from openresearch.research.repository_context import repository_context
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.specifications import resolved_research
 from openresearch.storage.files import ArtifactStore
 
@@ -58,7 +59,11 @@ class AblationDesigner:
                 "spec": spec.model_dump(),
                 "source_excerpts": repository_context(sources),
                 "provided_source": task.inputs.get("code"),
-                "runtime": {"python": "3.12", "device": "cpu", "network": False},
+                "runtime": {
+                    "python": runtime_python(self.settings, spec.runtime),
+                    "device": "cpu",
+                    "network": False,
+                },
                 "memory": self.settings.sandbox_memory,
             },
             ensure_ascii=False,

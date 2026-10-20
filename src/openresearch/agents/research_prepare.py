@@ -17,6 +17,7 @@ from openresearch.research.patches import (
     validate_generated_tests,
 )
 from openresearch.research.repository_context import repository_context
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.source_context import document_context
 from openresearch.research.specifications import resolved_research
 from openresearch.sources.blobs import SourceBlobs
@@ -45,6 +46,7 @@ PATCH_PROMPT = (
 
 class ResearchPreparer:
     def __init__(self, settings: Settings, files: ArtifactStore) -> None:
+        self.settings = settings
         self.files = files
         self.blobs = SourceBlobs(settings.data_dir / "sources", settings.source_max_file_bytes)
         self.llm = LLMClient(settings)
@@ -82,6 +84,7 @@ class ResearchPreparer:
             "repository_files": list(files)[:200],
             "source_excerpts": repository_context(files),
             "error": error[-8000:],
+            "runtime_python": runtime_python(self.settings, spec.runtime),
         }
         messages = [
             {"role": "system", "content": PATCH_PROMPT},

@@ -6,6 +6,7 @@ from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.code import code_permissions
 from openresearch.planner.documents import document_task
 from openresearch.research.ablation import requested_ablation_budget
+from openresearch.research.runtime_selection import runtime_for_intent, runtime_tools
 
 
 def research_task(kind: str, tools: list[str], outputs: list[str], settings: Settings) -> Task:
@@ -51,6 +52,7 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
         "environment_lock",
         [
             "environment.lock",
+            *runtime_tools(settings),
             *(
                 ["environment.repair"]
                 if "environment.repair" in repair_tools(submission.intent)
@@ -67,6 +69,9 @@ def source_tasks(submission: PlanSubmission, spec: ResearchSpec, settings: Setti
 
 def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     spec = submission.research or ResearchSpec()
+    spec = spec.model_copy(
+        update={"runtime": runtime_for_intent(settings, submission.intent, spec.runtime)}
+    )
     if not spec.ablations and not spec.ablation_search:
         budget = requested_ablation_budget(submission.intent)
         if budget:
@@ -82,6 +87,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
             "research_design",
             [
                 "research.design",
+                *runtime_tools(settings),
                 *(
                     ["environment.repair"]
                     if "environment.repair" in repair_tools(submission.intent)
@@ -139,7 +145,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
     if spec.benchmark:
         preflight = research_task(
             "benchmark_preflight",
-            ["benchmark.preflight", *repair_tools(submission.intent)],
+            ["benchmark.preflight", *repair_tools(submission.intent), *runtime_tools(settings)],
             ["benchmark_preflight_report", "benchmark_preflight_patch"],
             settings,
         )
@@ -151,6 +157,7 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         "research_execute",
         [
             "research.run",
+            *runtime_tools(settings),
             *repair_tools(submission.intent),
             *(["benchmark.preflight"] if spec.benchmark else []),
         ],

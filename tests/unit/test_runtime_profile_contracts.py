@@ -27,6 +27,12 @@ def profile():
     return RuntimeProfile(image="python:3.13-slim-bookworm", python="3.13", memory_mb=256)
 
 
+def test_profile_fingerprint_survives_configuration_json_round_trip():
+    value = profile()
+    copied = RuntimeProfile.model_validate_json(value.model_dump_json())
+    assert profile_fingerprint(value) == profile_fingerprint(copied)
+
+
 @pytest.mark.parametrize(
     "image", ["https://registry/image", "python --privileged", "user:secret@registry/image"]
 )

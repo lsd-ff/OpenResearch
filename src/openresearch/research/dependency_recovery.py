@@ -8,6 +8,7 @@ from packaging.utils import canonicalize_name
 from openresearch.agents.code_repair import MODULE_PACKAGES
 from openresearch.config import Settings
 from openresearch.errors import ContractError
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentLock
 from openresearch.sources.blobs import SourceBlobs
 from openresearch.sources.dependency_resolution import DependencyResolver, dependency_requests
@@ -102,18 +103,20 @@ class DependencyRecovery:
         constraints: list[str] | None = None,
         *,
         removals: list[str] | None = None,
+        python: TargetPython = "3.12",
     ) -> RecoveredEnvironment:
         if not proposed and not removals:
             raise ContractError("dependency repair must name an actual package")
         requests = merge_requests(current, proposed, constraints or [], removals)
         if requests == current:
             raise ContractError("dependency repair did not change the requested environment")
+        resolver = self.resolver.for_python(python)
         spec = await (
-            self.resolver.resolve(requests)
+            resolver.resolve(requests)
             if len(requests) <= 32
-            else self.resolver.resolve_recovery(requests)
+            else resolver.resolve_recovery(requests)
         )
-        lock, wheels = await self.source.fetch(spec)
+        lock, wheels = await self.source.for_python(python).fetch(spec)
         if missing:
             # 只能采用确实包含缺失模块的已校验 wheel，不在宿主机导入依赖。
             await asyncio.to_thread(wheel_sources, wheels, [missing])

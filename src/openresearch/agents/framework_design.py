@@ -5,6 +5,7 @@ from openresearch.models.comparison import FrameworkTarget
 from openresearch.models.planning import ExperimentDesign
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
+from openresearch.models.runtime_profiles import RuntimeBinding, RuntimePreparationOptions
 from openresearch.research.framework_protocol import read_protocol
 from openresearch.sources.frameworks import FrameworkSources
 from openresearch.storage.files import ArtifactStore
@@ -23,11 +24,22 @@ class FrameworkDesigner:
         if protocol.benchmark is None:
             raise ContractError("framework execution requires a shared benchmark protocol")
         outputs = {}
+        runtime = (
+            RuntimeBinding.model_validate(task.inputs["runtime"])
+            if task.inputs.get("runtime")
+            else None
+        )
+        if runtime and "runtime.select" not in task.contract.allowed_tools:
+            raise ContractError("task is not authorized to select a research runtime")
+        runtime_options: RuntimePreparationOptions = {}
+        if "runtime.select" in task.contract.allowed_tools:
+            runtime_options = {"runtime": runtime, "allow_runtime_select": True}
         if "environment_preparation_report" in task.output_artifacts:
             prepared = await self.sources.prepare(
                 target,
                 plan.user_intent,
                 2 if "environment.repair" in task.contract.allowed_tools else 0,
+                **runtime_options,
             )
             outputs["environment_preparation_report"] = prepared.report.model_dump_json()
             if (
@@ -43,6 +55,7 @@ class FrameworkDesigner:
                     outputs=outputs,
                 )
             environment, lock, source = prepared.environment, prepared.lock, prepared.source
+            runtime = prepared.report.runtime
         else:
             environment, lock, source = await self.sources.lock(target)
         rubric = RubricDraft(
@@ -64,7 +77,11 @@ class FrameworkDesigner:
             ],
         )
         spec = ResearchSpec(
-            environment=environment, benchmark=protocol.benchmark, max_repairs=2, rubric=rubric
+            environment=environment,
+            benchmark=protocol.benchmark,
+            max_repairs=2,
+            rubric=rubric,
+            runtime=runtime,
         )
         design = ExperimentDesign(
             dependencies=[f"{package.name}=={package.version}" for package in source.packages],

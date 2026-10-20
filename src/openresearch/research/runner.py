@@ -17,6 +17,7 @@ from openresearch.models.research import (
 from openresearch.models.sources import EnvironmentLock
 from openresearch.research.benchmark import Dataset, evaluate
 from openresearch.research.environment import install_environment
+from openresearch.research.runtime_selection import runtime_python
 from openresearch.sandbox.session import SandboxSessions
 
 
@@ -103,7 +104,13 @@ class ExperimentRunner:
         self.sessions = sessions
 
     async def run(self, request: ExperimentInput) -> ExperimentOutput:
-        async with self.sessions.open(request.lease) as session:
+        if runtime_python(self.settings, request.spec.runtime) != request.lock.python:
+            raise ContractError("research runtime differs from the frozen dependency lock")
+        name = request.spec.runtime.profile if request.spec.runtime else None
+        session_context = (
+            self.sessions.open(request.lease, name) if name else self.sessions.open(request.lease)
+        )
+        async with session_context as session:
             lock_sha256 = hashlib.sha256(request.lock.model_dump_json().encode()).hexdigest()
             try:
                 environment = await install_environment(session, request.lock, self.settings)

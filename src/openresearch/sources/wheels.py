@@ -94,6 +94,13 @@ def choose_wheel(metadata: dict[str, Any], python: TargetPython = "3.12") -> dic
 
 
 class WheelSource:
+    def for_python(self, python: TargetPython) -> "WheelSource":
+        return (
+            self
+            if python == self.python
+            else WheelSource(self.settings, self.transport, python=python)
+        )
+
     def __init__(
         self,
         settings: Settings,

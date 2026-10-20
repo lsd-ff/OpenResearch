@@ -11,6 +11,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from openresearch.errors import ContractError, DependencyResolutionError
 from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentSpec
+from openresearch.sources.processes import close_process
 
 
 def dependency_requests(values: list[str], *, limit: int = 32) -> list[str]:
@@ -42,6 +43,10 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 class DependencyResolver:
     def __init__(self, python: TargetPython = "3.12") -> None:
         self.python = python
+
+    def for_python(self, python: TargetPython) -> "DependencyResolver":
+        # Agent 实例可能被并行分支共享，不能修改当前解析器的目标版本。
+        return self if python == self.python else DependencyResolver(python)
 
     async def resolve(self, requests: list[str]) -> EnvironmentSpec:
         return await self._resolve(requests, 32)
@@ -81,32 +86,43 @@ class DependencyResolver:
             if key.upper() in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "WINDIR"}
         }
         environment.update(UV_HTTP_TIMEOUT="30", UV_NO_PROGRESS="1")
-        process = await asyncio.create_subprocess_exec(
-            executable,
-            "--no-config",
-            "pip",
-            "compile",
-            str(root / "requirements.in"),
-            "--output-file",
-            str(root / "requirements.txt"),
-            "--python-version",
-            self.python,
-            "--python-platform",
-            "x86_64-manylinux_2_36",
-            "--no-build",
-            "--no-header",
-            "--no-annotate",
-            "--default-index",
-            "https://pypi.org/simple",
-            env=environment,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        creation = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                executable,
+                "--no-config",
+                "pip",
+                "compile",
+                str(root / "requirements.in"),
+                "--output-file",
+                str(root / "requirements.txt"),
+                "--python-version",
+                self.python,
+                "--python-platform",
+                "x86_64-manylinux_2_36",
+                "--no-build",
+                "--no-header",
+                "--no-annotate",
+                "--default-index",
+                "https://pypi.org/simple",
+                env=environment,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         )
         try:
+            # 与容器创建一样，启动窗口取消时仍须拿到真实进程句柄再清理。
+            process = await asyncio.shield(creation)
+        except asyncio.CancelledError:
+            process = await creation
+            await close_process(process)
+            raise
+        readers = [
+            asyncio.create_task(capped_output(process.stdout)),
+            asyncio.create_task(capped_output(process.stderr)),
+        ]
+        try:
             async with asyncio.timeout(90):
-                stdout, stderr = await asyncio.gather(
-                    capped_output(process.stdout), capped_output(process.stderr)
-                )
+                stdout, stderr = await asyncio.gather(*readers)
                 exit_code = await process.wait()
                 if exit_code != 0:
                     raise DependencyResolutionError(
@@ -115,6 +131,7 @@ class DependencyResolver:
         except TimeoutError:
             raise ContractError("automatic dependency resolution timed out") from None
         finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            await close_process(process)

@@ -16,6 +16,7 @@ from openresearch.models.research import (
     ResearchPatch,
     ResearchReport,
     ResearchSpec,
+    SourceIntegrity,
 )
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.models.sources import RepositorySnapshot
@@ -40,6 +41,26 @@ class PreparedExperiment:
     snapshot: RepositorySnapshot | None
     original: dict[str, bytes]
     request: ExperimentInput
+
+
+def provided_source_identity(
+    plan: Plan, task: Task, request: ExperimentInput
+) -> SourceIntegrity | None:
+    code = next(
+        (
+            node.inputs.get("code")
+            for node in plan.nodes
+            if node.type == "research_prepare" and node.artifact_scope == task.artifact_scope
+        ),
+        None,
+    )
+    entrypoint = request.files.get(request.spec.entrypoint)
+    if not isinstance(code, str) or entrypoint is None:
+        return None
+    return SourceIntegrity(
+        provided_code_sha256=hashlib.sha256(code.encode()).hexdigest(),
+        prepared_entrypoint_sha256=hashlib.sha256(entrypoint).hexdigest(),
+    )
 
 
 class ResearchExecutor:
@@ -67,6 +88,8 @@ class ResearchExecutor:
 
     def _prepare(self, plan: Plan, task: Task, lease: ExecutionLease) -> PreparedExperiment:
         spec = resolved_research(plan, task, self.files)
+        if spec.runtime and "runtime.select" not in task.contract.allowed_tools:
+            raise ContractError("task is not authorized to select a research runtime")
         snapshot, sources = self.preparer.workspace(plan)
         patch_key = (
             "benchmark_preflight_patch"
@@ -173,6 +196,8 @@ class ResearchExecutor:
                 request.lock.model_dump_json().encode()
             ).hexdigest(),
             entrypoint=request.spec.entrypoint,
+            runtime=request.spec.runtime,
+            source_integrity=provided_source_identity(plan, task, request),
             preflight=preflight,
             preflight_rechecks=list(baseline.rechecks),
             environment_changes=list(baseline.environment_changes),

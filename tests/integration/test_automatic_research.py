@@ -81,6 +81,7 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
     designer.llm = LLMClient(settings, httpx.MockTransport(model))
     designer.dependencies.resolve = resolve
     result = await designer.execute(plan, task)
+    assert "Use a source adapter" not in result.result and "CPython 3.12" in result.result
     resolved = ResearchSpec.model_validate_json(result.outputs["research_spec"])
     assert resolved.entrypoint == "adapter.py"
     assert resolved.rubric.claims[0].statement == "keep this"
