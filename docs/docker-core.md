@@ -66,6 +66,16 @@ Bash 使用 [官方 `--noediting` 选项](https://www.gnu.org/s/bash/manual/html
 
 看门狗审计保存在 `<data_dir>/watchdog/*.json`，引用实际命令原始回执。终端无法在中断后恢复时，`TerminalRecoveryError` 携带实际超时/输出上限与部分输出；连接终止时 `TerminalConnectionError` 同样保留部分输出，退出码未知就保持 `None`。异常元数据不会覆盖已保存的实际标志。
 
+## 加权资源队列
+
+`openresearch.executor.gates` 提供 `WeightedSemaphore`、`Gatekeeper` 和 `ResourceConfig`。默认 IO 配额为 5、GPU 逻辑配额为 1；CPU 环境可明确设 `max_gpu_tasks=0`。这些值是调度预算，不探测物理设备，GPU 容器准入及策略调度接入仍待完成。
+
+`acquire_io(weight)` / `acquire_gpu(weight)` 为异步获取，`release_io(weight)` / `release_gpu(weight)` 为同一事件循环内同步归还。推荐使用 `async with gates.reserve(io_weight=1, gpu_weight=0)`：先校验两个权重，再按 IO→GPU 顺序获取，后者等待时取消也会归还前者。零权重不占配额，负数、非整数、超过总容量和超额归还均拒绝。
+
+FIFO 队首需要完整权重才能运行，后来的小请求不能抢占其可用份额。队首取消后会立即推进下一可满足请求；即使等待 Future 已获配额、任务尚未恢复就取消，也会归还预留份额。`io_usage`、`gpu_usage` 和单个信号量的 `usage` 提供不可变的容量/占用/等待快照。一个队列绑定首次使用的事件循环，不跨循环或跨线程共享。等待预算可由调用方的 `asyncio.timeout()` 覆盖。
+
+12 项行为回归覆盖 FIFO、队首取消、获配后取消、异常释放、组合等待取消、CPU 零 GPU 配额、手动 API、无效权重/超额释放、跨循环拒绝及 50 个加权并发任务。它们验证调度原语，不把逻辑 GPU 份额当作真实设备测试。
+
 ## 验证与剩余范围
 
 ```powershell
@@ -79,4 +89,6 @@ uv run --locked pytest tests/acceptance/test_core_checkpoints.py tests/acceptanc
 
 2026-10-21 真实配置模型验收位于忽略路径 `.data/parity-live/watchdog-eac1bac7c14b48f5b2a65a58703a3c82/summary.json`。缺失命令实际退出 127，一次诊断尝试成功且没有把失败提升为成功；只有显式回滚后，新容器恢复导出环境和文件，输出 `stable:original`。关闭后所属容器与快照均为零。这是故障诊断/恢复功能验收，不是论文训练效果。
 
-本批默认 809 项通过、2 项公共 PDF 按开关跳过，Ruff、严格 mypy（262 源文件）与构建通过。策略竞速、加权 IO/GPU 门控及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。
+加入资源队列后的默认门禁为 821 项通过、2 项公共 PDF 按开关跳过，Ruff、严格 mypy（264 源文件）与构建通过。完整 Docker 回归 108 项通过、37 项按外网/独立服务/GPU 条件跳过（1065.63 秒），队列原语单独由上述 12 项行为测试覆盖。独立 CPython 3.12.13 环境也通过相同的 821 项默认测试、静态检查和构建，以及 21 项实际终端/Watchdog 容器回归；现有 3.13.5 环境未替换。
+
+策略竞速、资源队列的执行器/GPU 实际接入及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。最新 GitHub CI 因账号限制未分配 runner、没有执行步骤，本地结果与未启动的远端作业分别记录。
