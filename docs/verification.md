@@ -1,6 +1,8 @@
 # 验证记录
 
-最新验收见 [2026-10-21 本地整合记录](local-verification-2026-10-21.md)：Python 3.12–3.14 各 860 项默认测试通过，184 项容器/外网用例按完整首轮和受影响复验核对，23 项网页回归通过，最终 Windows 单文件与四服务完成验证。新会话仅原句输入，原始 Transformer 18 项测试一次通过（3.24 秒），8/8 节点与三项功能规则通过。最新远端 CI 受账号限制未验证。
+最新补验见 [2026-10-22 Linux 原生发行记录](linux-native-verification-2026-10-22.md)：WSL2 Ubuntu 24.04 x86_64 的 Linux ELF 实际运行通过，包含依赖解析安装、PDF、EOF/SIGTERM 退出及重启恢复；Linux 3.12、Windows 3.13/3.14 各 870 项默认测试通过。两处实测缺陷已修复，最新 Windows 发行物及四服务已更新，CI 按用户要求暂不处理。
+
+前次 [2026-10-21 本地整合记录](local-verification-2026-10-21.md) 保留当时 Python 3.12–3.14 各 860 项、184 项容器/外网分轮验收、23 项网页回归和单句 Transformer 的证据：原始 18 项测试一次通过（3.24 秒），8/8 节点与三项功能规则通过。本次 Linux 发行补验没有重新生成 Transformer 实验，也不改写前次回执。
 
 下文及 [前次单句实测](transformer-chat-acceptance.md)、[显式脚本复跑](transformer-reproduction.md)、[架构补齐验证](framework-verification.md) 保留各自阶段的计数、限制和回执，供追溯。
 

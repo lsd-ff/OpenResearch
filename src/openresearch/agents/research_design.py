@@ -86,7 +86,7 @@ class ResearchDesigner:
         self.files = files
         self.preparer = ResearchPreparer(settings, files)
         self.llm = LLMClient(settings)
-        self.dependencies = DependencyResolver()
+        self.dependencies = DependencyResolver(source_proxy_url=settings.source_proxy_url)
         self.environment = EnvironmentPreparation(settings)
 
     async def execute(

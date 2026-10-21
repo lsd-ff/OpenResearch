@@ -50,7 +50,7 @@ class FrameworkSources:
         self.packages = PackageSource(settings)
         self.wheels = WheelSource(settings)
         self.blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
-        self.resolver = DependencyResolver()
+        self.resolver = DependencyResolver(source_proxy_url=settings.source_proxy_url)
         self.llm = LLMClient(settings)
         self.preparation = EnvironmentPreparation(settings)
 

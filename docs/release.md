@@ -2,6 +2,8 @@
 
 `openresearch app` 在一个启动入口中运行工作台、API、持久 Worker 和本地 HTTP 沙箱；发行物不需要目标机器安装 Python、Node 或 uv。实验仍需要 Docker Engine / Docker Desktop 的 Linux 容器，模型功能需要外部模型配置，依赖解析与下载需要相应网络。单文件运行时会解压自带资源到临时目录，实验程序始终在受管容器中执行。
 
+2026-10-22 已完成 [Linux 原生发行实测](linux-native-verification-2026-10-22.md)：WSL2 Ubuntu 24.04.4、x86_64、glibc 2.39 的 ELF 构建、归档检查、空 PATH 下实际执行和 SIGTERM 退出重启均通过。导出的 `dist/release/linux-x86_64/openresearch-linux-x86_64.tar.gz` 保留程序执行权限，旁置 `SHA256SUMS` 和 `verification.json`。其它发行版、libc 及架构没有由本次结果覆盖；最新 CI 按用户要求暂不处理。
+
 ## 构建
 
 在目标操作系统上使用 Python 3.12–3.14、uv 与 Node.js 22：
@@ -45,7 +47,11 @@ Linux 使用没有 `.exe` 后缀的路径。归档检查解开实际数据及模
 
 运行验收通过真实 HTTP 检查内嵌网页及静态字节、未知 API 的 404、审批、原生代码执行、显式依赖解析/锁定/容器安装、原程序断言、容器内 PDF 解析、退出清理及重启不重复。空白 PDF 是功能夹具，继续标记需要 OCR；这些程序也不是论文效果证明。回执和原失败日志保存在忽略目录 `.data/release-acceptance/`，不随发行物提交。
 
+Linux 验收第一次关闭标准输入退出，重启并核对持久记录后，第二次保持标准输入打开并发送 `SIGTERM`。两次均要求退出码 0、API 端口释放及所属容器为零；回执记录实际使用的 `shutdown_modes`。Windows 继续使用标准输入关闭流程。
+
 验收中的公开依赖下载可以显式传入 `OPENRESEARCH_SOURCE_PROXY_URL` 和 `OPENRESEARCH_SOURCE_DOWNLOAD_TIMEOUT_SECONDS` 环境变量；它们只配置来源网络。验收子进程仍不读取项目 `.env`，模型、数据库和其它应用配置不继承。宿主验收使用宿主可达的代理地址，Docker 部署中的 `host.docker.internal` 需按本机情况换成 loopback 地址。
+
+依赖解析器仅向 uv 投影明确配置的来源代理，不继承环境中的模型密钥、代理或任意包索引；解析器切换目标 Python 后仍保留该显式配置。非零退出诊断保留真实错误及退出码，移除代理 URI 和密码后才能进入报告或模型上下文。
 
 CI 分别构建 Windows/Linux 发行物并检查实际归档；Linux 作业运行真实 Docker 验收，Windows 作业检查冻结 CLI。本机 Windows 的完整容器验收和远程 Linux 结果分别记录，不把 CLI 启动当作完整实验验证。构建工件通过 Actions 保存七天，不自动发布 Release。
 
