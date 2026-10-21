@@ -1,30 +1,22 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
 
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
-from pydantic import Field
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from openresearch.api.dependencies import IdentityDep, Runtime, RuntimeDep
+from openresearch.api.legacy_stream import legacy_events, task_result_payload
+from openresearch.api.payloads import plan_payload
+from openresearch.models.legacy import DirectExecutionRequest
 from openresearch.models.runtime import ContractModel, Status
+from openresearch.services.legacy_execution import LegacyExecutionService
 
 router = APIRouter(prefix="/api", tags=["tasks"])
 
 
 class ReassignRequest(ContractModel):
     assigned_to: str
-
-
-class DirectExecutionRequest(ContractModel):
-    task_id: str = Field(pattern=r"^[a-f0-9]{32}$")
-    plan_id: str | None = None
-    task_name: str = ""
-    task_type: str = ""
-    task_description: str = ""
-    assigned_to: str = ""
-    inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/plans/{plan_id}/tasks/{task_id}/execute", status_code=202)
@@ -63,13 +55,11 @@ async def direct_events(
             Status.CANCELED,
             Status.BLOCKED,
         }:
+            # 节点可能在事件读取后才完成；先排空该终态已经提交的日志，再发送最终结果。
+            if await asyncio.to_thread(runtime.repository.list_events, plan_id, cursor):
+                continue
             if node.status == Status.COMPLETED:
-                data = {
-                    "result": node.result,
-                    "code": node.code,
-                    "structured_data": node.structured_data,
-                    "image_base64": node.image_base64,
-                }
+                data = task_result_payload(node)
                 yield f"event: result\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
             else:
                 yield f"event: error\ndata: {json.dumps(node.error, ensure_ascii=False)}\n\n"
@@ -80,21 +70,54 @@ async def direct_events(
 
 @router.post("/execute")
 async def direct_execution(
-    payload: DirectExecutionRequest, request: Request, runtime: RuntimeDep, identity: IdentityDep
-) -> StreamingResponse:
-    plan_id: str
-    if payload.plan_id is None:
-        plan_id = await asyncio.to_thread(
-            runtime.repository.tasks.find_plan, payload.task_id, identity.user_id
+    payload: DirectExecutionRequest,
+    request: Request,
+    response: Response,
+    runtime: RuntimeDep,
+    identity: IdentityDep,
+) -> Response:
+    selected = await LegacyExecutionService(
+        runtime.settings, runtime.repository, runtime.plans, runtime.uploads, runtime.files
+    ).prepare(payload, identity)
+    plan_id, task_id = selected.plan.id, selected.task_id
+    if selected.plan.status == Status.AWAITING_APPROVAL:
+        return _identity_response(
+            JSONResponse(
+                status_code=202,
+                content={
+                    "approval_required": True,
+                    "plan_id": plan_id,
+                    "task_id": task_id,
+                    "workflow_ref": "openresearch:" + plan_id,
+                    "plan_graph": plan_payload(selected.plan),
+                },
+            ),
+            response,
         )
-    else:
-        plan_id = payload.plan_id
-    # 客户端只选择已保存节点；类型、权限和执行参数从持久化图读取，禁止绕过契约。
-    await asyncio.to_thread(
-        runtime.repository.tasks.queue, plan_id, payload.task_id, identity.user_id
+    return _identity_response(
+        StreamingResponse(
+            legacy_events(request, runtime, plan_id, task_id, selected.operation)
+            if selected.operation
+            or (
+                selected.plan.legacy
+                and (selected.plan.legacy.staged or task_id == selected.plan.legacy.native_task_id)
+            )
+            else direct_events(request, runtime, plan_id, task_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "X-OpenResearch-Plan-Id": plan_id,
+                "X-OpenResearch-Task-Id": task_id,
+            },
+        ),
+        response,
     )
-    return StreamingResponse(
-        direct_events(request, runtime, plan_id, payload.task_id),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+
+
+def _identity_response(result: Response, identity: Response) -> Response:
+    # 返回 Response 对象时框架不自动合并依赖中的 Cookie；旧入口首次访问也须保留主体身份。
+    result.raw_headers.extend(
+        header for header in identity.raw_headers if header[0].lower() == b"set-cookie"
     )
+    return result

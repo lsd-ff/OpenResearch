@@ -35,6 +35,9 @@ class TaskContract(ContractModel):
     version: str = "v1"
     input_artifacts: list[str] = Field(default_factory=list)
     output_artifacts: list[str] = Field(default_factory=list)
+    optional_output_artifacts: list[str] = Field(
+        default_factory=list, exclude_if=lambda value: not value
+    )
     allowed_tools: list[str] = Field(default_factory=list)
 
 
@@ -44,6 +47,10 @@ class Task(ContractModel):
     type: str
     description: str = ""
     assigned_to: str
+    artifact_scope: str | None = Field(
+        default=None, pattern=r"^(?:framework_[1-9][0-9]*|result_gap)$"
+    )
+    trigger_rule: Literal["all_success", "all_done"] = "all_success"
     status: Status = Status.PENDING
     dependencies: list[str] = Field(default_factory=list)
     required_artifacts: list[str] = Field(default_factory=list)
@@ -109,6 +116,16 @@ class PlanningInfo(ContractModel):
     reason: str = "explicit_workflow"
 
 
+class LegacyTaskOrigin(ContractModel):
+    task_id: str = Field(default="", max_length=128)
+    task_type: str = Field(max_length=64)
+    requested_type: str = Field(default="", max_length=64)
+    task_name: str = Field(default="", max_length=256)
+    assigned_to: str = Field(default="", max_length=64)
+    native_task_id: str = Field(pattern=r"^[a-f0-9]{32}$")
+    staged: bool = Field(default=False, exclude_if=lambda value: not value)
+
+
 class Plan(ContractModel):
     id: str = Field(default_factory=new_id)
     user_intent: str
@@ -118,6 +135,7 @@ class Plan(ContractModel):
     attachments: list[str] = Field(default_factory=list, max_length=8)
     trace_id: str = Field(default_factory=new_id)
     planning: PlanningInfo = Field(default_factory=PlanningInfo)
+    legacy: LegacyTaskOrigin | None = Field(default=None, exclude_if=lambda value: value is None)
     status: Status = Status.PENDING
     approval: Approval = Field(default_factory=Approval)
     budget: Budget = Field(default_factory=Budget)

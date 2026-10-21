@@ -4,7 +4,7 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Connection
 
 from openresearch.errors import ContractError, StaleExecutionError
-from openresearch.models.execution import ExecutionLease, TaskCompletion
+from openresearch.models.execution import ExecutionLease, TaskCompletion, validate_output_keys
 from openresearch.models.runtime import Plan, Status, Task, utcnow
 from openresearch.storage.conversations import ConversationStore
 from openresearch.storage.database import Database
@@ -34,6 +34,19 @@ class ExecutionStore:
             self.database.save(connection, plan)
             return True
 
+    def execution_committed(self, lease: ExecutionLease) -> bool:
+        """只有此身份提交的结果终态才算完成；取消、失联或重分配仍须停止执行。"""
+        with self.database.engine.connect() as connection:
+            status = connection.execute(
+                select(attempts.c.status).where(
+                    attempts.c.id == lease.execution_id,
+                    attempts.c.plan_id == lease.plan_id,
+                    attempts.c.task_id == lease.task_id,
+                    attempts.c.worker_id == lease.worker_id,
+                )
+            ).scalar_one_or_none()
+            return status in {"completed", "failed"}
+
     def finish(self, lease: ExecutionLease, completion: TaskCompletion) -> None:
         """结果、产物索引、事件、后继节点状态在同一事务中提交。"""
         with self.database.transaction() as connection:
@@ -59,6 +72,7 @@ class ExecutionStore:
                 # 实验失败也保存真实输出和审计证据，不能只留下字符串错误。
                 self._publish_artifacts(connection, plan, node, completion)
                 node.result = completion.result.result
+                node.code = completion.result.code
                 node.structured_data = completion.result.structured_data
                 node.image_base64 = completion.result.image_base64
             error = completion.result.error if completion.result else completion.error
@@ -109,10 +123,16 @@ class ExecutionStore:
     def _publish_artifacts(
         self, connection: Connection, plan: Plan, node: Task, completion: TaskCompletion
     ) -> None:
-        if {item.key for item in completion.artifacts} != set(node.output_artifacts):
-            raise ContractError("task did not produce its declared output artifacts")
-        if len(completion.artifacts) != len(node.output_artifacts):
-            raise ContractError("task produced duplicate artifacts")
+        result = completion.result
+        keys = [item.key for item in completion.artifacts]
+        validate_output_keys(
+            node.output_artifacts,
+            keys,
+            result is not None and result.success,
+            node.contract.optional_output_artifacts,
+        )
+        if result is not None and set(keys) != set(result.outputs):
+            raise ContractError("published artifacts must match the returned output keys")
         for item in completion.artifacts:
             if item.execution_id != node.execution_id or item.producer_task_id != node.id:
                 raise ContractError("artifact belongs to a different execution")

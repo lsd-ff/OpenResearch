@@ -15,6 +15,7 @@ from openresearch.models.research import (
     ResearchReport,
     ResearchRun,
     RunAttempt,
+    SourceIntegrity,
 )
 from openresearch.models.runtime import Edge, Plan, Task, TaskContract
 
@@ -29,6 +30,9 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
     report = ResearchReport(
         repository_commit=None,
         success=True,
+        source_integrity=SourceIntegrity(
+            provided_code_sha256="d" * 64, prepared_entrypoint_sha256="d" * 64
+        ),
         runs=[
             ResearchRun(
                 variant="baseline",
@@ -65,9 +69,11 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
         name="summarize",
         type="chat_answer",
         assigned_to="chat_agent",
-        required_artifacts=["research_report", "final_patch"],
+        required_artifacts=["research_report", "final_patch", "experiment_design"],
+        trigger_rule="all_done",
         contract=TaskContract(
-            allowed_tools=["chat.answer"], input_artifacts=["research_report", "final_patch"]
+            allowed_tools=["chat.answer"],
+            input_artifacts=["research_report", "final_patch", "experiment_design"],
         ),
     )
     producer = Task(
@@ -77,18 +83,34 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
         output_artifacts=["research_report", "final_patch"],
         contract=TaskContract(output_artifacts=["research_report", "final_patch"]),
     )
-    task.dependencies = [producer.id]
+    design = Task(
+        name="planning proposal",
+        type="research_design",
+        assigned_to="coder_agent",
+        result="PLANNING_ONLY_REMOVE_ASSERTION",
+        output_artifacts=["experiment_design"],
+        contract=TaskContract(output_artifacts=["experiment_design"]),
+    )
+    producer.dependencies = [design.id]
+    task.dependencies = [producer.id, design.id]
     plan = Plan(
         user_intent="report actual loss",
         owner_id="alice",
         session_id="s",
-        nodes=[producer, task],
-        edges=[Edge(**{"from": producer.id, "to": task.id})],
+        nodes=[design, producer, task],
+        edges=[
+            Edge(**{"from": parent, "to": node.id})
+            for node in (producer, task)
+            for parent in node.dependencies
+        ],
     )
     lease = ExecutionLease(plan.id, task.id, "b" * 32, "worker")
     for key, content in {
         "research_report": report.model_dump_json(),
         "final_patch": patch.model_dump_json(),
+        "experiment_design": json.dumps({"rationale": "PLANNING_ONLY_REMOVE_ASSERTION"}),
+        "claim_verification_report": "# Frozen functional checks\nFUNCTIONAL_CHECK_VERIFIED\n",
+        "benchmark_predictions": "[]",
     }.items():
         plan.artifacts[key] = files.write(lease, key, content)
 
@@ -96,8 +118,15 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
         payload = json.loads(request.content)
         text = json.dumps(payload["messages"])
         assert "ACTUAL_LOSS=0.034155" in text and "SOURCE_ONLY" not in text
+        assert "PLANNING_ONLY_REMOVE_ASSERTION" not in text
         assert "citations=[]" in text and "SERVER_CONTEXT_DATA" not in text
         artifacts = json.loads(payload["messages"][-1]["content"])["artifacts"]
+        assert "FUNCTIONAL_CHECK_VERIFIED" in artifacts["claim_verification_report"]
+        available = json.loads(artifacts["available_artifacts"])
+        assert "benchmark_predictions" in available and "claim_verification_report" in available
+        assert "benchmark_predictions" not in artifacts
+        assert all("result" not in item for item in json.loads(artifacts["task_outcomes"]))
+        assert json.loads(artifacts["source_integrity"])["provided_code_preserved"] is True
         history = json.loads(artifacts["execution_history"])[0]["attempts"]
         assert [item["exit_code"] for item in history] == [1] * failed_attempts + [0]
         assert all(

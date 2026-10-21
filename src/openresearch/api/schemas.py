@@ -2,6 +2,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
+from openresearch.models.comparison import ComparisonSpec
 from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import ContractModel
 from openresearch.models.submissions import Workflow
@@ -13,7 +14,9 @@ class CreatePlanRequest(ContractModel):
     attachments: list[str] = Field(default_factory=list, max_length=8)
     workflow: Workflow = "auto"
     research: ResearchSpec | None = None
+    comparison: ComparisonSpec | None = None
     planning_mode: Literal["auto", "llm", "template"] = "auto"
+    result_gap_repair: bool = False
 
     @field_validator("intent")
     @classmethod

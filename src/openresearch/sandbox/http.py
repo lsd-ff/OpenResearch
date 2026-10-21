@@ -1,12 +1,14 @@
 import httpx
 
 from openresearch.config import Settings
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
 from openresearch.sandbox.base import LogCallback
 from openresearch.sandbox.file_transfer import archive_files
+from openresearch.sandbox.profiles import profile_fingerprint, selected_profile
 from openresearch.sandbox.streams import stream_events
 
 
@@ -25,21 +27,41 @@ class HttpSandbox:
             trust_env=False,
         )
 
-    async def create(self, plan_id: str, execution_id: str) -> str:
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str:
+        profile = selected_profile(self.settings, runtime_profile)
         response = await self.client.post(
             "/api/v1/sandboxes",
             json={
-                "image": self.settings.sandbox_image,
+                "image": "" if runtime_profile else self.settings.sandbox_image,
                 "mount_path": "",
                 "plan_id": plan_id,
                 "execution_id": execution_id,
+                **({"runtime_profile": runtime_profile} if runtime_profile else {}),
             },
         )
+        if response.status_code == 409 and response.json().get("code") == "resource_busy":
+            raise ResourceBusyError(str(response.json().get("error", "GPU resource busy"))[:2000])
         response.raise_for_status()
         identifier = response.json().get("sandbox_id")
         if not isinstance(identifier, str) or not identifier.startswith(("dk-", "os-")):
             raise SandboxError("sandbox service returned an invalid identifier")
+        if profile is not None and (
+            response.json().get("runtime_profile") != runtime_profile
+            or response.json().get("runtime_profile_sha256") != profile_fingerprint(profile)
+        ):
+            # 旧服务忽略未知字段时也可能返回容器；没有明确确认所选配置，必须清理并拒绝使用。
+            await self.close(identifier)
+            raise SandboxError("sandbox service did not confirm the requested runtime profile")
         return identifier
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        response = await self.client.get(f"/api/v1/sandboxes/{sandbox_id}/resources")
+        response.raise_for_status()
+        if len(response.content) > 65536:
+            raise SandboxError("resource probe response exceeds limit")
+        return SandboxResources.model_validate(response.json())
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult:
         final: ExecutionResult | None = None

@@ -37,7 +37,16 @@ def unpack_repository(raw: bytes, limits: ArchiveLimits) -> dict[str, bytes]:
                 key = relative_path(PurePosixPath(*path.parts[1:]).as_posix())
                 total += member.size
                 if key in output or member.size > limits.file_bytes:
-                    raise ContractError("archive contains duplicate or oversized files")
+                    detail = (
+                        "duplicate path"
+                        if key in output
+                        else (
+                            f"{member.size} bytes exceeds the {limits.file_bytes}-byte file limit"
+                        )
+                    )
+                    raise ContractError(
+                        f"archive contains duplicate or oversized files: {key[:200]} ({detail})"
+                    )
                 if total > limits.total_bytes or len(output) >= limits.file_count:
                     raise ContractError("archive exceeds extraction budget")
                 stream = archive.extractfile(member)

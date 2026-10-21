@@ -1,6 +1,121 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pdfFixture } from './pdfFixture';
 
+test('一条聊天请求自动比较结果、修复差距并返回同图实际报告', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'native-gap.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('id,x,outcome\n' + Array.from({ length: 12 }, (_, i) =>
+      `${i},${i % 2},${i % 2 ? 'yes' : 'no'}\n`).join('')),
+  });
+  await expect(page.getByRole('button', { name: '移除 native-gap.csv', exact: true })).toBeVisible();
+  const code = "import json, os, pathlib\n" +
+    "rows = json.loads(pathlib.Path(os.environ['OPENRESEARCH_INPUT']).read_text())\n" +
+    "assert all('outcome' not in row['inputs'] for row in rows)\n" +
+    "predictions = [{'id': row['id'], 'prediction': 'yes' if row['inputs']['x'] == '0' else 'no'} for row in rows]\n" +
+    "pathlib.Path(os.environ['OPENRESEARCH_PREDICTIONS']).write_text(json.dumps(predictions))\n" +
+    "print('ACTUAL_NATIVE_ROWS', len(rows))\n";
+  const response = await send(page, 'UI_NATIVE_GAP_FLOW benchmark：输入列 x，标签列 outcome，ID 列 id。' +
+    '先测量原入口，比较结果并修复差距后重跑，保留原断言和数据，准确率要求至少 0.9。\n```python\n' + code + '```');
+  const received = await response.json();
+  expect(received.response).toContain('已开始执行');
+  const allHeaders = await response.request().allHeaders();
+  const headers = { 'X-User-Id': allHeaders['x-user-id'], 'X-Session-Id': allHeaders['x-session-id'] };
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toBeVisible({ timeout: 60_000 });
+  const graph = (await (await page.request.get(`/api/plans/${received.plan_graph.id}`, { headers })).json()).plan_graph;
+  expect(graph.status).toBe('completed');
+  expect(graph.nodes.every((node: { run_count: number }) => node.run_count === 1)).toBe(true);
+  const artifact = graph.artifacts.result_gap__gap_debug_report;
+  const debug = JSON.parse(await (await page.request.get(`/api/plans/${graph.id}/artifacts/${artifact.id}/content`, { headers })).text());
+  expect(debug.before_metrics.baseline.accuracy).toBe(0);
+  expect(debug.after_metrics.baseline.accuracy).toBe(1);
+  expect(debug.source.source_plan_id).toBe(graph.id);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByText('科研执行与结果差距报告', { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('native-gap-complete.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toHaveCount(1);
+  const after = (await (await page.request.get(`/api/plans/${graph.id}`, { headers })).json()).plan_graph;
+  expect(after.nodes.map((node: { run_count: number }) => node.run_count))
+    .toEqual(graph.nodes.map((node: { run_count: number }) => node.run_count));
+});
+
+for (const rejected of [false, true]) {
+test(`结果修复${rejected ? '拒绝删除断言' : '没有有据补丁'}时显示真实报告，刷新不重复`, async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const receivedHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': receivedHeaders['x-user-id'], 'X-Session-Id': receivedHeaders['x-session-id'] };
+  const readResult = async (response: Awaited<ReturnType<typeof page.request.post>>) => {
+    expect(response.status()).toBe(200);
+    const event = (await response.text()).split('\n\n').find(item => item.startsWith('event: result\n'));
+    expect(event).toBeDefined();
+    return JSON.parse(event!.split('data: ', 2)[1]);
+  };
+  const original = await readResult(await page.request.post('/api/execute', { headers, data: {
+    task_type: 'paper_code_execute', assigned_to: 'research_coding_agent',
+    task_description: '运行固定原程序并允许有界修复', inputs: {
+      code: 'assert sum([2,3]) == 5\nprint(5)\n', research: { max_repairs: 1, rubric: { claims: [{
+        title: '固定数值规则', statement: 'accuracy >= 0.9', criteria: [{ description: 'accuracy',
+          metric_name: 'accuracy', expected_value: 0.9, operator: 'at_least' }],
+      }] } },
+    },
+  } }));
+  const response = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'fix_and_rerun', assigned_to: 'research_coding_agent',
+    task_description: rejected ? 'UI_GAP_REJECTED_PATCH_FIXTURE' : 'UI_GAP_NO_PATCH_FIXTURE',
+    inputs: { workflow_ref: original.workflow_ref },
+  } });
+  let identifier: string;
+  if (rejected) {
+    expect(await response.text()).toContain('event: error');
+    identifier = response.headers()['x-openresearch-plan-id'];
+    const actual = await (await page.request.get(`/api/plans/${identifier}`, { headers })).json();
+    expect(actual.plan_graph.status).toBe('failed');
+    expect(actual.plan_graph.nodes[0].result).toContain('实际错误：');
+  } else {
+    const actual = await readResult(response);
+    expect(JSON.parse(actual.outputs.gap_debug_report).execution_performed).toBe(false);
+    expect(actual.outputs.research_report).toBeUndefined();
+    identifier = actual.plan_id;
+  }
+  await page.goto(`/?plan=${identifier}`);
+  await expect(page.getByText('结果修复', { exact: true })).toBeVisible();
+  await expect(page.getByText('本次没有执行预检或实验。', { exact: true })).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath(rejected ? 'gap-rejected.png' : 'gap-no-patch.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('本次没有执行预检或实验。', { exact: true })).toHaveCount(1);
+});
+}
+
+test('通用只读回答显示实际报告，刷新后不误报实验完成', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const response = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'general_process', assigned_to: 'general_agent', task_name: '通用只读回答',
+    task_description: '解释通用回答界面，不运行任何代码', inputs: {},
+  } });
+  expect(response.status()).toBe(200);
+  const event = (await response.text()).split('\n\n').find(item => item.startsWith('event: result\n'));
+  expect(event).toBeDefined();
+  const actual = JSON.parse(event!.split('data: ', 2)[1]);
+  const report = JSON.parse(actual.outputs.general_response);
+  expect(report.sources).toEqual([]);
+  expect(report.scope).toContain('未作外部来源核验');
+  await page.goto(`/?plan=${actual.plan_id}`);
+  await expect(page.getByText('通用回答', { exact: true })).toBeVisible();
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await expect(page.getByText('这是通用回答展示夹具；没有执行代码、测试或实验。')).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('general-response.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('这是通用回答展示夹具；没有执行代码、测试或实验。')).toHaveCount(1);
+});
+
 test('按链接打开 API 创建的计划并执行，刷新后保留真实结果', async ({ page }) => {
   await page.goto('/');
   const initial = await send(page, '运行 smoke 冒烟测试');
@@ -19,7 +134,30 @@ test('按链接打开 API 创建的计划并执行，刷新后保留真实结果
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
   await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
   await page.getByRole('button', { name: '分析报告', exact: true }).click();
-  await expect(page.getByText('17', { exact: true })).toBeVisible();
+  await expect(page.getByText('17', { exact: true }).last()).toBeVisible();
+});
+
+test('直接执行错误 API 程序，实际修复并在聊天返回两次运行记录', async ({ page }) => {
+  await page.goto('/');
+  const code = `import json\nvalue = json.decode('{"number":7}')\nassert value['number'] == 7\nprint(value['number'])`;
+  const message = ['直接执行以下代码并修复 API 错误，保留断言', '```python', code, '```'].join('\n');
+  const response = await send(page, message);
+  const payload = await response.json();
+  expect(['ready', 'in_progress', 'completed']).toContain(payload.plan_graph.status);
+  await expect(page.getByText(/运行\/安装尝试 2 次，采用 1 次修复/)).toBeVisible({ timeout: 90_000 });
+  const headers = await response.request().allHeaders();
+  const saved = await page.request.get(`/api/plans/${payload.plan_graph.id}`, {
+    headers: { 'X-User-Id': headers['x-user-id'], 'X-Session-Id': headers['x-session-id'] },
+  });
+  const graph = (await saved.json()).plan_graph;
+  expect(graph.status).toBe('completed');
+  const task = graph.nodes.find((node: { type: string }) => node.type === 'code_execute');
+  const report = JSON.parse(task.structured_data);
+  expect(report.attempts.map((item: { output: { exit_code: number } }) => item.output.exit_code)).toEqual([1, 0]);
+  expect(new Set(report.attempts.map((item: { sandbox_id: string }) => item.sandbox_id)).size).toBe(2);
+  expect(report.attempts[1].output.stdout.trim()).toBe('7');
+  await page.reload();
+  await expect(page.getByText(/运行\/安装尝试 2 次，采用 1 次修复/)).toHaveCount(1);
 });
 
 test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', async ({ page }, testInfo) => {
@@ -32,6 +170,78 @@ test('上传 PDF 后直接在附件旁阅读，无需打开高级实验设置', 
   await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('pdf-reader.png'), fullPage: true });
+});
+
+test('真实运行结果可独立复核并绘图，刷新后保留图表和审核报告', async ({ page }, testInfo) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const outcome = (text: string) => {
+    const event = text.split('\n\n').find(item => item.startsWith('event: result\n'));
+    expect(event, text).toBeDefined();
+    return JSON.parse(event!.split('data: ', 2)[1]);
+  };
+  const executed = await page.request.post('/api/execute', { headers, timeout: 60_000, data: {
+    task_type: 'execute_code', assigned_to: 'coder_agent',
+    task_description: '执行原断言，不要自动修复', inputs: { code: 'assert sum([2,3,5]) == 10\nprint(10)\n' },
+  } });
+  const source = outcome(await executed.text());
+  const before = await (await page.request.get(`/api/plans/${source.plan_id}`, { headers })).json();
+  const reviewed = await page.request.post('/api/execute', { headers, data: {
+    task_type: 'render_plot', task_name: '实际结果复核图', assigned_to: 'data_agent',
+    task_description: '绘制已有真实执行统计，不执行新实验', inputs: { workflow_ref: source.workflow_ref },
+  } });
+  const result = outcome(await reviewed.text());
+  expect(result.source_workflow_ref).toBe(source.workflow_ref);
+  expect(JSON.parse(result.outputs.plot_spec).panels.program_attempts).toEqual([['execution', 1]]);
+  const after = await (await page.request.get(`/api/plans/${source.plan_id}`, { headers })).json();
+  expect(after.plan_graph).toEqual(before.plan_graph);
+  await page.goto(`/?plan=${result.plan_id}`);
+  await expect(page.getByText('结果复核', { exact: true })).toBeVisible();
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。', { exact: true })).toHaveCount(0);
+  await page.locator('.react-flow__node').filter({ hasText: '实际结果复核图' }).click();
+  const image = page.getByAltText('Generated Plot');
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBe(900);
+  await page.screenshot({ path: testInfo.outputPath('review-plot.png'), fullPage: true });
+  await page.getByRole('button', { name: '分析报告', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '实际结果复核', exact: true }).last()).toBeVisible();
+  await page.reload();
+  await page.locator('.react-flow__node').filter({ hasText: '实际结果复核图' }).click();
+  await expect(page.getByAltText('Generated Plot')).toBeVisible();
+});
+
+test('状态夹具：远程 PDF 消息打开实际所属附件，刷新后仍是该文档', async ({ page }) => {
+  await page.goto('/');
+  const initial = await send(page, '运行 smoke 冒烟测试');
+  const requestHeaders = await initial.request().allHeaders();
+  const headers = { 'X-User-Id': requestHeaders['x-user-id'], 'X-Session-Id': requestHeaders['x-session-id'] };
+  const upload = await page.request.post('/api/uploads', { headers, multipart: {
+    file: { name: 'remote-source.pdf', mimeType: 'application/pdf', buffer: pdfFixture() },
+  } });
+  expect(upload.status()).toBe(201);
+  const source = await upload.json();
+  const created = await page.request.post('/api/plan', { headers, data: {
+    intent: '阅读远程 PDF 附件', workflow: 'paper', attachments: [source.id],
+  } });
+  expect(created.status()).toBe(200);
+  const plan = await created.json();
+  expect(plan.papers[0].id).toBe(source.id);
+  // 仅消息分类/下载状态使用夹具；附件保存、归属读取和 PDF 渲染使用真实 API。
+  await page.route('**/api/messages', route => route.fulfill({ json: {
+    type: 'plan', response: '状态夹具：当前 PDF 已保存为会话附件。', context_revision: 2,
+    plan_graph: plan.plan_graph, papers: plan.papers,
+  } }));
+  await send(page, '阅读 https://paper.example/remote-source.pdf');
+  await page.getByRole('button', { name: '阅读 remote-source.pdf', exact: true }).click();
+  await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
+  await page.reload();
+  const received = page.waitForResponse(response => response.url().endsWith(`/api/uploads/${source.id}/content`));
+  await page.getByRole('button', { name: '阅读 remote-source.pdf', exact: true }).click();
+  await expect(page.getByText('PDF reader verification', { exact: true })).toBeVisible();
+  expect((await received).status()).toBe(200);
 });
 
 test('代码产出 SVG 后可查看、下载并在刷新后恢复图像', async ({ page }, testInfo) => {
@@ -77,6 +287,85 @@ test('上传数据后直接聊天即可分析并查看实际缺失值图表', as
   await page.screenshot({ path: testInfo.outputPath('data-analysis-chart.png'), fullPage: true });
 });
 
+async function interruptPlanStream(page: Page) {
+  let first = true;
+  const transport = { deliveredCursor: '', resumedCursor: '' };
+  page.on('response', async response => {
+    if (response.url().endsWith('/stream')) {
+      const received = await response.headerValue('x-test-received-cursor');
+      if (received !== null) transport.resumedCursor = received;
+    }
+  });
+  await page.route('**/api/plans/*/stream', async route => {
+    if (!first) {
+      await route.continue();
+      return;
+    }
+    first = false;
+    // 程序和统计结果来自真实后端；仅截断传输，模拟日志之后连接断开。
+    const response = await route.fetch();
+    const body = await response.text();
+    const frames = body.split('\n\n').filter(frame => frame.startsWith('id:'));
+    const started = frames.findIndex(frame => frame.includes('"event_type": "task_started"'));
+    expect(started).toBeGreaterThanOrEqual(0);
+    expect(body).toContain('"event_type": "plan_completed"');
+    transport.deliveredCursor = /^id: (\d+)/m.exec(frames[started])?.[1] ?? '';
+    expect(transport.deliveredCursor).not.toBe('');
+    await route.fulfill({
+      status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      body: 'retry: 10000\n\n' + frames.slice(0, started + 1).join('\n\n') + '\n\n',
+    });
+  });
+  return transport;
+}
+
+test('实际计划在 SSE 断流后按游标重连，已打开面板恢复结果与图表', async ({ page }) => {
+  const transport = await interruptPlanStream(page);
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'reconnect.csv', mimeType: 'text/csv', buffer: Buffer.from('x,label\n1,a\n3,b\n,a\n'),
+  });
+  await expect(page.getByRole('button', { name: '移除 reconnect.csv', exact: true })).toBeVisible();
+  await send(page, '分析数据中的均值和缺失值');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  // 轮询已看到真实完成快照，但被截断的 SSE 仍只到 started，面板此时已打开。
+  await expect(page.getByText('1/1 完成', { exact: true })).toBeVisible();
+  await page.locator('.react-flow__node').filter({ hasText: 'Analyze Uploaded Dataset' }).click();
+  await expect.poll(() => transport.resumedCursor).toBe(transport.deliveredCursor);
+  await expect(page.getByAltText('Generated Plot')).toBeVisible();
+  await expect(page.getByRole('link', { name: '下载图表', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '正在执行…', exact: true })).toHaveCount(0);
+});
+
+test('SSE 断流等待重连期间切换会话，会关闭原会话连接', async ({ page }) => {
+  await page.addInitScript(() => {
+    const sources: EventSource[] = [];
+    const Native = window.EventSource;
+    window.EventSource = class extends Native {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        sources.push(this);
+      }
+    };
+    Object.assign(window, { observedEventSources: sources });
+  });
+  const transport = await interruptPlanStream(page);
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'switch.csv', mimeType: 'text/csv', buffer: Buffer.from('x,label\n1,a\n3,b\n,a\n'),
+  });
+  await expect(page.getByRole('button', { name: '移除 switch.csv', exact: true })).toBeVisible();
+  await send(page, '分析数据中的均值和缺失值');
+  await page.getByRole('button', { name: '运行计划', exact: true }).click();
+  await expect.poll(() => transport.deliveredCursor).not.toBe('');
+  await page.getByRole('button', { name: '新建临时 Session', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const sources = (window as Window & { observedEventSources: EventSource[] }).observedEventSources;
+    return sources.length === 1 && sources[0].readyState === EventSource.CLOSED;
+  })).toBe(true);
+  expect(transport.resumedCursor).toBe('');
+});
+
 async function send(page: Page, message: string) {
   await page.getByPlaceholder('直接描述实验目标，也可添加论文或数据...').fill(message);
   const response = page.waitForResponse(response =>
@@ -113,6 +402,35 @@ test('状态夹具：失败计划恢复完成后自动返回聊天报告，刷�
   await expect(page.getByText('状态夹具：恢复后测试报告', { exact: true })).toHaveCount(1);
 });
 
+test('状态夹具：框架分支失败后聊天仍展示完整失败报告并保持失败状态', async ({ page }) => {
+  await page.goto('/');
+  const response = await send(page, 'smoke');
+  const payload = await response.json();
+  const identifier = payload.plan_graph.id;
+  await page.route(`**/api/plans/${identifier}`, async route => {
+    const graph = structuredClone(payload.plan_graph);
+    graph.status = 'failed';
+    graph.intent_type = 'Framework_Comparison';
+    graph.nodes.forEach((node: { status: string; error: string }) => {
+      node.status = 'failed';
+      node.error = '状态夹具：框架依赖安装失败';
+    });
+    const report = graph.nodes[graph.nodes.length - 1];
+    report.type = 'framework_report';
+    report.trigger_rule = 'all_done';
+    report.status = 'completed';
+    report.error = '';
+    report.result = '状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。';
+    await route.fulfill({ json: { ...payload, plan_graph: graph } });
+  });
+  await page.reload();
+  await expect(page.getByText('状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。',
+    { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('状态夹具：完整框架报告，LangChain 已完成，LlamaIndex 安装失败，不能排名。',
+    { exact: true })).toHaveCount(1);
+});
+
 test('上传数据并在聊天补充列映射，刷新后无需重传或高级表单', async ({ page }, testInfo) => {
   let uploads = 0;
   page.on('request', request => {
@@ -134,9 +452,10 @@ test('上传数据并在聊天补充列映射，刷新后无需重传或高级�
   expect(answer.request().postDataJSON().attachments).toEqual([]);
   const payload = await answer.json();
   expect(payload.type).toBe('plan');
-  expect(payload.plan_graph.nodes).toHaveLength(7);
-  await expect(page.locator('.react-flow__node')).toHaveCount(7);
-  await expect(page.getByText('7 个步骤', { exact: true })).toBeVisible();
+  expect(payload.plan_graph.nodes).toHaveLength(8);
+  expect(payload.plan_graph.nodes.some((node: { type: string }) => node.type === 'benchmark_preflight')).toBe(true);
+  await expect(page.locator('.react-flow__node')).toHaveCount(8);
+  await expect(page.getByText('8 个步骤', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '运行计划', exact: true })).toBeEnabled();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(uploads).toBe(1);
@@ -160,9 +479,9 @@ test('聊天创建 smoke 计划，经真实 Docker 执行并在刷新后保留�
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible({ timeout: 90_000 });
   await page.reload();
   await expect(page.getByText('2/2 完成', { exact: true })).toBeVisible();
-  await expect(page.getByText('实验执行完成，可点击右侧节点查看真实输出、报告和证据。')).toBeVisible();
+  await expect(page.getByText(/运行\/安装尝试 1 次，采用 0 次修复/)).toBeVisible();
   await page.locator('.react-flow__node').filter({ hasText: 'Execute Python Experiment' }).click();
-  await expect(page.getByText(/"sum":\s*15/)).toBeVisible();
+  await expect(page.getByText(/"sum":\s*15/).last()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('docker-smoke-result.png'), fullPage: true });
 });
 

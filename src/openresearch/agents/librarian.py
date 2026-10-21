@@ -3,8 +3,11 @@ import json
 from openresearch.agents.claim_freeze import ClaimFreezer
 from openresearch.agents.context import AgentContext
 from openresearch.agents.documents import DocumentAgent
+from openresearch.agents.framework_research import FrameworkResearcher
+from openresearch.agents.knowledge import KnowledgeAgent
 from openresearch.agents.paper_analysis import PaperAnalyst
 from openresearch.agents.repository import RepositoryAgent
+from openresearch.agents.repository_discovery import RepositoryDiscoverer
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.discovery import SearchRequest
@@ -22,11 +25,20 @@ class LibrarianAgent:
         self.documents = DocumentAgent(settings, repository, sandbox)
         self.analyst = PaperAnalyst(settings, files)
         self.repositories = RepositoryAgent(settings, files)
+        self.repository_discovery = RepositoryDiscoverer(settings, files)
         self.discovery = SourceDiscovery(proxy=settings.source_proxy_url.get_secret_value() or None)
         self.claims = ClaimFreezer(settings, files)
+        self.frameworks = FrameworkResearcher(settings)
+        self.knowledge = KnowledgeAgent(settings, files)
 
     async def execute(self, context: AgentContext) -> TaskResult:
         plan, task, lease = context.plan, context.task, context.lease
+        if task.type == "repository_discover":
+            return await self.repository_discovery.execute(plan, task)
+        if task.type == "knowledge_research":
+            return await self.knowledge.execute(plan, task)
+        if task.type == "framework_research":
+            return await self.frameworks.execute(task, plan.user_intent)
         if task.type == "document_extract":
             return await self.documents.execute(plan, task, lease)
         if task.type == "paper_analyze":

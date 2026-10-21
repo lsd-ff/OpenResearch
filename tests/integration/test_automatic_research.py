@@ -72,12 +72,16 @@ async def test_generated_design_artifact_drives_preparation(settings, repository
         )
 
     async def resolve(requests):
-        assert requests == ["blinker>=1.9,<2"]
+        from packaging.requirements import Requirement
+
+        assert len(requests) == 1
+        assert Requirement(requests[0]) == Requirement("blinker>=1.9,<2")
         return EnvironmentSpec(requirements=["blinker==1.9.0"])
 
     designer.llm = LLMClient(settings, httpx.MockTransport(model))
     designer.dependencies.resolve = resolve
     result = await designer.execute(plan, task)
+    assert "Use a source adapter" not in result.result and "CPython 3.12" in result.result
     resolved = ResearchSpec.model_validate_json(result.outputs["research_spec"])
     assert resolved.entrypoint == "adapter.py"
     assert resolved.rubric.claims[0].statement == "keep this"

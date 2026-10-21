@@ -18,11 +18,14 @@ from openresearch.errors import (
 from openresearch.models.runtime import new_id
 
 logger = logging.getLogger(__name__)
+PUBLIC_PATHS = frozenset({"/ping", "/api/health"})
 
 
-def authenticated(request: Request, settings: Settings) -> bool:
+def authenticated(
+    request: Request, settings: Settings, public_paths: frozenset[str] = PUBLIC_PATHS
+) -> bool:
     expected = settings.api_token.get_secret_value()
-    if not expected or request.method == "OPTIONS" or request.url.path in {"/ping", "/api/health"}:
+    if not expected or request.method == "OPTIONS" or request.url.path in public_paths:
         return True
     authorization = request.headers.get("Authorization", "")
     token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
@@ -30,7 +33,9 @@ def authenticated(request: Request, settings: Settings) -> bool:
     return hmac.compare_digest(token.encode(), expected.encode())
 
 
-def install_middleware(app: FastAPI, settings: Settings) -> None:
+def install_middleware(
+    app: FastAPI, settings: Settings, *, public_paths: frozenset[str] = PUBLIC_PATHS
+) -> None:
     @app.middleware("http")
     async def authenticate_and_trace(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -39,7 +44,7 @@ def install_middleware(app: FastAPI, settings: Settings) -> None:
         started = time.monotonic()
         response = (
             await call_next(request)
-            if authenticated(request, settings)
+            if authenticated(request, settings, public_paths)
             else JSONResponse({"error": "authentication required"}, status_code=401)
         )
         response.headers["X-Request-Id"] = request_id

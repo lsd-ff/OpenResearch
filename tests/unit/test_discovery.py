@@ -13,7 +13,7 @@ from openresearch.sources.discovery import arxiv_pdf_url, parse_arxiv
         "https://arxiv.org@127.0.0.1/pdf/1706.03762",
     ],
 )
-def test_remote_pdf_does_not_allow_arbitrary_hosts(url) -> None:
+def test_arxiv_normalizer_rejects_non_arxiv_or_invalid_urls(url) -> None:
     with pytest.raises(ContractError):
         arxiv_pdf_url(url)
 

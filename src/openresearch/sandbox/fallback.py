@@ -2,7 +2,8 @@ import asyncio
 import logging
 import re
 
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox.base import LogCallback, Sandbox
@@ -17,15 +18,27 @@ class FallbackSandbox:
         self.primary = primary
         self.fallback = fallback
 
-    async def create(self, plan_id: str, execution_id: str) -> str:
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str:
         try:
-            return "dk-" + await self.primary.create(plan_id, execution_id)
+            return "dk-" + await (
+                self.primary.create(plan_id, execution_id, runtime_profile)
+                if runtime_profile
+                else self.primary.create(plan_id, execution_id)
+            )
+        except ResourceBusyError:
+            raise
         except Exception:
             if self.fallback is None:
                 raise
             # 仅创建失败时切换后端；执行已经开始后不得换容器重跑或隐藏原失败。
             logger.warning("native Docker creation failed; trying configured OpenSandbox")
-            return "os-" + await self.fallback.create(plan_id, execution_id)
+            return "os-" + await (
+                self.fallback.create(plan_id, execution_id, runtime_profile)
+                if runtime_profile
+                else self.fallback.create(plan_id, execution_id)
+            )
 
     def select(self, sandbox_id: str) -> tuple[Sandbox, str]:
         if not re.fullmatch(r"(?:dk|os)-[a-zA-Z0-9_-]{1,128}", sandbox_id):
@@ -55,6 +68,10 @@ class FallbackSandbox:
     async def image_identity(self, sandbox_id: str) -> str | None:
         adapter, identifier = self.select(sandbox_id)
         return await adapter.image_identity(identifier)
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        adapter, identifier = self.select(sandbox_id)
+        return await adapter.resources(identifier)
 
     async def inventory(self) -> list[ManagedSandbox]:
         results: list[ManagedSandbox] = []

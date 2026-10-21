@@ -73,7 +73,6 @@ interface LeftWorkspaceChatProps {
   };
   pdfActions: {
     onReadPaper: (attachment: UploadedFile) => void;
-    onOpenPdf: () => void;
     onClosePdf: () => void;
     onFullTranslation: () => void;
   };

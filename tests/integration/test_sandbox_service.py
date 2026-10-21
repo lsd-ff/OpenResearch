@@ -7,7 +7,7 @@ from conftest import FakeSandbox
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
 from openresearch.models.resources import ManagedSandbox
 from openresearch.sandbox.fallback import FallbackSandbox
 from openresearch.sandbox.file_transfer import archive_files
@@ -22,6 +22,25 @@ class InventorySandbox(FakeSandbox):
             for key in self.created
             if key not in self.closed
         ]
+
+
+async def test_gpu_busy_survives_http_and_cannot_trigger_another_fallback(settings):
+    from unittest.mock import AsyncMock
+
+    primary = AsyncMock()
+    primary.create.side_effect = ResourceBusyError("GPU resource admission timed out")
+    unused = AsyncMock()
+    app = create_sandbox_app(settings, FallbackSandbox(primary, unused))
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://service")
+    remote = HttpSandbox(settings, client)
+    outer_fallback = AsyncMock()
+    try:
+        with pytest.raises(ResourceBusyError, match="admission timed out"):
+            await FallbackSandbox(remote, outer_fallback).create("a" * 32, "b" * 32)
+        unused.create.assert_not_called()
+        outer_fallback.create.assert_not_called()
+    finally:
+        await client.aclose()
 
 
 async def test_http_client_works_with_python_service_and_preserves_inventory_and_cleanup(settings):
@@ -55,6 +74,10 @@ def test_sandbox_service_enforces_auth_image_and_namespace(settings):
     headers = {"Authorization": "Bearer service-only-test-key"}
     with TestClient(app) as client:
         assert client.post("/api/v1/sandboxes", json={}).status_code == 401
+        assert client.get("/api/v1/sandboxes/dk-foreign/resources").status_code == 401
+        assert (
+            client.get("/api/v1/sandboxes/dk-foreign/resources", headers=headers).status_code == 404
+        )
         assert (
             client.post(
                 "/api/v1/sandboxes", json={"image": "unapproved"}, headers=headers

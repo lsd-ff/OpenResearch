@@ -1,6 +1,8 @@
 import ast
 import json
 
+MAX_API_SOURCE_BYTES = 128 * 1024
+
 
 def pytest_paths(files: dict[str, bytes]) -> list[str]:
     """按真实文件名与定义找测试候选，只解析 AST，不在宿主机导入。"""
@@ -10,7 +12,7 @@ def pytest_paths(files: dict[str, bytes]) -> list[str]:
         if (
             not path.endswith(".py")
             or not (name.startswith("test_") or name.endswith("_test.py"))
-            or len(raw) > 65536
+            or len(raw) > MAX_API_SOURCE_BYTES
         ):
             continue
         try:
@@ -37,13 +39,50 @@ def pytest_paths(files: dict[str, bytes]) -> list[str]:
     return paths[:8]
 
 
+def pytest_implementation_paths(files: dict[str, bytes], tests: list[str]) -> list[str]:
+    """从真实测试的静态导入定位修复候选；不导入代码，也不自动扩大补丁权限。"""
+    candidates: set[str] = set()
+    for test in tests[:8]:
+        raw = files.get(test, b"")
+        if len(raw) > MAX_API_SOURCE_BYTES:
+            continue
+        try:
+            tree = ast.parse(raw)
+        except (SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            modules = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module]
+                if isinstance(node, ast.ImportFrom) and node.module and not node.level
+                else []
+            )
+            for module in modules:
+                stem = module.replace(".", "/")
+                for prefix in ("", "src/"):
+                    for suffix in (".py", "/__init__.py"):
+                        path = prefix + stem + suffix
+                        name = path.rsplit("/", 1)[-1]
+                        if (
+                            path in files
+                            and path not in tests
+                            and not {"test", "tests"}.intersection(path.split("/")[:-1])
+                            and not name.startswith("test_")
+                            and not name.endswith("_test.py")
+                            and name != "conftest.py"
+                        ):
+                            candidates.add(path)
+    return sorted(candidates)[:16]
+
+
 def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
     """只解析有界源码，不导入仓库；补齐截断正文之外的真实调用签名。"""
     output: list[dict[str, object]] = []
     remaining = 24000
     paths = [path for path in sorted(files) if path.endswith(".py")][:64]
     for path in paths:
-        if len(files[path]) > 65536:
+        if len(files[path]) > MAX_API_SOURCE_BYTES:
             continue
         try:
             tree = ast.parse(files[path])
@@ -71,8 +110,8 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
                 )
         item: dict[str, object] = {
             "path": path,
-            "signatures": signatures[:32],
-            "returns": dict(list(returns.items())[:32]),
+            "signatures": signatures[:64],
+            "returns": dict(list(returns.items())[:64]),
             "imports": [
                 ast.unparse(node)
                 for node in tree.body

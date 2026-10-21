@@ -33,7 +33,14 @@ async def test_worker_produces_files_events_and_closes_session(
     await drive_worker(worker, repository, plan.id)
     finished = repository.get_plan(plan.id)
     assert finished.status == Status.COMPLETED
-    assert set(finished.artifacts) == {"generated_code", "run_metrics", "execution_files"}
+    assert set(finished.artifacts) == {
+        "generated_code",
+        "code_preparation_report",
+        "run_metrics",
+        "execution_files",
+        "executed_code",
+        "code_recovery_report",
+    }
     assert "test-output" in files.read(finished.artifacts["run_metrics"])
     assert sandbox.created == sandbox.closed
     assert repository.cleanup_candidates("test") == []

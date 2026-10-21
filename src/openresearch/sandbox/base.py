@@ -1,6 +1,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 
@@ -10,7 +11,9 @@ LogCallback = Callable[[str, str], Awaitable[None]]
 class Sandbox(Protocol):
     backend: str
 
-    async def create(self, plan_id: str, execution_id: str) -> str: ...
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str: ...
 
     async def execute(self, sandbox_id: str, code: str, on_log: LogCallback) -> ExecutionResult: ...
 
@@ -25,5 +28,6 @@ class Sandbox(Protocol):
     async def image_identity(self, sandbox_id: str) -> str | None: ...
 
     async def health(self) -> bool: ...
+    async def resources(self, sandbox_id: str) -> SandboxResources: ...
 
     async def shutdown(self) -> None: ...

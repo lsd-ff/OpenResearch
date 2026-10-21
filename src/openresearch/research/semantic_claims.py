@@ -5,6 +5,7 @@ from openresearch.llm.client import LLMClient
 from openresearch.models.claims import CriterionVerdict, FrozenCriterion, SemanticAssessment
 from openresearch.models.research import ResearchReport
 from openresearch.research.claim_verdicts import unknown
+from openresearch.research.environment_preparation import preparation_summary
 
 
 def validate_semantic(
@@ -90,8 +91,11 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
         metadata = {
             "variant": run.variant,
             "metrics": run.metrics,
-            "environment": run.environment.model_dump(mode="json"),
+            "environment": run.environment.model_dump(mode="json") if run.environment else None,
             "exit_code": attempt.exit_code,
+            "phase": attempt.phase,
+            "environment_lock_sha256": attempt.environment_lock_sha256,
+            "reproduction": run.reproduction.model_dump() if run.reproduction else None,
         }
         sections.extend(
             [
@@ -105,6 +109,28 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
     execution = "\n".join(sections)
     output = {"research_report": execution[:16000]}
     if include_history:
+        if report.source_integrity:
+            identity = report.source_integrity
+            # 代码摘要只用于汇总中的来源说明，不进入论文主张的执行数值证据。
+            output["source_integrity"] = json.dumps(
+                {
+                    **identity.model_dump(),
+                    "provided_code_preserved": identity.provided_code_sha256
+                    == identity.prepared_entrypoint_sha256,
+                }
+            )
+        output["environment_preparation"] = json.dumps(
+            [
+                json.loads(preparation_summary(prepared))
+                for prepared in report.environment_preparation
+            ],
+            ensure_ascii=False,
+        )
+        history_runs = (
+            ([report.preflight.run] if report.preflight else [])
+            + [check.run for check in report.preflight_rechecks]
+            + report.runs
+        )
         # 汇总需要真实重试过程；历史错误单列，避免被误引为最终运行证据。
         output["execution_history"] = json.dumps(
             [
@@ -113,6 +139,8 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
                     "attempts": [
                         {
                             "number": item.number,
+                            "phase": item.phase,
+                            "environment_lock_sha256": item.environment_lock_sha256,
                             "exit_code": item.exit_code,
                             "error": item.error,
                             "stderr_tail": item.stderr[-1200:],
@@ -120,8 +148,17 @@ def semantic_evidence(evidence: dict[str, str], *, include_history: bool = False
                         for item in run.attempts
                     ],
                 }
-                for run in report.runs
+                for run in history_runs
             ],
+            ensure_ascii=False,
+        )
+        output["environment_changes"] = json.dumps(
+            [
+                change.model_dump()
+                for check in ([report.preflight] if report.preflight else [])
+                for change in check.environment_changes
+            ]
+            + [change.model_dump() for change in report.environment_changes],
             ensure_ascii=False,
         )
     if "parsed_paper" in evidence:

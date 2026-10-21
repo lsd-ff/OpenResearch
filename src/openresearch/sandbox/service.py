@@ -6,12 +6,13 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import Field
 
 from openresearch.api.body_limit import BodyLimitMiddleware
 from openresearch.api.middleware import install_error_handlers, install_middleware
 from openresearch.config import Settings
+from openresearch.errors import ResourceBusyError
 from openresearch.models.runtime import ContractModel, ExecutionResult, new_id
 from openresearch.sandbox.base import Sandbox
 from openresearch.sandbox.commands import command_program
@@ -19,6 +20,7 @@ from openresearch.sandbox.docker import DockerSandbox
 from openresearch.sandbox.fallback import FallbackSandbox
 from openresearch.sandbox.input_bundle import bundle_limit, unpack_bundle
 from openresearch.sandbox.opensandbox import OpenSandbox
+from openresearch.sandbox.profiles import profile_fingerprint, selected_profile
 from openresearch.sandbox.service_stream import execution_stream
 
 
@@ -27,6 +29,7 @@ class CreateSandbox(ContractModel):
     mount_path: str = Field(default="", max_length=0)
     plan_id: str = Field(default_factory=new_id, pattern=r"^[a-f0-9]{32}$")
     execution_id: str = Field(default_factory=new_id, pattern=r"^[a-f0-9]{32}$")
+    runtime_profile: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 class PythonExecution(ContractModel):
@@ -62,6 +65,10 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
         path_limits={r"/api/v1/sandboxes/[^/]+/files": bundle_limit(configuration)},
     )
 
+    @app.exception_handler(ResourceBusyError)
+    async def resource_busy(_: Request, exc: ResourceBusyError) -> JSONResponse:
+        return JSONResponse({"code": "resource_busy", "error": str(exc)}, status_code=409)
+
     async def owned(identifier: str) -> None:
         if identifier not in {item.id for item in await engine.inventory()}:
             raise HTTPException(404, "sandbox not found in this runtime namespace")
@@ -74,18 +81,41 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     async def health() -> dict[str, Any]:
         return {"ok": await engine.health(), "backend": engine.backend}
 
+    @app.get("/api/v1/runtime-profiles")
+    async def runtime_profiles() -> dict[str, Any]:
+        return {
+            name: {**profile.model_dump(), "sha256": profile_fingerprint(profile)}
+            for name, profile in configuration.runtime_profiles.items()
+        }
+
     @app.post("/api/v1/sandboxes", status_code=201)
     async def create(payload: CreateSandbox) -> dict[str, str]:
-        if payload.image and payload.image != configuration.sandbox_image:
+        profile = selected_profile(configuration, payload.runtime_profile)
+        image = profile.image if profile else configuration.sandbox_image
+        if payload.image and payload.image != image:
             raise HTTPException(422, "sandbox image is selected by the service configuration")
-        creation = asyncio.create_task(engine.create(payload.plan_id, payload.execution_id))
+        creation = asyncio.create_task(
+            engine.create(payload.plan_id, payload.execution_id, payload.runtime_profile)
+            if payload.runtime_profile
+            else engine.create(payload.plan_id, payload.execution_id)
+        )
         try:
             identifier = await asyncio.shield(creation)
         except asyncio.CancelledError:
             identifier = await creation
             await asyncio.shield(engine.close(identifier))
             raise
-        return {"sandbox_id": identifier}
+        return {
+            "sandbox_id": identifier,
+            **(
+                {
+                    "runtime_profile": payload.runtime_profile,
+                    "runtime_profile_sha256": profile_fingerprint(profile),
+                }
+                if payload.runtime_profile and profile is not None
+                else {}
+            ),
+        }
 
     @app.get("/api/v1/sandboxes")
     async def inventory() -> dict[str, Any]:
@@ -95,6 +125,11 @@ def create_sandbox_app(settings: Settings | None = None, adapter: Sandbox | None
     async def image(identifier: str) -> dict[str, str | None]:
         await owned(identifier)
         return {"image_identity": await engine.image_identity(identifier)}
+
+    @app.get("/api/v1/sandboxes/{identifier}/resources")
+    async def resources(identifier: str) -> dict[str, Any]:
+        await owned(identifier)
+        return (await engine.resources(identifier)).model_dump()
 
     @app.put("/api/v1/sandboxes/{identifier}/files")
     async def put_files(identifier: str, request: Request) -> dict[str, int]:

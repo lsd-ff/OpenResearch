@@ -20,7 +20,9 @@ from openresearch.models.runtime import ContractModel
 
 CODE_PROMPT = (
     "Return only JSON with one field: code. Produce a standalone Python "
-    "standard-library program for a small experiment. Print results. "
+    "program for the requested small experiment. Prefer the standard library when sufficient; "
+    "when a library is explicitly requested, import and use that real library. "
+    "Missing public dependencies will be locked and installed by the server. Print actual results. "
     "No shell commands, downloads, interactive input, or invented results."
     " Save generated charts and output files under /workspace/artifacts, creating that "
     "directory first. Use SVG with the standard library when plotting without dependencies."

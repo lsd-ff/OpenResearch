@@ -2,10 +2,10 @@ import hashlib
 import io
 import json
 import zipfile
-from importlib import resources
 
 from test_docker_smoke import pytestmark as pytestmark
 
+from openresearch.research.environment import installation_program
 from openresearch.sandbox.docker import DockerSandbox
 
 
@@ -43,11 +43,7 @@ async def test_actual_python_markers_require_complete_environment(settings) -> N
                 "requirements.lock": requirement.encode(),
             },
         )
-        code = (
-            resources.files("openresearch.sandbox.programs")
-            .joinpath("install_environment.py")
-            .read_text(encoding="utf-8")
-        )
+        code = installation_program()
         result = await sandbox.execute(identifier, code, log)
         assert result.exit_code != 0
         assert "unsatisfied dependency" in result.stderr
@@ -85,11 +81,7 @@ async def test_binary_installation_scratch_does_not_exhaust_the_small_input_tmpf
                 "requirements.lock": requirement.encode(),
             },
         )
-        code = (
-            resources.files("openresearch.sandbox.programs")
-            .joinpath("install_environment.py")
-            .read_text(encoding="utf-8")
-        )
+        code = installation_program()
         result = await sandbox.execute(identifier, code, log)
         assert result.exit_code == 0, result.stderr
         installed = json.loads(await sandbox.get_file(identifier, "environment.json", 65536))

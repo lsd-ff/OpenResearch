@@ -8,13 +8,17 @@ from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from openresearch.errors import ContractError
+from openresearch.distribution.resources import bundled_uv
+from openresearch.errors import ContractError, DependencyResolutionError
+from openresearch.models.interpreters import InterpreterIdentity
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentSpec
+from openresearch.sources.processes import close_process
 
 
-def dependency_requests(values: list[str]) -> list[str]:
-    if len(values) > 32:
-        raise ContractError("automatic environment exceeds 32 dependency requests")
+def dependency_requests(values: list[str], *, limit: int = 32) -> list[str]:
+    if len(values) > limit:
+        raise ContractError(f"automatic environment exceeds {limit} dependency requests")
     requests = []
     for value in values:
         try:
@@ -39,11 +43,37 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 
 
 class DependencyResolver:
+    def __init__(
+        self, python: TargetPython = "3.12", *, interpreter: InterpreterIdentity | None = None
+    ) -> None:
+        self.python = python
+        self.interpreter = interpreter
+        if interpreter and interpreter.python != python:
+            raise ContractError("resolver interpreter differs from its target Python")
+
+    def for_interpreter(self, interpreter: InterpreterIdentity) -> "DependencyResolver":
+        return (
+            self
+            if self.interpreter == interpreter
+            else DependencyResolver(interpreter.python, interpreter=interpreter)
+        )
+
+    def for_python(self, python: TargetPython) -> "DependencyResolver":
+        # Agent 实例可能被并行分支共享，不能修改当前解析器的目标版本。
+        return self if python == self.python else DependencyResolver(python)
+
     async def resolve(self, requests: list[str]) -> EnvironmentSpec:
-        dependencies = dependency_requests(requests)
+        return await self._resolve(requests, 32)
+
+    async def resolve_recovery(self, requests: list[str]) -> EnvironmentSpec:
+        # 模型仍最多提出 8 个变更；此入口只为保留已有最多 128 个锁定包，不能扩展新设计预算。
+        return await self._resolve(requests, 128)
+
+    async def _resolve(self, requests: list[str], limit: int) -> EnvironmentSpec:
+        dependencies = dependency_requests(requests, limit=limit)
         if not dependencies:
-            return EnvironmentSpec()
-        executable = shutil.which("uv")
+            return EnvironmentSpec(interpreter=self.interpreter)
+        executable = bundled_uv() or shutil.which("uv")
         if executable is None:
             raise ContractError("automatic dependency resolution requires the bundled uv runtime")
         with tempfile.TemporaryDirectory(prefix="openresearch-dependencies-") as directory:
@@ -56,7 +86,7 @@ class DependencyResolver:
             line.strip() for line in raw.splitlines() if line.strip() and not line.startswith("#")
         ]
         try:
-            return EnvironmentSpec(requirements=pins)
+            return EnvironmentSpec(requirements=pins, interpreter=self.interpreter)
         except ValueError:
             raise ContractError(
                 "automatic dependency lock is unsupported or exceeds limits"
@@ -70,38 +100,52 @@ class DependencyResolver:
             if key.upper() in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "WINDIR"}
         }
         environment.update(UV_HTTP_TIMEOUT="30", UV_NO_PROGRESS="1")
-        process = await asyncio.create_subprocess_exec(
-            executable,
-            "--no-config",
-            "pip",
-            "compile",
-            str(root / "requirements.in"),
-            "--output-file",
-            str(root / "requirements.txt"),
-            "--python-version",
-            "3.12",
-            "--python-platform",
-            "x86_64-manylinux_2_36",
-            "--no-build",
-            "--no-header",
-            "--no-annotate",
-            "--default-index",
-            "https://pypi.org/simple",
-            env=environment,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        creation = asyncio.create_task(
+            asyncio.create_subprocess_exec(
+                executable,
+                "--no-config",
+                "pip",
+                "compile",
+                str(root / "requirements.in"),
+                "--output-file",
+                str(root / "requirements.txt"),
+                "--python-version",
+                self.interpreter.python_full_version if self.interpreter else self.python,
+                "--python-platform",
+                "x86_64-manylinux_2_36",
+                "--no-build",
+                "--no-header",
+                "--no-annotate",
+                "--default-index",
+                "https://pypi.org/simple",
+                env=environment,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         )
         try:
+            # 与容器创建一样，启动窗口取消时仍须拿到真实进程句柄再清理。
+            process = await asyncio.shield(creation)
+        except asyncio.CancelledError:
+            process = await creation
+            await close_process(process)
+            raise
+        readers = [
+            asyncio.create_task(capped_output(process.stdout)),
+            asyncio.create_task(capped_output(process.stderr)),
+        ]
+        try:
             async with asyncio.timeout(90):
-                await asyncio.gather(capped_output(process.stdout), capped_output(process.stderr))
-                if await process.wait() != 0:
-                    raise ContractError(
-                        "无法为当前 Python/CPU 环境解析兼容依赖；"
-                        "可在聊天中指定其他版本或轻量运行方式。"
+                stdout, stderr = await asyncio.gather(*readers)
+                exit_code = await process.wait()
+                if exit_code != 0:
+                    raise DependencyResolutionError(
+                        (stderr or stdout).decode("utf-8", errors="replace"), exit_code
                     )
         except TimeoutError:
             raise ContractError("automatic dependency resolution timed out") from None
         finally:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            await close_process(process)

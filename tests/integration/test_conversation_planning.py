@@ -366,7 +366,8 @@ async def test_explicit_benchmark_cannot_be_downgraded_by_model(settings, reposi
     result = await parser.parse(snapshot, "用仓库跑 benchmark", [])
     assert result.workflow == "benchmark"
     result = await parser.parse(snapshot, "对比 LangChain 和 LlamaIndex 的 RAG 性能", [])
-    assert result.workflow == "benchmark"
+    assert result.workflow == "framework" and result.framework_mode == "benchmark"
+    assert result.frameworks == ["LangChain", "LlamaIndex"]
     result = await parser.parse(snapshot, "无需 benchmark，只跑仓库冒烟实验", [])
     assert result.workflow == "reproduce"
 

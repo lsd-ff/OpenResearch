@@ -124,11 +124,15 @@ async def test_designer_locks_pytest_and_preserves_actual_suite_paths(settings, 
     designer = ResearchDesigner(settings, files)
     designer.preparer.workspace = lambda _: (
         None,
-        {"tests/test_model.py": b"def test_core(): assert True"},
+        {
+            "tests/test_model.py": b"from model import forward\ndef test_core(): assert forward()",
+            "model.py": b"def forward(): return 1",
+        },
     )
     designer.llm.request_typed = AsyncMock(
         return_value=ExperimentDesign(
             test_paths=["model_suggested_other_test.py"],
+            patch_paths=["openresearch_run.py", "model.py"],
             dependencies=["numpy>=1.26"],
             rationale="Run the original suite",
         )
@@ -139,4 +143,7 @@ async def test_designer_locks_pytest_and_preserves_actual_suite_paths(settings, 
     result = await designer.execute(plan, task)
     resolved = json.loads(result.outputs["research_spec"])
     assert resolved["test_paths"] == ["tests/test_model.py"]
+    assert resolved["patch_paths"] == ["openresearch_run.py", "model.py"]
+    context = json.loads(designer.llm.request_typed.call_args.args[0][1]["content"])
+    assert context["pytest_implementation_candidates"] == ["model.py"]
     assert designer.dependencies.resolve.call_args.args[0] == ["numpy>=1.26", "pytest>=7,<10"]

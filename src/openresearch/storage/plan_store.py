@@ -36,7 +36,7 @@ class PlanStore:
                 raise ConflictError("plan requires approval")
             plan.status = Status.READY
             plan.execution_scope = None
-            plan.usage.started_at = utcnow()
+            plan.usage.started_at = plan.usage.started_at or utcnow()
             plan.usage.finished_at = None
             self.database.save(connection, plan)
             self.database.publish(connection, plan, "plan_queued")

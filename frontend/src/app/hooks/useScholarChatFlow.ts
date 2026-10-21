@@ -3,6 +3,7 @@ import type { ChatMessage, IntentContext, PlanGraph, PlanResponse, UploadedFile 
 import { getPlan, sendMessage, uploadFile } from '../../services/api/scholarApi';
 import { apiErrorMessage } from '../../services/api/errors';
 import { uiText } from '../constants/uiText';
+import { codeSummary } from '../../features/execution/codeSummary';
 
 interface UseScholarChatFlowOptions {
   onPlanGraphChanged: (planGraph: PlanGraph | null) => void;
@@ -194,11 +195,23 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
               (session.reportedPlanStatus ?? session.planGraph?.status) === graph.status;
             if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
-            const analysis = graph.nodes.find(node => node.type === 'chat_answer')
-              ?? graph.nodes.find(node => node.type === 'paper_analyze');
-            const text = graph.status === 'completed'
-              ? analysis?.result || '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
-              : graph.status === 'canceled' ? '当前计划已取消。'
+            const analysis = graph.nodes.find(node => node.type === 'framework_report')
+              ?? graph.nodes.find(node => node.type === 'chat_answer')
+              ?? graph.nodes.find(node => node.type === 'research_gap_repair')
+              ?? graph.nodes.find(node => node.type === 'paper_analyze')
+              ?? graph.nodes.find(node => node.type === 'knowledge_synthesis')
+              ?? graph.nodes.find(node => node.type === 'knowledge_process')
+              ?? graph.nodes.find(node => node.type === 'knowledge_research')
+              ?? graph.nodes.find(node => node.type === 'result_audit')
+              ?? graph.nodes.find(node => node.type === 'code_execute');
+            const report = analysis?.type === 'code_execute' ? codeSummary(graph, analysis) : analysis?.result;
+            const gapReport = analysis?.type === 'research_gap_repair' &&
+              ['completed', 'failed'].includes(analysis.status ?? '');
+            const validReport = report && (gapReport || (analysis?.status === 'completed' &&
+              (graph.status === 'completed' || analysis.trigger_rule === 'all_done')));
+            const text = graph.status === 'canceled' ? '当前计划已取消。'
+              : validReport ? report
+              : graph.status === 'completed' ? '实验执行完成，可点击右侧节点查看真实输出、报告和证据。'
               : failure?.error || '执行失败，运行记录已保留，可查看失败节点后继续处理。';
             return { ...session, planGraph: graph, reportedPlanId: graph.id, reportedPlanStatus: graph.status,
               chatHistory: [...session.chatHistory, { role: 'system', text }] };
@@ -385,7 +398,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
       }
       appendMessageToSession(requestSessionId, {
         role: 'system', text: response.response,
-        actions: response.plan_graph?.attachments?.length ? ['open_pdf'] : undefined,
+        actions: response.papers?.length ? ['open_pdf'] : undefined,
+        papers: response.papers,
       });
       // 后端已持久化追问所需附件，简短回复不必重新上传或再次选择材料。
       setPendingAttachments([]);
@@ -408,7 +422,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
         planGraph: response.plan_graph,
       });
       setPendingAttachments([]);
-      appendChatMessage({ role: 'system', text: '实验计划已生成，可在右侧执行并查看证据。' });
+      appendChatMessage({ role: 'system', text: '实验计划已生成，可在右侧执行并查看证据。',
+        actions: response.papers?.length ? ['open_pdf'] : undefined, papers: response.papers });
     },
     prompt,
     setPrompt,

@@ -1,9 +1,10 @@
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter
 
 from openresearch.api.dependencies import IdentityDep, RuntimeDep
-from openresearch.api.payloads import message_payload, plan_payload
+from openresearch.api.payloads import message_payload, papers_payload, plan_payload
 from openresearch.api.schemas import CreatePlanRequest
 from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.agent import PlannerAgent
@@ -23,12 +24,20 @@ async def create_plan(
         attachments=payload.attachments,
         workflow=payload.workflow,
         research=payload.research,
+        comparison=payload.comparison,
+        result_gap_repair=payload.result_gap_repair,
     )
-    if payload.workflow == "auto" and payload.research is None and payload.code is None:
+    if (
+        payload.workflow == "auto"
+        and payload.research is None
+        and payload.comparison is None
+        and payload.code is None
+    ):
         result = await runtime.messages.send(submission)
         response = message_payload(result)
         return {
             **response,
+            "papers": await asyncio.to_thread(papers_payload, result.plan, runtime.repository),
             "message": result.response,
             "user_id": identity.user_id,
             "anon_user_id": identity.user_id,
@@ -41,6 +50,7 @@ async def create_plan(
     return {
         "message": "Plan generated successfully",
         "plan_graph": plan_payload(plan),
+        "papers": await asyncio.to_thread(papers_payload, plan, runtime.repository),
         "user_id": identity.user_id,
         "anon_user_id": identity.user_id,
         "session_id": identity.session_id,

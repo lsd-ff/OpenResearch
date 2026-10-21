@@ -11,7 +11,9 @@ from openresearch.models.runtime import ContractModel
 
 
 class IntentDraft(ContractModel):
-    workflow: Literal["chat", "code", "paper", "reproduce", "benchmark", "data"]
+    workflow: Literal["chat", "code", "paper", "reproduce", "benchmark", "data", "framework"]
+    frameworks: list[str] = Field(default_factory=list, max_length=4)
+    framework_mode: Literal["research", "benchmark"] = "benchmark"
     continue_pending: bool = True
     repository_url: str | None = None
     repository_ref: str | None = Field(default=None, max_length=128)
@@ -51,7 +53,7 @@ class ExperimentDesign(ContractModel):
     test_paths: list[Annotated[str, Field(pattern=r"\.py$")]] = Field(
         default_factory=list, max_length=8
     )
-    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=3)
+    ablations: list[ExperimentVariant] = Field(default_factory=list, max_length=6)
     rationale: str = Field(min_length=1, max_length=4000)
     limitations: list[str] = Field(default_factory=list, max_length=8)
     rubric: RubricDraft = Field(default_factory=RubricDraft)

@@ -18,6 +18,9 @@ def test_gc_preserves_active_and_historical_artifacts(repository, files, setting
     garbage = ArtifactGarbageCollector(repository.database, files.root)
     orphan = old_artifact(files, ExecutionLease(new_id(), new_id(), new_id(), "lost"))
     plan = build_code_plan("smoke", "alice", "session", settings)
+    # 保留旧版单产物准备任务，验证历史产物仍按原契约参与 GC。
+    plan.nodes[0].output_artifacts = ["generated_code"]
+    plan.nodes[0].contract.output_artifacts = ["generated_code"]
     repository.save_plan(plan)
     repository.queue_plan(plan.id, "alice")
     claimed, node = repository.claim_next("worker", 30, 1)

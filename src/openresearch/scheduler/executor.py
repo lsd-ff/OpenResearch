@@ -5,9 +5,10 @@ from contextlib import suppress
 
 from openresearch.agents.context import AgentContext
 from openresearch.agents.router import RoutedAgents
+from openresearch.agents.scopes import scoped_context, scoped_result
 from openresearch.config import Settings
-from openresearch.errors import ContractError, PlanningInputRequired, StaleExecutionError
-from openresearch.models.execution import ExecutionLease, TaskCompletion
+from openresearch.errors import PlanningInputRequired, StaleExecutionError
+from openresearch.models.execution import ExecutionLease, TaskCompletion, validate_output_keys
 from openresearch.models.output_files import OutputFiles
 from openresearch.models.runtime import Artifact, Plan, Task, TaskResult
 from openresearch.sandbox.base import Sandbox
@@ -42,11 +43,17 @@ class TaskExecutor:
             await self._fail(lease, exc)
 
     async def _route(self, plan: Plan, task: Task, lease: ExecutionLease) -> TaskResult:
-        return await self.agents.execute(AgentContext(plan, task, lease))
+        context = AgentContext(plan, task, lease)
+        result = await self.agents.execute(scoped_context(context))
+        return scoped_result(context, result)
 
     async def _commit(self, task: Task, lease: ExecutionLease, result: TaskResult) -> None:
-        if set(result.outputs) != set(task.output_artifacts):
-            raise ContractError("agent output does not match its task contract")
+        validate_output_keys(
+            task.output_artifacts,
+            result.outputs.keys(),
+            result.success,
+            task.contract.optional_output_artifacts,
+        )
         output = [
             await asyncio.to_thread(self.files.write, lease, key, value)
             for key, value in result.outputs.items()
@@ -58,10 +65,17 @@ class TaskExecutor:
     def _describe_files(
         lease: ExecutionLease, result: TaskResult, artifacts: list[Artifact]
     ) -> None:
-        collection = next((item for item in artifacts if item.key == "execution_files"), None)
+        collection = next(
+            (
+                item
+                for item in artifacts
+                if item.key == "execution_files" or item.key.endswith("__execution_files")
+            ),
+            None,
+        )
         if collection is None:
             return
-        bundle = OutputFiles.model_validate_json(result.outputs["execution_files"])
+        bundle = OutputFiles.model_validate_json(result.outputs[collection.key])
         metadata = json.loads(result.structured_data or "{}")
         metadata["output_files"] = [
             {

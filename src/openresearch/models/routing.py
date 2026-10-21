@@ -1,9 +1,24 @@
 from openresearch.errors import ContractError
 
 ROLES: dict[str, set[str]] = {
+    "research_gap_repair": {"coder_agent", "research_coding_agent"},
+    "knowledge_research": {"librarian_agent"},
+    "knowledge_synthesis": {"data_agent"},
+    "knowledge_process": {"data_agent"},
+    "repository_discover": {"librarian_agent"},
+    "framework_catalog": {"data_agent"},
+    "result_audit": {"data_agent"},
+    "legacy_environment": {"coder_agent"},
+    "runtime_prepare": {"coder_agent"},
+    "comparison_protocol": {"data_agent"},
+    "framework_design": {"coder_agent"},
+    "framework_research": {"librarian_agent"},
+    "framework_answer": {"chat_agent"},
+    "framework_report": {"data_agent"},
     "chat_answer": {"chat_agent"},
     "source_discover": {"librarian_agent"},
     "data_analyze": {"data_agent"},
+    "ablation_design": {"data_agent"},
     "code_generate": {"coder_agent", "research_coding_agent"},
     "code_execute": {"sandbox_agent", "coder_agent"},
     "document_extract": {"librarian_agent", "data_agent"},
@@ -12,6 +27,7 @@ ROLES: dict[str, set[str]] = {
     "environment_lock": {"research_agent", "sandbox_agent", "coder_agent"},
     "claim_freeze": {"research_agent", "librarian_agent", "data_agent"},
     "research_prepare": {"research_agent", "coder_agent", "research_coding_agent"},
+    "benchmark_preflight": {"coder_agent", "research_coding_agent"},
     "research_design": {"research_agent", "coder_agent", "research_coding_agent"},
     "research_execute": {"research_agent", "sandbox_agent", "research_coding_agent", "coder_agent"},
 }

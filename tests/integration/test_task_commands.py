@@ -39,7 +39,8 @@ async def test_single_task_execution_does_not_run_descendants(
     repository.tasks.queue(plan.id, plan.nodes[1].id, "alice")
     await drain(worker)
     assert repository.get_plan(plan.id).status == Status.COMPLETED
-    assert len(sandbox.created) == 1
+    assert len(sandbox.created) == 2  # 实际执行之前还有独立只读版本探测。
+    assert sorted(sandbox.created) == sorted(sandbox.closed)
 
 
 def test_reassign_preserves_role_capabilities_and_owner(settings, repository, sandbox) -> None:

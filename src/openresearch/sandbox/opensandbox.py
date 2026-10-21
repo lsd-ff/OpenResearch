@@ -11,12 +11,14 @@ from docker.utils import parse_bytes
 
 from openresearch.config import Settings
 from openresearch.errors import SandboxError
+from openresearch.models.compute import SandboxResources
 from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import python_files
 from openresearch.sandbox.base import LogCallback
 from openresearch.sandbox.command_output import CommandOutput
 from openresearch.sandbox.namespace import runtime_namespace
+from openresearch.sandbox.profiles import selected_profile
 from openresearch.sandbox.streams import stream_events
 
 
@@ -56,20 +58,29 @@ class OpenSandbox:
         except (httpx.HTTPError, ValueError):
             raise SandboxError("OpenSandbox service request failed") from None
 
-    async def create(self, plan_id: str, execution_id: str) -> str:
+    async def create(
+        self, plan_id: str, execution_id: str, runtime_profile: str | None = None
+    ) -> str:
+        profile = selected_profile(self.settings, runtime_profile)
+        if profile and profile.gpu:
+            raise SandboxError("this OpenSandbox adapter cannot guarantee GPU runtime profiles")
+        if profile and profile.workspace_storage == "volume":
+            raise SandboxError("OpenSandbox cannot guarantee managed workspace volumes")
         value = await self.request(
             "POST",
             "v1/sandboxes",
             json={
-                "image": {"uri": self.settings.sandbox_image},
+                "image": {"uri": profile.image if profile else self.settings.sandbox_image},
                 "entrypoint": [
                     "sh",
                     "-c",
                     "mkdir -p /workspace && chmod 1777 /workspace && sleep infinity",
                 ],
                 "resourceLimits": {
-                    "cpu": "1",
-                    "memory": str(parse_bytes(self.settings.sandbox_memory)),
+                    "cpu": str(profile.cpus) if profile else "1",
+                    "memory": str(profile.memory_mb * 1024 * 1024)
+                    if profile and profile.memory_mb
+                    else str(parse_bytes(self.settings.sandbox_memory)),
                 },
                 "timeout": self.settings.task_timeout_seconds + 120,
                 "networkPolicy": {"defaultAction": "deny", "egress": []},
@@ -95,6 +106,9 @@ class OpenSandbox:
         except BaseException:
             await self.close(identifier)
             raise
+
+    async def resources(self, sandbox_id: str) -> SandboxResources:
+        raise SandboxError("OpenSandbox resource limits cannot be attested by this adapter")
 
     async def endpoint(self, sandbox_id: str) -> tuple[str, dict[str, str]]:
         identifier = self.identifier(sandbox_id)

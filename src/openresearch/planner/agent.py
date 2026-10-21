@@ -1,5 +1,6 @@
 import json
 import logging
+from collections import Counter
 
 from pydantic import ValidationError
 
@@ -15,7 +16,8 @@ from openresearch.storage.repository import Repository
 logger = logging.getLogger(__name__)
 PLANNER_PROMPT = (
     "Design an executable DAG for the user's goal and return PlanBlueprint. "
-    "Retain every required workflow stage exactly once. Use each task type at most once. "
+    "Retain every required workflow stage exactly once using its template_task_id. "
+    "Repeated task types may belong to independent framework branches; keep their identities. "
     "Dependencies refer to your node refs. Every required input artifact must have an ancestor "
     "that produces it. Do not remove provenance, environment, frozen rubric or execution stages. "
     "You may add the declared optional capabilities, choose valid agent roles, arrange parallel "
@@ -56,7 +58,11 @@ class PlannerAgent:
         return template
 
     def _context(self, plan: Plan) -> str:
-        references = {task.id: task.type for task in plan.nodes}
+        counts = Counter(task.type for task in plan.nodes)
+        references = {
+            task.id: task.type if counts[task.type] == 1 else f"{task.type}_{index}"
+            for index, task in enumerate(plan.nodes)
+        }
         uploads = [self.repository.uploads.get(key, plan.owner_id) for key in plan.attachments]
         return json.dumps(
             {
@@ -64,7 +70,8 @@ class PlannerAgent:
                 "max_nodes": plan.budget.max_task_attempts,
                 "required_stages": [
                     {
-                        "ref": task.type,
+                        "ref": references[task.id],
+                        "template_task_id": task.id,
                         "type": task.type,
                         "name": task.name,
                         "description": task.description,
@@ -73,6 +80,7 @@ class PlannerAgent:
                         "required_artifacts": task.required_artifacts,
                         "output_artifacts": task.output_artifacts,
                         "allowed_tools": task.contract.allowed_tools,
+                        "trigger_rule": task.trigger_rule,
                     }
                     for task in plan.nodes
                 ],

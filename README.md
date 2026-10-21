@@ -4,6 +4,8 @@ AGI-OpenResearch 的独立 Python 重写。React 工作台、FastAPI、模型 DA
 
 遵循项目 [code_skill](.trae/skills/code_skill/SKILL.md)：职责拆分、参数对象、中文关键注释、事务并发控制和小步行为测试。原 Go 工程保持独立。
 
+Go 实际功能与 Python 差异见 [源码迁移复核](docs/go-migration-audit.md)，最新本地测试、单句 Transformer、部署和发行物证据见 [整合验收记录](docs/local-verification-2026-10-21.md)。
+
 ## 启动
 
 需要 Python 3.12–3.14、uv、Node.js 22 和 Docker Engine / Docker Desktop Linux 容器。显式代码与示例实验无需模型密钥。在本目录运行：
@@ -24,6 +26,10 @@ uv run --locked openresearch worker
 
 工作台：http://127.0.0.1:8080/；接口文档：http://127.0.0.1:8080/docs。
 
+也可用 `uv run --locked openresearch app` 一次启动工作台、API、Worker 和本地沙箱。单文件构建使用 `uv sync --locked --group release` 后运行 `uv run --locked --group release python scripts/build_release.py`；发行物自带网页、Python 运行时和 uv，目标机器仍需 Docker 及对应外部服务配置。构建、配置、退出和真实发行物验收见 [单文件发行](docs/release.md)。
+
+独立底层模块已提供真实持久 TTY、Docker Commit 快照与容器重建回滚，管理代码示例、生命周期和当前迁移边界见 [Docker 持久终端与检查点](docs/docker-core.md)。
+
 也可在本目录启动容器部署，镜像会构建工作台：
 
 ```powershell
@@ -40,10 +46,13 @@ docker compose logs -f worker
 - 直接在聊天中说出论文或方法名称，例如「复现一下 Transformer 论文的核心架构并跑通测试」。系统先检索来源；模型查询无结果或失败时，会用用户给出的名称再检索一次。匹配明确则自动选取实现并生成流程图，真正歧义才列出候选。也可直接提供仓库链接，例如「用 https://github.com/pallets/itsdangerous 做签名校验冒烟实验」。
 - 添加 PDF 后发送「分析这篇论文」或「复现这篇论文」。解析在 Docker 中完成；分析引用核对实际页码，复现会从原文或真实检索结果发现仓库。多个候选、缺失源码等材料会在聊天中追问，直接回复编号或链接继续。
 - 添加 CSV、TSV、JSONL 或 JSON 对象数组，描述评测目标。常见标签列可识别，歧义列会追问；无需重新上传。标签留在评估端，实验只接收特征。见 [实验协议](docs/experiments.md) 与 [examples](examples/)。
+- 发送「对比 LangChain 与 LlamaIndex 的 RAG 性能」可创建独立框架分支，共用数据与嵌入协议，实际安装并调用框架，再用相同的真实模型生成回答。未上传数据时明确使用合成功能样例；发送「比较 LangChain 与 LlamaIndex 的适用场景」则只分析实际发布资料。默认自动执行，仍遵守「只规划」及审批设置。范围与实测见 [框架对比](docs/framework-comparison.md)。
 - 上传数据后也可直接要求统计和缺失值分析；Data Agent 计算实际数据并生成 SVG。代码把文件写入 `/workspace/artifacts` 后会自动收集、校验和保存，支持图像预览与下载，详见 [输出产物](docs/output-artifacts.md)。PDF 可在聊天附件旁直接阅读。
 - 「高级实验设置」是可选入口，用于手动指定仓库、入口、固定依赖、列映射和验收阈值。普通聊天实验无需填写该表单。
 - 选择节点查看日志、报告与证据图。支持整图、单节点执行；API 提供角色重分配、审批、取消、失败节点重试和 SSE 游标回放。
 - 普通聊天、自然语言代码生成、自动补丁修复和语义主张评估需要配置 OpenAI-compatible 或 Anthropic Messages 模型。未配置或响应无效会明确失败或标记不可验证；配置和真实联调见 [模型说明](docs/models.md)。
+- 普通代码支持有界自动恢复：明确说「直接执行以下代码并修复错误」时自动入队；语法和可恢复的 API/导入错误可由模型提出修复，缺失公开模块经版本与 wheel 哈希校验后离线安装，再使用新容器运行。原代码、错误和修复记录保留，故意失败的断言不会被改成成功。补依赖及额外 CPU 运行时切换分别消耗原预算，管理员未注册或用户禁止时不会切换。`OPENRESEARCH_CODE_MAX_REPAIRS=0` 可关闭，准备和执行阶段分别最多 2 次修复。详见 [普通代码恢复](docs/code-recovery.md) 与 [运行时选择](docs/runtime-profiles.md)。
+- 科研和框架计划支持初始准备及执行阶段的有界环境恢复、依赖删除/替换，保存实际错误、来源证据、每次采用的完整锁；失败也能回传聊天报告。可按实际包的 Python 要求切换到管理员注册的兼容 CPU 环境。Benchmark 代码、依赖或运行时变更后必须重新通过独立样本预检，用户固定版本、指定库、预算与禁用指令继续生效，详见 [环境恢复](docs/environment-recovery.md) 与 [运行时选择](docs/runtime-profiles.md)。
 
 示例部署验收会真实执行沙箱程序，重算基线与消融准确率并下载产物：
 
@@ -63,13 +72,15 @@ uv run --locked python scripts/verify_deployment.py
 
 OPENRESEARCH_API_TOKEN 非空时要求 Bearer token；「连接设置」可换取 HttpOnly Cookie，供 REST、SSE、PDF 与产物读取使用。用户 ID 是可信本地客户端声明的资源归属标识，没有独立账号认证；当前面向单机可信使用者。
 
-原生 Docker 默认：1 CPU、256 MiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 64 MiB 不可执行内存盘；/workspace 为 256 MiB 内存盘，支持 wheel 扩展模块。任务 120 秒、计划 600 秒、最多 10 次节点尝试；研究修复最多 2 次、消融最多 3 组。部分上限可配置。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
+原生 Docker 默认：1 CPU、1 GiB、64 进程、非 root、只读根目录、禁止联网。/tmp 为 256 MiB 不可执行内存盘；/workspace 为 1 GiB 内存盘，支持 wheel 扩展模块。wheel 下载总量默认最多 128 MiB。任务 600 秒、计划 2400 秒、最多 100 次节点尝试；研究修复最多 2 次、消融最多 6 组，自动 ToT 默认选择最多 3 组。默认预算覆盖首次多框架下载；已有 `.env` 的显式配置优先，不能被规划器自行突破。当前用于小型 CPU 实验，未交付 GPU 训练调度。OpenSandbox 使用其服务端隔离配置，客户端请求资源上限、非 root 命令和默认拒绝的出站策略。
 
-仓库仅支持 HTTPS GitHub；分支在获取时解析为完整提交 SHA，拒绝链接、特殊文件及越界归档。依赖最终必须完整 name==version 固定，限定 PyPI 上适配 CPython 3.12 / Linux x86_64 的 wheel，校验哈希后在容器中离线安装。自动规划先将模型建议的版本范围解析成固定版本；不执行源码包构建或仓库安装脚本。
+仓库仅支持 HTTPS GitHub；分支在获取时解析为完整提交 SHA，拒绝链接、特殊文件及越界归档。依赖最终必须完整 name==version 固定，限定 PyPI 上适配所选 CPython / Linux x86_64 的 wheel，默认目标为 3.12，命名配置支持 3.11/3.12/3.13，校验哈希后在容器中离线安装。自动规划先将模型建议的版本范围解析成固定版本；不执行源码包构建或仓库安装脚本。
 
-目前没有 OCR，扫描件保留缺失文本状态。检索优先使用 HuggingFace Papers（原 Go 中的 Papers with Code 来源），空结果或失败时回退 GitHub / arXiv；支持单独指定检索来源，并保留论文出处。公开检索和 arXiv PDF 下载支持环境代理或 OPENRESEARCH_SOURCE_PROXY_URL；不把代理设置或模型凭据送入实验容器。语义判断是受证据引用约束的辅助评估，数值验收由服务端重算。成功运行、空验收规则和示例正确率均不能自动等同于论文主张已复现。
+目前没有 OCR，扫描件保留缺失文本状态。检索优先使用 HuggingFace Papers（原 Go 中的 Papers with Code 来源），空结果或失败时回退 GitHub / arXiv；支持单独指定检索来源，并保留论文出处。公共 HTTP/HTTPS PDF 可在聊天中提供链接，也可通过 PDF 代理读取；下载会校验全部 DNS 地址并固定实际连接 IP，逐次校验重定向、类型、签名和大小。网页按钮打开本次实际保存的附件并支持刷新恢复。公开检索支持环境代理或 OPENRESEARCH_SOURCE_PROXY_URL；PDF 下载使用显式 OPENRESEARCH_SOURCE_PROXY_URL，否则直接连接，不自动继承系统代理。不把代理设置或模型凭据送入实验容器。详情与验收见 [公共 PDF](docs/remote-pdf.md)。语义判断是受证据引用约束的辅助评估，数值验收由服务端重算；示例指标不等于论文效果。
 
 独立运行时可选择 docker、http、opensandbox 或 auto 后端。http 既支持本项目 Python 服务，也兼容原 Go NDJSON 协议；仅旧 Go 服务缺少清单和镜像摘要。Python HTTP 服务可对账容器并返回原生 Docker 的实际镜像摘要。
+
+管理员可注册命名运行时，科研/框架计划按用户版本选择目标，不兼容时可按真实证据有界恢复。新 GPU/full 计划接入实际容器资源准入、跨服务 GPU 互斥及执行前重新探测；资源不足会阻止程序并返回失败报告。大工作区可显式使用临时 Docker 卷，该卷没有磁盘配额。配置为空时默认 Python 3.12 CPU；full 策略和小型 CUDA 验收不证明大型论文训练效果，最终部署仍待验收。配置与回执见 [运行时选择](docs/runtime-profiles.md)。
 
 ## 工程与恢复
 
@@ -84,7 +95,7 @@ uv run --locked pytest -m docker
 
 默认门禁包含 Ruff、严格 mypy、离线行为测试及 sdist/wheel 构建；前端运行 npm run lint 和 npm run build。CI 已配置 Windows/Linux 与 Python 3.12/3.13，远程结果以 GitHub Actions 实际运行记录为准。
 
-CI 的 browser 作业在独立 Linux 环境运行 Chromium、API 和真实 Docker Worker，覆盖 PDF 阅读、图表输出与下载、数据分析、聊天追问、刷新恢复、名称检索和窄屏操作。分类、候选选择和名称检索使用受控夹具，不提供代码或实验结果；程序、图表和统计结果来自实际执行。真实模型 DAG、HTTP 沙箱、数据与 SSE 可使用 `scripts/verify_framework.py` 另行验收；自动设计、源码复现和 Benchmark 由 `scripts/verify_auto_planning.py` 验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
+CI 的 browser 作业在独立 Linux 环境运行 Chromium、API 和真实 Docker Worker，覆盖 PDF 阅读、图表输出与下载、数据分析、聊天追问、刷新恢复、名称检索和窄屏操作。分类、候选选择、名称检索和 JSON API 修复提议使用受控夹具，不提供实验结果；程序、图表和统计结果来自实际执行。真实模型 DAG、HTTP 沙箱、数据与 SSE 可使用 `scripts/verify_framework.py` 另行验收；自动设计、源码复现和 Benchmark 由 `scripts/verify_auto_planning.py` 验收。网页测试使用独立端口、数据目录和测试凭据，截图与失败 trace 作为 CI 产物保留 7 天。
 
 SQLite 使用 WAL、外键与写事务锁。状态、事件和产物索引同事务提交；上传、会话、来源页和历史尝试持久化，迁移包含 0001_runtime 与 0002_documents_context。产物读取验证 SHA-256。租约过期恢复会拒绝旧结果；实验允许重复执行，不承诺 exactly-once。
 

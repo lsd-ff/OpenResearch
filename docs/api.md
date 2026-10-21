@@ -13,6 +13,7 @@
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
 | GET | /ping、/api/health | 进程探活、沙箱就绪检查 |
+| GET | /api/hello | Go 连通性兼容入口，纯文本 hello api group；遵守 API 认证 |
 | POST | /api/auth/session | 认证 Cookie |
 | GET | /api/session | 当前持久会话、上传、计划、文档计划和历史 |
 | POST | /api/chat | message；模型答复和校验后的页码引用 |
@@ -20,15 +21,15 @@
 | POST | /api/uploads | multipart file，201；返回 id、name、sha256、size、content_url |
 | GET | /api/uploads/{id}、/api/uploads/{id}/content | 元数据、原文件与 SHA ETag |
 | POST | /api/sources/search | kind=paper/repository、query、limit；返回来源元数据 |
-| GET | /api/pdf-proxy?url=... | 受限 arXiv PDF；其他来源请上传 |
-| POST | /api/plan | 创建图，不自动执行 |
+| GET | /api/pdf-proxy?url=... | 公共 HTTP/HTTPS PDF，校验 DNS、实际连接及重定向；支持 arXiv |
+| POST | /api/plan | 显式工作流创建图；默认 auto 可复用统一消息服务 |
 | GET | /api/plans/{id} | plan_graph 包含状态、节点和产物索引 |
 | POST | /api/plans/{id}/execute | 202，整图排队 |
 | POST | /api/plans/{id}/approve、cancel | 批准或取消 |
 | POST | /api/plans/{id}/tasks/{task}/execute | 202，只排队所选节点，依赖须已完成 |
 | POST | /api/plans/{id}/tasks/{task}/retry | 重置失败节点及后继，需再次执行 |
 | POST | /api/plans/{id}/tasks/{task}/reassign | assigned_to；仅允许尚未开始节点与兼容角色 |
-| POST | /api/execute | 持久节点的兼容 SSE 执行，task_id 必填，plan_id 可选 |
+| POST | /api/execute | 选择已保存节点，或以旧任务字段创建受治理的持久计划；SSE，待审批时返回 202 JSON |
 | GET | /api/plans/{id}/events?after=0 | 最多 200 个事件、next_cursor |
 | GET | /api/plans/{id}/stream?after=0 | plan_event SSE，支持 Last-Event-ID |
 | GET | /api/plans/{id}/artifacts/{artifact}/content | 完整文本产物与 SHA ETag |
@@ -43,7 +44,13 @@
 
 workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已上传文件的 ID，最多 8 个。默认 auto 且无显式 research/code 时使用统一会话规划；显式工作流仍支持高级参数。显式 paper 只解析文档。
 
-工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。生成图后仍由 `/execute` 排队，生成计划本身不执行代码。
+`/api/messages` 与 `/api/plan` 的 `papers` 列表只包含本次计划实际所属的 PDF 元数据及内容地址，不包含内部文件路径或所有者字段。网页阅读按钮绑定这个列表，打开已保存的原始附件；CSV 等非 PDF 附件不显示论文入口。远程链接下载同样先保存为有归属及 SHA-256 的附件，随后才进入沙箱解析。网络、代理及大小边界见 [公共 PDF](remote-pdf.md)。
+
+工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。显式工作流的 `/api/plan` 只创建图，须另行排队；默认 auto 且未传 code/research/comparison 时则复用统一消息服务。消息服务对明确执行请求和已接通的自动流程使用标准队列，响应说明是否已开始执行。审批或「先规划」「不要执行」继续阻止自动入队。
+
+原生科研请求明确包含「修复结果差距并重跑」等指令时，同一张图保留原执行、实际结果比较与来源快照、受约束的差距修复及终态聊天报告。已有 CSV/PDF/源码按原规则上传或提供，不由模型虚构材料；代码块和行内代码中的修复文字不能授权执行。比较只读取实际原回执，修复产物使用 `result_gap__` 前缀，原结果不覆盖，预算不重新起算。没有有据补丁时仅诊断，不生成重跑回执；程序完成和冻结规则达标分开报告。原执行或修复失败时仍通过既定只读终态节点返回实际错误，图的失败状态保留。
+
+高级请求可以在 `/api/plan` 传 `"result_gap_repair":true`，仅允许 `workflow=reproduce` / `benchmark` 或显式 `research`；普通 code/paper 工作流拒绝该标记。原科研规范必须允许修复且保留修复预算。这个标记只建立同图后继，不自动执行高级计划，也不替换引用既有运行创建独立计划的旧 `fix_and_rerun`。
 
 自动研究图增加 research_design，输出 research_spec 和 experiment_design；依赖解析成固定版本再锁定 wheel。论文分析图包含 document_extract → paper_analyze。来源检索的多个候选需要选择实际编号；模型推测的 URL 不能直接执行。消息、追问和计划插入同一事务，revision 冲突返回 409。
 
@@ -65,9 +72,27 @@ workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已�
 
 repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来源，多个候选需要显式选择。ref 在准备时固定为完整提交 SHA。research.benchmark 包含 upload_id、format、input_columns、target_column、id_column、task 和 metrics；其协议见 experiments.md。rubric 支持来源页引用、数值阈值、容差、比较操作和指定运行 variant，规则先于实验冻结。
 
-/api/execute 只选择已保存的节点，客户端提交的类型、角色、输入不能覆盖持久契约。SSE 输出 log、result、error；整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
+`/api/execute` 支持用服务端 `task_id`（可带 `plan_id`）选择已保存节点，或用 `task_type`、非空 `task_description`、`assigned_to`、`inputs` 创建旧接口兼容计划。前者仍不允许客户端类型、角色和输入覆盖持久契约；后者的外部 `task_id` 仅作来源标记，实际计划和节点 ID 由服务端生成。已接通代码、依赖/环境、所属数据/PDF 基础阶段及部分科研分步类型；未接通类型仍为 422，完整范围见 [旧接口迁移](legacy-api.md)。
+
+科研阶段可用 `inputs.research` 创建完整冻结图，再通过结果中的 `workflow_ref` 选择后续阶段；续请求只接收该引用和可选实际 `stage_task_id`，不接受新源码等契约覆盖。只执行目标及其必要祖先，保留后继和全部已有结果；阶段完成时整图仍可能 pending。多分支同名阶段必须显式选择。审批、所属身份、累计尝试及首次执行起算时间持续生效，从其他执行入口恢复也不重置时间预算。
+
+`benchmark_validate`、`verify_result`、`paper_compare`、`claim_evidence_build`、`result_visualization`、`render_plot` 必须以所属 `inputs.workflow_ref` 引用已终止的真实来源，可附实际 `stage_task_id` 消除分支歧义。这些操作建立独立的只读 `Result_Review` 计划，具有自身审批和一次尝试预算，不重跑实验或改变源计划。结果 `workflow_ref` 指向审核计划，`source_workflow_ref` 指向原运行；可以继续引用审核计划串联后续分析。创建与执行时均校验源契约、状态、次数、产物身份及实际文件 SHA，补充分析不能覆盖原产物。来源执行失败或证据不足时严格验证保持失败；分析任务可以完成失败报告，但不改变原实验结论。已声明原生 Benchmark 的五种指标可从所属数据和保存预测重算，历史原始字节与环境缺失仍明确记录限制。角色、实际产物及更详细边界见 [独立结果复核](legacy-api.md#独立结果复核)。
+
+框架兼容入口支持来源研究、对应分支 fit/prepare/run、资料选型及实际比较报告，可从自然语言名称、`inputs.frameworks` 或 `inputs.comparison` 建立 2–4 目标的冻结图，再以同一 `workflow_ref` 分步推进。left/right 对应目标顺序 1/2，数字编号仅选择已有分支。来源目录冻结实际公开包版本及报告摘要，后续设计不重新选择 latest；执行分支继续隔离。prepare 仅声明代码及依赖锁已准备，不声称已安装或运行；run 仍须实际容器安装、独立预检及正式执行。失败后可生成既定只读最终报告，失败节点及原预算保持不变。字段、角色及示例见 [框架分步比较](legacy-api.md#框架分步比较)。
+
+`repo_discovery` 在同一科研图中保存实际发现及候选，支持明确首选仓库、所属文档链接和 HF/GitHub 查询；默认只执行发现阶段，后续通过同一引用准备和运行。发现、内置参考声明、实际下载、固定提交及程序执行分别保留证据，无选中仓库时阻止后续环境与程序。`general_research` / `general_synthesis` 同图收集并汇总实际检索记录或所属文档，服务器核验来源编号与 PDF 原文引文；`general_process` 是明确未执行实验的只读回答。新任务保存有界引用纠正与拒绝回执，旧任务不扩权，审批及累计预算保持。来源范围、字段及限制见 [仓库发现](legacy-api.md#仓库发现) 和 [通用研究与回答](legacy-api.md#通用研究与回答)。
+
+`fix_and_rerun` 从所属实际科研运行或其审核引用创建独立结果差距修复，固定原来源、测试及验收规则，并沿用累计预算和首次起算时间。有据补丁才重新预检和实际重跑；无据时只完成诊断，不生成实验回执。程序完成与主张达标分别报告，原实验记录不改写。字段、补丁限制和回执见 [独立结果差距修复](legacy-api.md#独立结果差距修复)。
+
+兼容入口 SSE 输出 log、result、error；流响应头 `X-OpenResearch-Plan-Id`、`X-OpenResearch-Task-Id` 返回实际 ID。开启审批时先返回 202 JSON（`approval_required`、`plan_id`、`task_id`、`plan_graph`），审批后以实际 ID 再次调用。已保存的兼容计划重读结果不会重新执行，也不会采用新提交的源码；未保存的新请求会创建新计划。首次匿名响应保留身份 Cookie。结果兼容 Go 的 `image_base_64` 并保留原 `image_base64`，`outputs` 包含本阶段实际产物。环境引用是所属配置和锁的回执，每次实际执行仍创建受管容器。该 POST 流没有游标续传；要按游标读取持久事件使用整图 GET 流。
+
+整图 SSE 输出 plan_event，含 sequence、plan_id、task_id、execution_id、trace_id 与 payload。
+
+整图 SSE 的浏览器连接在短暂断流后由 EventSource 携带 Last-Event-ID 自动重连；收到终态、切换会话或卸载页面才主动关闭。服务端读取终态快照之后再次检查尾部事件，避免任务在两次数据库读取之间完成时漏发结果；单节点流同样先排空晚提交的日志，再发送 result/error。重连后首次收到产物时，已经打开的空日志面板会切换到对应结果视图。日志和结果仍来自持久记录，断线不会重新执行实验。
 
 ## 状态与错误
+
+独立可选意图服务还提供旧协议 `POST /predict`（请求 `text`，返回 `intent_type`、`confidence`、`entities`）与公开 `GET /health`（`{"status":"ok"}`）。分类复用真实 IntentParser，遵守独立服务令牌和模型错误；无会话记忆。`confidence=0.0` 表示当前未提供校准概率，旧实现的固定模拟值 `0.95` 不沿用。完整原生协议仍为 `/v1/intent`。
 
 正常计划 pending → ready → in_progress → completed；可有 awaiting_approval、failed、canceled。依赖失败的节点 blocked。单节点完成后，若仍有未执行节点，计划回到 pending。
 

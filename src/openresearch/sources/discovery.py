@@ -139,6 +139,9 @@ class SourceDiscovery:
                     url=item["html_url"],
                     source="github",
                     description=item.get("description") or "",
+                    stars=item.get("stargazers_count"),
+                    archived=item.get("archived"),
+                    fork=item.get("fork"),
                 )
                 for item in items
             ]

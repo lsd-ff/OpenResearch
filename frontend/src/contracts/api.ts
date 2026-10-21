@@ -10,6 +10,7 @@ export interface ChatMessage {
   text: string;
   actions?: ChatAction[];
   taskId?: string;
+  papers?: UploadedFile[];
 }
 
 export interface UploadedFile {
@@ -45,6 +46,7 @@ export interface GraphTask {
   type: string;
   description: string;
   assigned_to: string;
+  trigger_rule?: 'all_success' | 'all_done';
   status: string;
   dependencies: string[];
   inputs?: Record<string, unknown>;
@@ -171,6 +173,7 @@ export interface PlanClarification {
 }
 
 export interface PlanResponse {
+  papers?: UploadedFile[];
   message: string;
   plan_graph: PlanGraph;
   clarification?: PlanClarification;
@@ -181,6 +184,7 @@ export interface PlanResponse {
 }
 
 export interface MessageResponse {
+  papers?: UploadedFile[];
   type: 'chat' | 'plan' | 'clarification';
   response: string;
   context_revision: number;

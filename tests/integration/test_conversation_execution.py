@@ -42,8 +42,11 @@ def test_requested_test_run_is_queued_with_a_required_report(
     assert graph["status"] == expected
     summary = next(node for node in graph["nodes"] if node["type"] == "chat_answer")
     execute = next(node for node in graph["nodes"] if node["type"] == "research_execute")
-    assert summary["dependencies"] == [execute["id"]]
-    assert "research_report" in summary["required_artifacts"]
+    assert execute["id"] in summary["dependencies"]
+    assert set(summary["dependencies"]) == {
+        node["id"] for node in graph["nodes"] if node != summary
+    }
+    assert summary["trigger_rule"] == "all_done" and not summary["required_artifacts"]
     frozen = next(node for node in graph["nodes"] if node["type"] == "claim_freeze")
     design = next(node for node in graph["nodes"] if node["type"] == "research_design")
     assert design["id"] in frozen["dependencies"]

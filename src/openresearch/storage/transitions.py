@@ -11,6 +11,26 @@ from openresearch.storage.database import Database
 from openresearch.storage.schema import attempts
 
 ACTIVE = {Status.PENDING, Status.READY, Status.IN_PROGRESS}
+FINISHED = {Status.COMPLETED, Status.FAILED, Status.BLOCKED, Status.CANCELED}
+
+
+def dependency_status(
+    node: Task, by_id: dict[str, Task], available: set[str]
+) -> tuple[Status | None, str]:
+    parents = [by_id[key].status for key in node.dependencies]
+    inputs_ready = all(key in available for key in node.required_artifacts)
+    if node.trigger_rule == "all_done":
+        # 只读汇总等待所有上游终止；工作失败仍保留失败状态，不因报告成功而改写。
+        ready = all(status in FINISHED for status in parents)
+        if ready and not inputs_ready:
+            return Status.BLOCKED, "final report is missing required artifacts"
+    else:
+        if any(status in FINISHED - {Status.COMPLETED} for status in parents):
+            return Status.BLOCKED, "upstream task did not complete"
+        ready = all(status == Status.COMPLETED for status in parents)
+    if ready and inputs_ready:
+        return (Status.READY if node.status == Status.PENDING else None), ""
+    return (Status.PENDING if node.status == Status.READY else None), ""
 
 
 class Transitions:
@@ -43,28 +63,19 @@ class Transitions:
 
     def refresh(self, connection: Connection, plan: Plan) -> None:
         by_id = {node.id: node for node in plan.nodes}
+        available = set(plan.artifacts)
         changed = True
         while changed:
             changed = False
             for node in plan.nodes:
                 if node.status not in {Status.PENDING, Status.READY}:
                     continue
-                if any(
-                    by_id[dep].status in {Status.FAILED, Status.BLOCKED, Status.CANCELED}
-                    for dep in node.dependencies
-                ):
-                    node.status = Status.BLOCKED
-                    node.error = "upstream task did not complete"
-                    self.database.publish(connection, plan, "task_blocked", node)
-                    changed = True
-                elif (
-                    node.status == Status.PENDING
-                    and all(by_id[dep].status == Status.COMPLETED for dep in node.dependencies)
-                    and all(key in plan.artifacts for key in node.required_artifacts)
-                ):
-                    node.status = Status.READY
-                    self.database.publish(connection, plan, "task_ready", node)
-                    changed = True
+                status, error = dependency_status(node, by_id, available)
+                if status is None:
+                    continue
+                node.status, node.error = status, error
+                self.database.publish(connection, plan, f"task_{status}", node)
+                changed = True
         scope = [
             node
             for node in plan.nodes

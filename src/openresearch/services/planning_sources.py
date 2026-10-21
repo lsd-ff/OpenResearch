@@ -1,9 +1,6 @@
 import asyncio
 import io
-from pathlib import PurePosixPath
 from typing import Literal
-
-import httpx
 
 from openresearch.config import Settings
 from openresearch.errors import ConflictError, ContractError
@@ -17,8 +14,8 @@ from openresearch.services.planning_outcomes import PlanningOutcome, planning_qu
 from openresearch.services.repository_search import RepositorySearch
 from openresearch.services.source_queries import source_queries
 from openresearch.services.uploads import UploadService
-from openresearch.sources.discovery import SourceDiscovery, arxiv_pdf_url
-from openresearch.sources.http import read_bounded
+from openresearch.sources.discovery import SourceDiscovery
+from openresearch.sources.remote_pdf import RemotePdfReader, pdf_filename
 from openresearch.storage.upload_files import UploadSubmission
 
 
@@ -171,7 +168,7 @@ class PlanningSources:
                 return planning_question(
                     snapshot,
                     state,
-                    "论文检索服务暂时不可用，请上传论文或提供 arXiv 链接，我会继续处理。",
+                    "论文检索服务暂时不可用，请上传论文或提供公共 PDF 链接，我会继续处理。",
                 )
         choice = draft.paper_choice
         if not choice and state.paper_candidates:
@@ -181,23 +178,17 @@ class PlanningSources:
             identifier, current = await self.download(snapshot, candidate.pdf_url or candidate.url)
             state.attachments.append(identifier)
             return PlanningOutcome(current, "")
-        question = "请上传论文或提供 arXiv 链接。"
+        question = "请上传论文或提供公共 PDF 链接（也支持 arXiv）。"
         if state.paper_candidates:
             question = "请选择要阅读的论文编号：\n" + self._options(state.paper_candidates)
         return planning_question(snapshot, state, question)
 
     async def download(self, snapshot: Conversation, url: str) -> tuple[str, Conversation]:
-        location = arxiv_pdf_url(url)
-        async with httpx.AsyncClient(
-            timeout=60,
-            trust_env=True,
-            proxy=self.settings.source_proxy_url.get_secret_value() or None,
-        ) as client:
-            raw = await read_bounded(client, location, self.settings.upload_max_bytes)
+        raw = await RemotePdfReader(self.settings).fetch(url)
         identity = Identity(snapshot.owner_id, snapshot.session_id)
         record = await asyncio.to_thread(
             self.uploads.create,
-            UploadSubmission(PurePosixPath(location).name + ".pdf", io.BytesIO(raw), identity),
+            UploadSubmission(pdf_filename(url), io.BytesIO(raw), identity),
         )
         current = await asyncio.to_thread(self.uploads.repository.sessions.get, identity)
         if current.revision != snapshot.revision + 1:

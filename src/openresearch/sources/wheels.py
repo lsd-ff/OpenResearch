@@ -6,20 +6,24 @@ from urllib.parse import urlsplit
 
 import httpx
 from packaging.markers import default_environment
-from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.tags import Tag, compatible_tags, cpython_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
 
 from openresearch.config import Settings
-from openresearch.errors import ContractError
+from openresearch.errors import ContractError, EnvironmentLockError
+from openresearch.models.interpreters import InterpreterIdentity
+from openresearch.models.runtime_profiles import TargetPython
 from openresearch.models.sources import EnvironmentLock, EnvironmentSpec, LockedWheel
 from openresearch.sources.blobs import SourceBlobs
+from openresearch.sources.dependency_closure import validate_dependency_graph
 from openresearch.sources.http import read_bounded
 
 
-def target_tags() -> set[Tag]:
+def target_tags(python: TargetPython = "3.12") -> set[Tag]:
+    version = tuple(int(part) for part in python.split("."))
+    interpreter = "cp" + python.replace(".", "")
     platforms = [f"manylinux_2_{minor}_x86_64" for minor in range(36, 16, -1)]
     platforms += [
         "manylinux2014_x86_64",
@@ -27,48 +31,61 @@ def target_tags() -> set[Tag]:
         "manylinux1_x86_64",
         "linux_x86_64",
     ]
-    return set(cpython_tags((3, 12), ["cp312"], platforms)) | set(
-        compatible_tags((3, 12), "cp312", platforms)
+    return set(cpython_tags(version, [interpreter], platforms)) | set(
+        compatible_tags(version, interpreter, platforms)
     )
 
 
-def validate_closure(metadata: dict[str, Any], pins: dict[str, str]) -> None:
+def validate_closure(
+    metadata: dict[str, dict[str, Any]],
+    pins: dict[str, str],
+    python: TargetPython = "3.12",
+    *,
+    full_version: str | None = None,
+) -> None:
     environment = {key: str(value) for key, value in default_environment().items()}
     environment.update(
-        python_version="3.12",
-        python_full_version="3.12.0",
+        python_version=python,
+        python_full_version=full_version or python + ".0",
+        implementation_name="cpython",
+        implementation_version=full_version or python + ".0",
         sys_platform="linux",
         platform_system="Linux",
         platform_machine="x86_64",
         os_name="posix",
         extra="",
     )
-    for raw in metadata["info"].get("requires_dist") or []:
-        dependency = Requirement(raw)
-        if dependency.marker and not dependency.marker.evaluate(environment):
-            continue
-        name = canonicalize_name(dependency.name)
-        if (
-            dependency.url
-            or dependency.extras
-            or name not in pins
-            or pins[name] not in dependency.specifier
-        ):
-            raise ContractError(f"dependency lock must include compatible exact pin: {dependency}")
+    try:
+        validate_dependency_graph(
+            {name: item["info"].get("requires_dist") or [] for name, item in metadata.items()},
+            pins,
+            environment,
+        )
+    except ValueError as exc:
+        raise EnvironmentLockError(str(exc)) from exc
 
 
-def validate_package(metadata: dict[str, Any], name: str, version: str) -> None:
+def validate_package(
+    metadata: dict[str, Any],
+    name: str,
+    version: str,
+    python: TargetPython = "3.12",
+    *,
+    full_version: str | None = None,
+) -> None:
     info = metadata["info"]
     if canonicalize_name(info.get("name", "")) != name or Version(
         info.get("version", "0")
     ) != Version(version):
         raise ContractError("package metadata differs from the requested exact pin")
-    if "3.12.0" not in SpecifierSet(info.get("requires_python") or ""):
-        raise ContractError("dependency does not support the locked Python version")
+    if (full_version or python + ".0") not in SpecifierSet(info.get("requires_python") or ""):
+        raise EnvironmentLockError("dependency does not support the locked Python version")
 
 
-def choose_wheel(metadata: dict[str, Any]) -> dict[str, Any]:
-    tags = target_tags()
+def choose_wheel(
+    metadata: dict[str, Any], python: TargetPython = "3.12", *, full_version: str | None = None
+) -> dict[str, Any]:
+    tags = target_tags(python)
     for asset in sorted(metadata["urls"], key=lambda item: item["filename"]):
         if asset.get("packagetype") != "bdist_wheel" or asset.get("yanked"):
             continue
@@ -79,21 +96,46 @@ def choose_wheel(metadata: dict[str, Any]) -> dict[str, Any]:
             raise ContractError("wheel filename differs from package metadata")
         if not wheel_tags & tags:
             continue
-        if "3.12.0" not in SpecifierSet(asset.get("requires_python") or ""):
+        if (full_version or python + ".0") not in SpecifierSet(asset.get("requires_python") or ""):
             continue
         parts = urlsplit(asset["url"])
         if parts.scheme != "https" or parts.netloc != "files.pythonhosted.org":
             raise ContractError("wheel URL is outside the trusted package host")
         return dict(asset)
-    raise ContractError("dependency has no supported CPython 3.12 Linux x86_64 wheel")
+    raise EnvironmentLockError(f"dependency has no supported CPython {python} Linux x86_64 wheel")
 
 
 class WheelSource:
+    def for_interpreter(self, interpreter: InterpreterIdentity) -> "WheelSource":
+        return (
+            self
+            if self.interpreter == interpreter
+            else WheelSource(
+                self.settings, self.transport, python=interpreter.python, interpreter=interpreter
+            )
+        )
+
+    def for_python(self, python: TargetPython) -> "WheelSource":
+        return (
+            self
+            if python == self.python
+            else WheelSource(self.settings, self.transport, python=python)
+        )
+
     def __init__(
-        self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+        self,
+        settings: Settings,
+        transport: httpx.AsyncBaseTransport | None = None,
+        *,
+        python: TargetPython = "3.12",
+        interpreter: InterpreterIdentity | None = None,
     ) -> None:
         self.settings = settings
         self.transport = transport
+        self.python = python
+        self.interpreter = interpreter
+        if interpreter and interpreter.python != python:
+            raise ContractError("wheel source interpreter differs from its target Python")
         self.blobs = SourceBlobs(settings.data_dir / "wheels", settings.dependency_max_bytes)
 
     async def _asset(self, client: httpx.AsyncClient, asset: dict[str, Any]) -> bytes:
@@ -114,7 +156,10 @@ class WheelSource:
         )
 
     async def fetch(self, spec: EnvironmentSpec) -> tuple[EnvironmentLock, dict[str, bytes]]:
-        lock = EnvironmentLock()
+        if spec.interpreter and spec.interpreter != self.interpreter:
+            raise ContractError("dependency resolution interpreter differs from the wheel target")
+        lock = EnvironmentLock(python=self.python, interpreter=self.interpreter)
+        full_version = self.interpreter.python_full_version if self.interpreter else None
         files: dict[str, bytes] = {}
         pins = dict(pin.split("==", 1) for pin in spec.requirements)
         async with httpx.AsyncClient(
@@ -123,6 +168,7 @@ class WheelSource:
             proxy=self.settings.source_proxy_url.get_secret_value() or None,
             transport=self.transport,
         ) as client:
+            metadata_by_name = {}
             for pin in spec.requirements:
                 name, version = pin.split("==", 1)
                 metadata = json.loads(
@@ -130,9 +176,13 @@ class WheelSource:
                         client, f"https://pypi.org/pypi/{name}/{version}/json", 2 * 1024 * 1024
                     )
                 )
-                validate_package(metadata, name, version)
-                validate_closure(metadata, pins)
-                asset = choose_wheel(metadata)
+                validate_package(metadata, name, version, self.python, full_version=full_version)
+                metadata_by_name[name] = metadata
+            validate_closure(metadata_by_name, pins, self.python, full_version=full_version)
+            for pin in spec.requirements:
+                name, version = pin.split("==", 1)
+                metadata = metadata_by_name[name]
+                asset = choose_wheel(metadata, self.python, full_version=full_version)
                 raw = await self._asset(client, asset)
                 digest = hashlib.sha256(raw).hexdigest()
                 if digest != asset["digests"]["sha256"]:

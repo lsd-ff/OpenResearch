@@ -1,11 +1,15 @@
-"""仅供网页 CI 的分类与候选选择夹具；不提供代码、实验设计或执行结果。"""
+"""网页 CI 的分类、候选、预定修复及指定通用回答；不提供实验结果。"""
 
 import json
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
-from openresearch.models.planning import IntentDraft, SourceSelection
+from openresearch.models.gap import GapProposal
+from openresearch.models.knowledge import KnowledgeProposal
+from openresearch.models.planning import ExperimentDesign, IntentDraft, SourceSelection
+from openresearch.models.recovery import RecoveryProposal
+from openresearch.models.research import FilePatch, ResearchPatch
 
 app = FastAPI()
 
@@ -15,7 +19,84 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
     messages = payload.get("messages", [])
     schemas = [item.get("content", "") for item in messages if item.get("role") == "system"]
     # 拒绝其它契约，防止把受控分类响应误当成真实模型生成或实验成功。
-    if any('"title": "SourceSelection"' in schema for schema in schemas):
+    if any('"title": "RecoveryProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if "json.decode" not in context["code"] or "AttributeError" not in context["error"]:
+            raise HTTPException(400, "only the controlled JSON API repair fixture is supported")
+        result = RecoveryProposal(
+            action="code",
+            reason="Controlled JSON API correction.",
+            code=context["code"].replace("json.decode", "json.loads"),
+        )
+    elif any('"title": "ExperimentDesign"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if "UI_NATIVE_GAP_FLOW" not in context["goal"] or not context["provided_source"]:
+            raise HTTPException(400, "only the explicit native gap design fixture is supported")
+        result = ExperimentDesign(
+            rationale="网页有界设计夹具，保留给定源码和实际数据。",
+            rubric={
+                "claims": [
+                    {
+                        "title": "Functional classifier",
+                        "statement": "accuracy >= 0.9",
+                        "criteria": [
+                            {
+                                "description": "accuracy on declared rows",
+                                "metric_name": "accuracy",
+                                "expected_value": 0.9,
+                                "operator": "at_least",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+    elif any('"title": "GapProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if "UI_NATIVE_GAP_FLOW" in context["original_request"]:
+            entry = context["allowed_paths"]["openresearch_run.py"]
+            result = GapProposal(
+                status="patched",
+                diagnosis="网页补丁夹具，修复条件后实际重跑。",
+                patch=ResearchPatch(
+                    files=[
+                        FilePatch(
+                            path="openresearch_run.py",
+                            base_sha256=entry["base_sha256"],
+                            content=entry["content"].replace("== '0'", "== '1'"),
+                        )
+                    ]
+                ),
+            )
+            return {"choices": [{"message": {"content": result.model_dump_json()}}]}
+        if context["request"] not in {"UI_GAP_NO_PATCH_FIXTURE", "UI_GAP_REJECTED_PATCH_FIXTURE"}:
+            raise HTTPException(400, "only the explicit no-patch display fixture is supported")
+        result = GapProposal(
+            status="insufficient_evidence", diagnosis="网页夹具：没有足够证据支持补丁。"
+        )
+        if context["request"] == "UI_GAP_REJECTED_PATCH_FIXTURE":
+            entry = context["allowed_paths"]["openresearch_run.py"]
+            result = GapProposal(
+                status="patched",
+                diagnosis="网页负向夹具：此补丁必须被拒绝。",
+                patch=ResearchPatch(
+                    files=[
+                        FilePatch(
+                            path="openresearch_run.py",
+                            base_sha256=entry["base_sha256"],
+                            content=entry["content"].replace("assert sum([2,3]) == 5\n", ""),
+                        )
+                    ]
+                ),
+            )
+    elif any('"title": "KnowledgeProposal"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if context["stage"] != "knowledge_process" or context["sources"] or context["pages"]:
+            raise HTTPException(
+                400, "only the unsourced general response display fixture is supported"
+            )
+        result = KnowledgeProposal(response="这是通用回答展示夹具；没有执行代码、测试或实验。")
+    elif any('"title": "SourceSelection"' in schema for schema in schemas):
         result = SourceSelection(choice=1, reason="Controlled matching source fixture")
     elif any('"title": "IntentDraft"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
@@ -38,7 +119,9 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
             )
         )
     else:
-        raise HTTPException(400, "UI fixture supports classification and source selection only")
+        raise HTTPException(
+            400, "UI fixture supports classification, source selection and JSON API repair only"
+        )
     return {
         "choices": [
             {

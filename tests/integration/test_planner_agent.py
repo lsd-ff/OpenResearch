@@ -76,10 +76,10 @@ async def test_llm_creates_a_valid_parallel_dag_without_changing_server_code_or_
     assert len(result.nodes) == 4
     prepare, run, sources, answer = result.nodes
     assert prepare.inputs == {"code": "print(42)"}
-    assert run.contract.allowed_tools == ["sandbox.python"]
+    assert run.contract.allowed_tools == template.nodes[1].contract.allowed_tools
     assert run.dependencies == [prepare.id] and sources.dependencies == []
     assert answer.dependencies == [run.id, sources.id]
-    assert answer.required_artifacts == ["run_metrics", "execution_files", "discovered_sources"]
+    assert answer.required_artifacts == [*run.output_artifacts, "discovered_sources"]
     assert template.model_dump_json() == before
     assert result.id == template.id and result.owner_id == "a"
 

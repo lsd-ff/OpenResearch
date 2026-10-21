@@ -4,10 +4,12 @@ from dataclasses import replace
 
 from openresearch.config import Settings
 from openresearch.errors import ContractError
+from openresearch.models.comparison import ComparisonSpec, FrameworkTarget
 from openresearch.models.context import Conversation
 from openresearch.models.planning import IntentDraft, PendingPlanning
 from openresearch.models.research import BenchmarkSpec, ResearchSpec
 from openresearch.models.submissions import PlanSubmission
+from openresearch.planner.gap import requests_gap_repair
 from openresearch.services.intent import IntentParser, requests_source_reproduction
 from openresearch.services.planning_inputs import (
     benchmark_mapping,
@@ -69,6 +71,8 @@ class AutoPlanner:
             repository_candidates=pending.repository_candidates if pending else [],
             paper_candidates=pending.paper_candidates if pending else [],
         )
+        if draft.workflow == "framework":
+            return await self._framework(submission, snapshot, state, draft)
         if draft.workflow == "data":
             return await self._data(submission, snapshot, state, draft)
         if draft.workflow == "code" and requests_source_reproduction(goal):
@@ -83,6 +87,67 @@ class AutoPlanner:
             )
             return PlanningOutcome(snapshot, "代码执行计划已生成，可在右侧运行。", plan=plan)
         return await self._materials(submission, snapshot, state, draft)
+
+    async def _framework(
+        self,
+        submission: PlanSubmission,
+        snapshot: Conversation,
+        state: PendingPlanning,
+        draft: IntentDraft,
+    ) -> PlanningOutcome:
+        benchmark = None
+        if draft.framework_mode == "benchmark":
+            profiles = await asyncio.to_thread(
+                dataset_profiles,
+                self.uploads,
+                state.attachments,
+                snapshot.owner_id,
+                self.settings.benchmark_max_rows,
+            )
+            if profiles:
+                benchmark, question = await self._benchmark(
+                    snapshot, state, draft.model_copy(update={"workflow": "benchmark"})
+                )
+                if question:
+                    return planning_question(snapshot, state, question)
+        answer_column = None
+        if benchmark and {"query", "documents", "answer"}.issubset(benchmark.input_columns):
+            # 共同 RAG 文件的参考回答只用于服务端验收，不能混入检索或生成上下文。
+            answer_column = "answer"
+            benchmark = benchmark.model_copy(
+                update={
+                    "input_columns": [
+                        key for key in benchmark.input_columns if key != answer_column
+                    ]
+                }
+            )
+        comparison = ComparisonSpec(
+            targets=[FrameworkTarget(name=name) for name in draft.frameworks],
+            mode=draft.framework_mode,
+            benchmark=benchmark,
+            answer_column=answer_column,
+        )
+        plan = await asyncio.to_thread(
+            self.plans.build,
+            replace(
+                submission,
+                intent=state.intent,
+                attachments=state.attachments,
+                workflow="framework",
+                comparison=comparison,
+            ),
+        )
+        return PlanningOutcome(
+            snapshot,
+            "框架对比计划已生成，各分支保留独立来源、环境和结果。"
+            + (
+                "未提供数据集，将使用明确标注的共同合成检索样例。"
+                if comparison.mode == "benchmark" and benchmark is None
+                else ""
+            )
+            + "完成后会在聊天中返回报告。可在右侧运行。",
+            plan=plan,
+        )
 
     async def _data(
         self,
@@ -191,7 +256,10 @@ class AutoPlanner:
         benchmark, question = await self._benchmark(snapshot, state, draft)
         if question:
             return planning_question(snapshot, state, question)
+        fenced = re.search(r"```(?:python|py)?\s*\n(.*?)```", state.intent, re.DOTALL)
         code = submission.code or self._uploaded_code(state, snapshot.owner_id)
+        if code is None and fenced:
+            code = fenced[1]
         repository, question = await self.sources.repository(
             state, draft, bool(documents) or bool(code)
         )
@@ -208,6 +276,7 @@ class AutoPlanner:
                 research=research,
                 code=code,
                 auto_design=True,
+                result_gap_repair=submission.result_gap_repair or requests_gap_repair(state.intent),
             ),
         )
         if repository and (draft.repository_choice or repository_urls(state.intent)):
@@ -217,7 +286,7 @@ class AutoPlanner:
         source_text = (
             f"\n仓库：{repository.url}"
             if repository
-            else ("\n使用上传的 Python 源码。" if code else "\n将从论文中发现并核验仓库。")
+            else ("\n使用提供的 Python 源码。" if code else "\n将从论文中发现并核验仓库。")
         )
         mapping = (
             f"\n输入：{', '.join(benchmark.input_columns)}；目标：{benchmark.target_column}。"

@@ -1,0 +1,23 @@
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_core.vectorstores import InMemoryVectorStore
+from openresearch_comparison import cases, documents, embed, write
+
+
+class SharedEmbeddings(Embeddings):
+    def embed_documents(self, texts):
+        return [embed(text) for text in texts]
+
+    def embed_query(self, text):
+        return embed(text)
+
+
+predictions = []
+for case in cases():
+    source = documents(case["inputs"])
+    store = InMemoryVectorStore(SharedEmbeddings())
+    store.add_documents([Document(page_content=item["text"], metadata={"doc_id": item["id"]})
+                         for item in source])
+    retrieved = store.similarity_search(case["inputs"]["query"], k=1)
+    predictions.append({"id": case["id"], "prediction": retrieved[0].metadata["doc_id"]})
+write(predictions)

@@ -1,11 +1,14 @@
 """One configuration source shared by the API and worker."""
 
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from openresearch.models.runtime_profiles import RuntimeProfile
 
 
 class Settings(BaseSettings):
@@ -23,17 +26,24 @@ class Settings(BaseSettings):
     opensandbox_url: str = "http://127.0.0.1:8088"
     opensandbox_api_key: SecretStr = SecretStr("")
     sandbox_image: str = "python:3.12-slim"
+    runtime_profiles: dict[str, RuntimeProfile] = Field(default_factory=dict, max_length=16)
+    reproduction_full_min_cpu: float = Field(default=16, ge=1, le=256)
+    reproduction_full_min_memory_mb: int = Field(default=65536, ge=64, le=1048576)
+    reproduction_full_min_disk_mb: int = Field(default=102400, ge=64, le=10485760)
+    reproduction_full_min_gpu: int = Field(default=1, ge=0, le=16)
+    gpu_wait_seconds: int = Field(default=30, ge=1, le=600)
     sandbox_network: Literal["none", "bridge"] = "none"
-    sandbox_memory: str = "256m"
-    sandbox_tmpfs_size_mb: int = Field(default=64, ge=16, le=2048)
-    sandbox_workspace_size_mb: int = Field(default=256, ge=64, le=4096)
+    sandbox_memory: str = "1g"
+    sandbox_tmpfs_size_mb: int = Field(default=256, ge=16, le=2048)
+    sandbox_workspace_size_mb: int = Field(default=1024, ge=64, le=4096)
     api_token: SecretStr = SecretStr("")
     require_approval: bool = False
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_concurrent_tasks: int = Field(default=2, ge=1, le=16)
-    task_timeout_seconds: int = Field(default=120, ge=1, le=3600)
-    plan_timeout_seconds: int = Field(default=600, ge=1, le=86400)
-    max_task_attempts: int = Field(default=10, ge=1, le=1000)
+    task_timeout_seconds: int = Field(default=600, ge=1, le=3600)
+    plan_timeout_seconds: int = Field(default=2400, ge=1, le=86400)
+    max_task_attempts: int = Field(default=100, ge=1, le=1000)
+    code_max_repairs: int = Field(default=2, ge=0, le=2)
     lease_seconds: int = Field(default=30, ge=3, le=300)
     poll_interval_seconds: float = Field(default=0.25, gt=0, le=10)
     max_output_bytes: int = Field(default=1024 * 1024, ge=1024, le=16 * 1024 * 1024)
@@ -43,11 +53,11 @@ class Settings(BaseSettings):
     document_timeout_seconds: int = Field(default=60, ge=1, le=300)
     source_max_archive_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
     source_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
-    source_max_file_bytes: int = Field(default=4 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
+    source_max_file_bytes: int = Field(default=16 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
     source_max_files: int = Field(default=2000, ge=1, le=10000)
     source_proxy_url: SecretStr = SecretStr("")
     source_download_timeout_seconds: int = Field(default=60, ge=10, le=600)
-    dependency_max_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=128 * 1024 * 1024)
+    dependency_max_bytes: int = Field(default=128 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024)
     benchmark_max_rows: int = Field(default=2000, ge=1, le=100000)
     planner_mode: Literal["llm", "template"] = "llm"
     intent_service_url: str = ""
@@ -69,6 +79,20 @@ class Settings(BaseSettings):
     @classmethod
     def absolute_data_dir(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @field_validator("runtime_profiles")
+    @classmethod
+    def profile_names(cls, values: dict[str, RuntimeProfile]) -> dict[str, RuntimeProfile]:
+        if any(not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", name) for name in values):
+            raise ValueError(
+                "runtime profile names must use lowercase letters, numbers, underscores or hyphens"
+            )
+        return values
+
+    @field_validator("runtime_profiles", mode="before")
+    @classmethod
+    def empty_profiles(cls, value: object) -> object:
+        return {} if value is None else value
 
     @field_validator("llm_base_url", "sandbox_url", "opensandbox_url")
     @classmethod

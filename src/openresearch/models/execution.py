@@ -1,7 +1,26 @@
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from openresearch.errors import ContractError
 from openresearch.models.runtime import Artifact, Plan, Task, TaskResult
+
+
+def validate_output_keys(
+    expected: Collection[str],
+    returned: Collection[str],
+    success: bool,
+    optional: Collection[str] = (),
+) -> None:
+    allowed, actual = set(expected), set(returned)
+    if len(allowed) != len(expected) or len(actual) != len(returned):
+        raise ContractError("task produced duplicate output artifacts")
+    # 成功仍须完整履约；失败只保存已声明的诊断产物，不能伪造缺失的实验文件。
+    if (
+        not set(optional).issubset(allowed)
+        or not actual.issubset(allowed)
+        or (success and not (allowed - set(optional)).issubset(actual))
+    ):
+        raise ContractError("task output does not match its declared output artifacts")
 
 
 @dataclass(frozen=True)
