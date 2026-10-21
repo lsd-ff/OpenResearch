@@ -77,7 +77,7 @@ class EnvironmentPreparation:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.resolver = DependencyResolver()
+        self.resolver = DependencyResolver(source_proxy_url=settings.source_proxy_url)
         self.source = WheelSource(settings)
         self.packages = PackageSource(settings)
         self.repairer = ResearchEnvironmentRepairer(settings)

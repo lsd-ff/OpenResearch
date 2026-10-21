@@ -5,8 +5,10 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from packaging.requirements import InvalidRequirement, Requirement
+from pydantic import SecretStr
 
 from openresearch.distribution.resources import bundled_uv
 from openresearch.errors import ContractError, DependencyResolutionError
@@ -44,10 +46,15 @@ async def capped_output(stream: asyncio.StreamReader | None) -> bytes:
 
 class DependencyResolver:
     def __init__(
-        self, python: TargetPython = "3.12", *, interpreter: InterpreterIdentity | None = None
+        self,
+        python: TargetPython = "3.12",
+        *,
+        interpreter: InterpreterIdentity | None = None,
+        source_proxy_url: SecretStr | None = None,
     ) -> None:
         self.python = python
         self.interpreter = interpreter
+        self.source_proxy_url = source_proxy_url or SecretStr("")
         if interpreter and interpreter.python != python:
             raise ContractError("resolver interpreter differs from its target Python")
 
@@ -55,12 +62,18 @@ class DependencyResolver:
         return (
             self
             if self.interpreter == interpreter
-            else DependencyResolver(interpreter.python, interpreter=interpreter)
+            else DependencyResolver(
+                interpreter.python, interpreter=interpreter, source_proxy_url=self.source_proxy_url
+            )
         )
 
     def for_python(self, python: TargetPython) -> "DependencyResolver":
         # Agent 实例可能被并行分支共享，不能修改当前解析器的目标版本。
-        return self if python == self.python else DependencyResolver(python)
+        return (
+            self
+            if python == self.python
+            else DependencyResolver(python, source_proxy_url=self.source_proxy_url)
+        )
 
     async def resolve(self, requests: list[str]) -> EnvironmentSpec:
         return await self._resolve(requests, 32)
@@ -100,6 +113,9 @@ class DependencyResolver:
             if key.upper() in {"PATH", "SYSTEMROOT", "TEMP", "TMP", "WINDIR"}
         }
         environment.update(UV_HTTP_TIMEOUT="30", UV_NO_PROGRESS="1")
+        # 仅投影管理员明确配置的来源代理，系统代理、模型凭据与任意索引不进入解析器。
+        if proxy := self.source_proxy_url.get_secret_value():
+            environment["HTTPS_PROXY"] = proxy
         creation = asyncio.create_task(
             asyncio.create_subprocess_exec(
                 executable,
@@ -139,9 +155,7 @@ class DependencyResolver:
                 stdout, stderr = await asyncio.gather(*readers)
                 exit_code = await process.wait()
                 if exit_code != 0:
-                    raise DependencyResolutionError(
-                        (stderr or stdout).decode("utf-8", errors="replace"), exit_code
-                    )
+                    raise DependencyResolutionError(self._diagnostic(stderr or stdout), exit_code)
         except TimeoutError:
             raise ContractError("automatic dependency resolution timed out") from None
         finally:
@@ -149,3 +163,13 @@ class DependencyResolver:
                 reader.cancel()
             await asyncio.gather(*readers, return_exceptions=True)
             await close_process(process)
+
+    def _diagnostic(self, raw: bytes) -> str:
+        diagnostic = raw.decode("utf-8", errors="replace")
+        proxy = self.source_proxy_url.get_secret_value()
+        password = urlsplit(proxy).password
+        # 保留真实版本冲突与退出码，同时拒绝把代理凭据写入模型上下文或持久报告。
+        for secret in (proxy, password, unquote(password) if password else None):
+            if secret:
+                diagnostic = diagnostic.replace(secret, "[redacted]")
+        return diagnostic
