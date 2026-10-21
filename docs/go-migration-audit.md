@@ -16,10 +16,10 @@
 | framework 分支、ToT、论文主张/证据、结果对比/修复/绘图、通用研究 | `legacy_frameworks.py`、`legacy_reviews.py`、`legacy_gaps.py`、`legacy_knowledge.py` | 所有原任务类别映射到受管阶段；阶段完成与整图/科学主张达标分别报告，字段详见兼容文档 |
 | `sandboxserver` 的 `/api/v1` health/create/delete/python/commands 及两类 stream | `sandbox/service.py` 及 HTTP 适配器 | 七个原接口保留；Docker、OpenSandbox、文件/产物、取消/回收与 GPU 专项已实跑 |
 | 独立 docker-core 的 TTY、Commit/回滚、Watchdog、候选竞速与配额 | `sandbox/core` | CPU/GPU 实际测试已有证据；作为独立库提供，不新增聊天任意 shell 入口；GPU 不快照显存 |
-| React 工作台、PDF、DAG、侧栏、SSE、会话 | 独立 `frontend` | 上传阅读、自动规划、真实运行结果、刷新恢复、窄屏及断线用例；最新完整 UI 回归待统一验收 |
-| 单文件 Go app | Python 一体化 app 与 PyInstaller 发行物 | 内嵌前端/运行资源/uv，实验仍进 Docker；最新代码的单文件重建与独立目录验收待完成 |
+| React 工作台、PDF、DAG、侧栏、SSE、会话 | 独立 `frontend` | 23 项网页回归通过；上传阅读、自动规划、真实执行、刷新恢复、窄屏及断线均覆盖 |
+| 单文件 Go app | Python 一体化 app 与 PyInstaller 发行物 | 内嵌前端/运行资源/uv，实验仍进 Docker；最终 Windows 发行物已重建，空 PATH 与独立目录实际执行通过 |
 | 可选旧 AI 服务的 `/predict`、`/health` | `api/intent_service.py` | 本轮补齐旧协议；实际分类器取代旧关键字 mock；置信度 0 表示未提供校准概率，模型失败返回 503 |
 
 Go 的 `tools/ask_user_question` 是独立工具实现，没有在该基线的主 API 注册问题/回答路由，也没有被生产 Agent 引用；Python 主工作流的澄清使用持久会话和 `/api/messages`。不把未接入工具、注释中的 BERT、docker-core README 中尚未部署的 gVisor/nvproxy/WebSocket 设想算作已运行的 Go 产品功能。Python 也不声称已部署这些设想。
 
-本轮发现的三个接口缺口已经补齐。仍需完成最新 Docker 整体回归、发行物、真实模型的新会话 Transformer 网页验收及统一部署，才可交付最终结果。GitHub Actions 因账号限制未启动，用户已选择先完成本地验证；本地通过与最新远端 CI 通过分开记录。
+本轮发现的三个接口缺口已经补齐。实际注册的 17 个主 API、7 个沙箱及 2 个旧意图路径齐全，27 个显式任务类型均有对应，未发现本表所核对 Go 产品功能的剩余遗漏；上述存储、权限和置信度差异保留。最终功能源码 `20d254c` 的本地整合验收、Windows 发行物及四服务部署已完成，新会话单句 Transformer 18 项原始测试通过。184 项外部/容器用例按完整首轮和修正后受影响用例复验核对，未将失败、跳过或科学效果混作成功。完整分轮证据见 [本地整合验收](local-verification-2026-10-21.md)。GitHub Actions 受账号限制，最新远端 CI、Linux 宿主及 Linux 单文件仍未验证；用户已选择先完成本地验证。

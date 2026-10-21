@@ -1,6 +1,8 @@
 # 验证记录
 
-最新验收见 [Transformer 单句对话实测](transformer-chat-acceptance.md)：仅原句输入，无附件或手工代码，8/8 节点与原仓库 18 项测试一次通过（3.95 秒，退出码 0），报告回到聊天，3/3 冻结功能规则通过。327 项工程测试、22 项真实执行/外部验收及 10 项 Chromium 网页回归已通过。此前 [显式脚本复跑](transformer-reproduction.md)、[架构补齐验证](framework-verification.md) 和下文保留原阶段计数与回执，供追溯。
+最新验收见 [2026-10-21 本地整合记录](local-verification-2026-10-21.md)：Python 3.12–3.14 各 860 项默认测试通过，184 项容器/外网用例按完整首轮和受影响复验核对，23 项网页回归通过，最终 Windows 单文件与四服务完成验证。新会话仅原句输入，原始 Transformer 18 项测试一次通过（3.24 秒），8/8 节点与三项功能规则通过。最新远端 CI 受账号限制未验证。
+
+下文及 [前次单句实测](transformer-chat-acceptance.md)、[显式脚本复跑](transformer-reproduction.md)、[架构补齐验证](framework-verification.md) 保留各自阶段的计数、限制和回执，供追溯。
 
 日期：2026-10-10。开发遵循项目 code_skill。初次基础验收使用 MockTransport；用户提供配置后，追加 AutoDL / DeepSeek-V4-Flash 的真实模型验收。密钥保存在忽略的本地 .env，报告不记录密钥。外部来源验收实际访问 GitHub/PyPI。
 

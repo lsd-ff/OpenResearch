@@ -1,6 +1,6 @@
 # 架构图完整对齐验收
 
-本表证明图中的模块与已列场景已经接通，不代表与 Go 全部源码功能等价。2026-10-20 已确认多框架对比、ToT 消融、GPU/full 模式、依赖恢复、Benchmark 独立预检及兼容/发行能力仍需补齐；当前进展见 [全功能迁移清单](implementation-plan.md)。
+本表保留 2026-10-19 架构阶段的模块与场景证据。之后发现的多框架、ToT、GPU/full、依赖恢复、独立预检及兼容/发行缺口已继续补齐；最终范围、差异和分轮验收见 [Go 源码复核](go-migration-audit.md) 与 [2026-10-21 本地整合记录](local-verification-2026-10-21.md)。本表的旧计数不替代最终记录。
 
 按用户提供的「Sea-Mult-Agent 多智能体科研执行系统」完成独立 Python 重写：保留 React + TypeScript，将 Go + Gin 替换为 FastAPI；Plan Store 使用 SQLite、不可变文件与持久事件日志。图中的可选服务也有独立实现与真实部署验收。
 

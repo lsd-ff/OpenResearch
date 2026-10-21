@@ -4,6 +4,8 @@ AGI-OpenResearch 的独立 Python 重写。React 工作台、FastAPI、模型 DA
 
 遵循项目 [code_skill](.trae/skills/code_skill/SKILL.md)：职责拆分、参数对象、中文关键注释、事务并发控制和小步行为测试。原 Go 工程保持独立。
 
+Go 实际功能与 Python 差异见 [源码迁移复核](docs/go-migration-audit.md)，最新本地测试、单句 Transformer、部署和发行物证据见 [整合验收记录](docs/local-verification-2026-10-21.md)。
+
 ## 启动
 
 需要 Python 3.12–3.14、uv、Node.js 22 和 Docker Engine / Docker Desktop Linux 容器。显式代码与示例实验无需模型密钥。在本目录运行：
