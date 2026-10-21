@@ -1,4 +1,5 @@
 import asyncio
+import os
 import signal
 import socket
 import sys
@@ -71,11 +72,15 @@ def install_worker(app: FastAPI, failed: Callable[[BaseException], None]) -> Non
 
 def stop_on_input_close(stopping: asyncio.Event) -> None:
     loop = asyncio.get_running_loop()
+    descriptor = sys.stdin.fileno()
 
     def read() -> None:
         try:
-            while sys.stdin.buffer.read(4096):
+            # 信号退出时 stdin 仍可打开；守护线程不能持有 BufferedReader 的终结锁。
+            while os.read(descriptor, 4096):
                 pass
+        except OSError:
+            pass
         finally:
             # 主循环已退出时无需再投递；守护线程不阻碍进程回收。
             with suppress(RuntimeError):

@@ -124,12 +124,18 @@ class ReleaseProcess:
             await client.aclose()
             raise
 
-    async def stop(self):
+    async def stop(self, *, use_sigterm=False):
         if self.process is None:
             return
-        if self.process.stdin and not self.process.stdin.closed:
+        if use_sigterm:
+            assert sys.platform != "win32", "SIGTERM acceptance requires a POSIX host"
+            # 保持标准输入打开，单独证明冻结程序能转发并优雅处理 Linux 终止信号。
+            self.process.terminate()
+        elif self.process.stdin and not self.process.stdin.closed:
             self.process.stdin.close()
         code = await asyncio.to_thread(self.process.wait, 35)
+        if self.process.stdin and not self.process.stdin.closed:
+            self.process.stdin.close()
         assert code == 0, f"release exited {code}; see process.log"
         async with httpx.AsyncClient(trust_env=False) as client:
             try:
@@ -290,7 +296,7 @@ async def verify(artifact: Path):
             assert reread == original
         await client.aclose()
         client = None
-        await runtime.stop()
+        await runtime.stop(use_sigterm=sys.platform != "win32")
         assert not await asyncio.to_thread(runtime.inventory)
         summary = {
             "passed": True,
@@ -299,6 +305,10 @@ async def verify(artifact: Path):
             "dependency_plan": dependency["id"],
             "pdf_plan": pdf["id"],
             "restart_did_not_rerun": True,
+            "shutdown_modes": [
+                "stdin_close",
+                "sigterm" if sys.platform != "win32" else "stdin_close",
+            ],
             "active_containers": 0,
             "scope": (
                 "Actual frozen executable, empty PATH, embedded UI/API/Worker/local HTTP sandbox, "

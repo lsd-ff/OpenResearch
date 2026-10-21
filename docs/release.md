@@ -45,6 +45,8 @@ Linux 使用没有 `.exe` 后缀的路径。归档检查解开实际数据及模
 
 运行验收通过真实 HTTP 检查内嵌网页及静态字节、未知 API 的 404、审批、原生代码执行、显式依赖解析/锁定/容器安装、原程序断言、容器内 PDF 解析、退出清理及重启不重复。空白 PDF 是功能夹具，继续标记需要 OCR；这些程序也不是论文效果证明。回执和原失败日志保存在忽略目录 `.data/release-acceptance/`，不随发行物提交。
 
+Linux 验收第一次关闭标准输入退出，重启并核对持久记录后，第二次保持标准输入打开并发送 `SIGTERM`。两次均要求退出码 0、API 端口释放及所属容器为零；回执记录实际使用的 `shutdown_modes`。Windows 继续使用标准输入关闭流程。
+
 验收中的公开依赖下载可以显式传入 `OPENRESEARCH_SOURCE_PROXY_URL` 和 `OPENRESEARCH_SOURCE_DOWNLOAD_TIMEOUT_SECONDS` 环境变量；它们只配置来源网络。验收子进程仍不读取项目 `.env`，模型、数据库和其它应用配置不继承。宿主验收使用宿主可达的代理地址，Docker 部署中的 `host.docker.internal` 需按本机情况换成 loopback 地址。
 
 CI 分别构建 Windows/Linux 发行物并检查实际归档；Linux 作业运行真实 Docker 验收，Windows 作业检查冻结 CLI。本机 Windows 的完整容器验收和远程 Linux 结果分别记录，不把 CLI 启动当作完整实验验证。构建工件通过 Actions 保存七天，不自动发布 Release。
