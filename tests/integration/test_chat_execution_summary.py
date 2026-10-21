@@ -109,6 +109,8 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
         "research_report": report.model_dump_json(),
         "final_patch": patch.model_dump_json(),
         "experiment_design": json.dumps({"rationale": "PLANNING_ONLY_REMOVE_ASSERTION"}),
+        "claim_verification_report": "# Frozen functional checks\nFUNCTIONAL_CHECK_VERIFIED\n",
+        "benchmark_predictions": "[]",
     }.items():
         plan.artifacts[key] = files.write(lease, key, content)
 
@@ -119,6 +121,10 @@ async def test_summary_sees_execution_after_a_long_patch_and_does_not_request_pd
         assert "PLANNING_ONLY_REMOVE_ASSERTION" not in text
         assert "citations=[]" in text and "SERVER_CONTEXT_DATA" not in text
         artifacts = json.loads(payload["messages"][-1]["content"])["artifacts"]
+        assert "FUNCTIONAL_CHECK_VERIFIED" in artifacts["claim_verification_report"]
+        available = json.loads(artifacts["available_artifacts"])
+        assert "benchmark_predictions" in available and "claim_verification_report" in available
+        assert "benchmark_predictions" not in artifacts
         assert all("result" not in item for item in json.loads(artifacts["task_outcomes"]))
         assert json.loads(artifacts["source_integrity"])["provided_code_preserved"] is True
         history = json.loads(artifacts["execution_history"])[0]["attempts"]

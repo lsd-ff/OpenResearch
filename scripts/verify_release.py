@@ -61,7 +61,18 @@ class ReleaseProcess:
         self.environment = {
             key: value
             for key, value in os.environ.items()
-            if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "HOME"}
+            # 只允许显式来源网络配置穿过隔离边界，模型与应用私有设置继续由空环境隔离。
+            if key.upper()
+            in {
+                "SYSTEMROOT",
+                "WINDIR",
+                "TEMP",
+                "TMP",
+                "USERPROFILE",
+                "HOME",
+                "OPENRESEARCH_SOURCE_PROXY_URL",
+                "OPENRESEARCH_SOURCE_DOWNLOAD_TIMEOUT_SECONDS",
+            }
             or key.upper().startswith("DOCKER_")
         }
         with socket.create_server(("127.0.0.1", 0)) as listener:

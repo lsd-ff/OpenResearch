@@ -2,8 +2,10 @@ import io
 import tarfile
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
+from pydantic import SecretStr
 
 from openresearch.config import Settings
 from openresearch.models.runtime import ExecutionResult, new_id
@@ -84,8 +86,8 @@ class FakeSandbox:
 
 
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
-    return Settings(
+def settings(tmp_path: Path, request: pytest.FixtureRequest) -> Settings:
+    configuration = Settings(
         _env_file=None,
         data_dir=tmp_path,
         poll_interval_seconds=0.01,
@@ -93,6 +95,17 @@ def settings(tmp_path: Path) -> Settings:
         llm_model="",
         api_token="",
     )
+    if request.node.get_closest_marker("external") is not None:
+        # 显式外网验收复用本地已配置的来源代理；模型凭据和运行数据不传入测试。
+        source_settings = Settings()
+        proxy = source_settings.source_proxy_url.get_secret_value()
+        if urlsplit(proxy).hostname == "host.docker.internal":
+            proxy = proxy.replace("host.docker.internal", "127.0.0.1", 1)
+        configuration.source_proxy_url = SecretStr(proxy)
+        configuration.source_download_timeout_seconds = (
+            source_settings.source_download_timeout_seconds
+        )
+    return configuration
 
 
 @pytest.fixture

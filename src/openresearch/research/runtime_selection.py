@@ -31,6 +31,8 @@ def intent_python(intent: str) -> SpecifierSet | None:
             normalized = "==" + normalized + (".*" if normalized.count(".") == 1 else "")
         elif normalized.startswith("=") and not normalized.startswith("=="):
             normalized = "=" + normalized
+        # 人类指定主次版本表示整个系列；只有完整补丁版本才固定到单一解释器。
+        normalized = re.sub(r"(?<![<>=!~])==(3\.\d+)(?=,|$)", r"==\1.*", normalized)
         constraints.append(normalized)
     return SpecifierSet(",".join(constraints))
 

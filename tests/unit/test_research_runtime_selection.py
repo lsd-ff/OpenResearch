@@ -12,6 +12,7 @@ from openresearch.research.environment_preparation import EnvironmentPreparation
 from openresearch.research.runtime_selection import (
     bind_runtime,
     compatible_runtime,
+    intent_python,
     runtime_for_intent,
     runtime_python,
 )
@@ -22,6 +23,25 @@ def registry(settings):
         "cpu11": RuntimeProfile(image="python:3.11-slim-bookworm", python="3.11"),
         "cpu13": RuntimeProfile(image="python:3.13-slim-bookworm", python="3.13"),
     }
+
+
+@pytest.mark.parametrize(
+    ("instruction", "accepted", "rejected"),
+    [
+        ("Python==3.12", "3.12.13", "3.13.0"),
+        ("Python=3.12", "3.12.13", "3.13.0"),
+        ("Python 3.12", "3.12.13", "3.13.0"),
+        ("Python==3.12.13", "3.12.13", "3.12.12"),
+        ("Python>=3.12,<3.13", "3.12.13", "3.13.0"),
+        ("Python==3.12,!=3.12.5", "3.12.13", "3.12.5"),
+        ("Python==3.12.*", "3.12.13", "3.13.0"),
+    ],
+)
+def test_python_series_constraints_preserve_actual_patch_versions_and_explicit_bounds(
+    instruction, accepted, rejected
+):
+    constraint = intent_python(instruction)
+    assert constraint is not None and accepted in constraint and rejected not in constraint
 
 
 def test_absent_runtime_keeps_old_research_json_and_frozen_preflight_hashes():
