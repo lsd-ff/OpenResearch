@@ -10,7 +10,9 @@ from openresearch.executor.journal import RunJournal
 from openresearch.executor.models import DAG, ExecutorConfig
 from openresearch.executor.race import StrategyRace
 from openresearch.executor.receipts import ExecutionError, GraphReceipt
+from openresearch.executor.resources import effective_graph
 from openresearch.executor.scheduler import DAGScheduler
+from openresearch.executor.slots import SandboxSlot
 from openresearch.executor.state import PublishedState
 from openresearch.sandbox.core.session import CoreSandbox
 from openresearch.sandbox.core.transactions import settle
@@ -31,7 +33,7 @@ class Engine:
         self.last_receipt: GraphReceipt | None = None
         self._state: PublishedState | None = None
         self._race: StrategyRace | None = None
-        self._seed: CoreSandbox | None = None
+        self._seed: SandboxSlot | None = None
         self._task: asyncio.Task[GraphReceipt] | None = None
         self._journal: RunJournal | None = None
         self._open = self._entered = self._closed = False
@@ -49,15 +51,11 @@ class Engine:
     async def execute_graph(self, graph: DAG) -> GraphReceipt:
         if not self._open or self._task is not None:
             raise SandboxError("executor needs a fresh active context for one graph")
-        for node in graph.nodes:
-            if node.io_weight > self.gates.config.max_concurrent_io:
-                raise ValueError("node IO weight exceeds configured capacity")
-            if node.gpu_weight:
-                raise ValueError("core GPU execution is not configured")
-        journal = RunJournal(self.config, graph)
+        resolved = effective_graph(graph, self.config, self.gates)
+        journal = RunJournal(self.config, graph, resolved)
         self._journal = journal
         self.last_receipt = journal.receipt
-        self._task = asyncio.create_task(self._run(graph, journal))
+        self._task = asyncio.create_task(self._run(resolved, journal))
         task = self._task
 
         def cancel() -> None:
@@ -88,10 +86,17 @@ class Engine:
                 seed_config = self.config.sandbox.model_copy(
                     update={"data_dir": journal.root / "seed"}
                 )
-                self._seed = CoreSandbox(seed_config)
-                async with self._seed:
-                    baseline = await CheckpointManager(self._seed).commit_and_pin("__base__")
+                self._seed = SandboxSlot(
+                    CoreSandbox(seed_config), self.gates, 1, int(seed_config.gpu_enabled)
+                )
+                try:
+                    await self._seed.start()
+                    baseline = await CheckpointManager(self._seed.sandbox).commit_and_pin(
+                        "__base__"
+                    )
                     self._state = PublishedState(baseline)
+                finally:
+                    await settle(asyncio.create_task(self._seed.close()))
                 self._seed = None
                 self._race = StrategyRace(journal, self.gates, self.checker)
                 await DAGScheduler(journal, self._state, self._race, self.agent).execute(graph)

@@ -51,6 +51,7 @@ class AttemptReceipt:
     snapshot_image: str | None = None
     result: CommandEvidence | None = None
     error_type: str | None = None
+    gpu_reservation_id: str | None = None
 
 
 @dataclass
@@ -66,6 +67,8 @@ class NodeReceipt:
     selected_candidate: int | None = None
     error_type: str | None = None
     attempts: list[AttemptReceipt] = field(default_factory=list)
+    io_weight: int = 1
+    gpu_weight: int = 0
 
 
 @dataclass

@@ -1,11 +1,12 @@
 import asyncio
 import math
 import threading
+import time
 from collections.abc import Callable
 from types import TracebackType
 
 from openresearch.checkpoint.lease import SnapshotLease
-from openresearch.errors import SandboxError
+from openresearch.errors import ResourceBusyError, SandboxError
 from openresearch.sandbox.core.engine import CoreEngine
 from openresearch.sandbox.core.models import CommandResult, CoreConfig
 from openresearch.sandbox.core.transactions import settle
@@ -28,6 +29,10 @@ class CoreSandbox:
     def container_id(self) -> str:
         return self._engine.container_id if self._engine else ""
 
+    @property
+    def gpu_reservation_id(self) -> str | None:
+        return self._engine._gpu.id or None if self._engine else None
+
     async def __aenter__(self) -> "CoreSandbox":
         async with self._lock:
             if self._engine is not None or self._closed:
@@ -38,7 +43,18 @@ class CoreSandbox:
                 self._engine.start()
 
             try:
-                await settle(asyncio.create_task(asyncio.to_thread(start)))
+                deadline = time.monotonic() + self.config.gpu_wait_seconds
+                while True:
+                    try:
+                        await settle(asyncio.create_task(asyncio.to_thread(start)))
+                        break
+                    except ResourceBusyError:
+                        # 只重试真实占用；本次创建必须完整清理后才能进入可取消的异步等待。
+                        await self._release_engine()
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise ResourceBusyError("core GPU admission timed out") from None
+                        await asyncio.sleep(min(0.25, remaining))
             except BaseException:
                 await self._close_locked()
                 raise
@@ -75,10 +91,13 @@ class CoreSandbox:
             )
             return await settle(task, cancel.set)
 
-    async def _close_locked(self) -> None:
+    async def _release_engine(self) -> None:
         if self._engine is not None:
             await settle(asyncio.create_task(asyncio.to_thread(self._engine.close)))
             self._engine = None
+
+    async def _close_locked(self) -> None:
+        await self._release_engine()
         self._closed = True
 
     async def close(self) -> None:

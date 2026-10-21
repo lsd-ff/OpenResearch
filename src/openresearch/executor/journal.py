@@ -13,13 +13,18 @@ from openresearch.storage.localpath import filesystem_path
 
 
 class RunJournal:
-    def __init__(self, config: ExecutorConfig, graph: DAG) -> None:
+    def __init__(self, config: ExecutorConfig, graph: DAG, resolved: DAG | None = None) -> None:
         self.config = config
         self.id = uuid4().hex
         self.root = filesystem_path(config.sandbox.data_dir) / "executor" / self.id
         self.root.mkdir(parents=True, exist_ok=False)
         self.receipt = GraphReceipt(
-            self.id, [NodeReceipt(node.id) for node in graph.nodes], self.root / "receipt.json"
+            self.id,
+            [
+                NodeReceipt(node.id, io_weight=node.io_weight, gpu_weight=node.gpu_weight)
+                for node in (resolved or graph).nodes
+            ],
+            self.root / "receipt.json",
         )
         (self.root / "graph.json").write_text(graph.model_dump_json(indent=2), encoding="utf-8")
         self.attempts_reserved = 0

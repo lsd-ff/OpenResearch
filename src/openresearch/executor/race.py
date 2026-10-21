@@ -121,6 +121,7 @@ class StrategyRace:
                 await slot.start()
                 sandbox = slot.sandbox
                 receipt.container_id = sandbox.container_id
+                receipt.gpu_reservation_id = sandbox.gpu_reservation_id
                 receipt.status = "running"
                 receipt.started_at = time.time()
                 self.journal.flush()

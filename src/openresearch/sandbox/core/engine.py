@@ -9,6 +9,8 @@ from openresearch.checkpoint.lease import SnapshotLease
 from openresearch.checkpoint.lifetime import BASE_LABEL, ImageReference, SnapshotOwner
 from openresearch.checkpoint.registry import RollbackReceipt, Snapshot
 from openresearch.errors import SandboxError
+from openresearch.sandbox.core.cleanup import remove_owned_containers
+from openresearch.sandbox.core.gpu import GPU_PROBE, ROLE_LABEL, GPUReservation, device_environment
 from openresearch.sandbox.core.models import CommandResult, CoreConfig
 from openresearch.sandbox.core.output import OutputCapture
 from openresearch.sandbox.core.terminal import Terminal
@@ -34,6 +36,7 @@ class CoreEngine:
         self._snapshots = source._reference.owner if source else SnapshotOwner()
         self._base: ImageReference | None = None
         self._references: list[ImageReference] = []
+        self._gpu = GPUReservation(self.client, self.labels)
 
     def _image(self, image: str) -> Any:
         source = self.client.images.get(image)
@@ -43,6 +46,8 @@ class CoreEngine:
 
     def spawn(self, image: str, restore: bool = False) -> tuple[str, Terminal]:
         source = self._image(image)
+        if self.config.gpu_enabled and not self._gpu.id:
+            raise SandboxError("GPU workload requires an owned reservation")
         command = ["/bin/bash", "--noprofile", "--norc", "--noediting", "-i"]
         if restore:
             command = ["/usr/bin/env", "-i", *command]
@@ -51,10 +56,13 @@ class CoreEngine:
             command,
             entrypoint=[],
             working_dir=self.config.working_dir,
-            environment=self.config.environment,
+            environment=device_environment(self.config.environment, self.config.gpu_enabled),
             stdin_open=True,
             tty=True,
-            labels=self.labels,
+            labels={**self.labels, ROLE_LABEL: "workload"},
+            device_requests=[docker.types.DeviceRequest(count=-1, capabilities=[["gpu"]])]
+            if self.config.gpu_enabled
+            else [],
             runtime=self.config.runtime,
             network_mode=self.config.network,
             mem_limit=self.config.memory_bytes,
@@ -81,6 +89,11 @@ class CoreEngine:
                 result = terminal.execute(setup, capture, 10, threading.Event())
                 if not result.succeeded:
                     raise SandboxError("core shell initialization failed")
+            if self.config.gpu_enabled:
+                with OutputCapture(self.config.data_dir, GPU_PROBE, self.config) as capture:
+                    result = terminal.execute(GPU_PROBE, capture, 10, threading.Event())
+                    if not result.succeeded or not result.output.strip():
+                        raise SandboxError("core GPU device probe failed; no CPU fallback")
             return str(container.id), terminal
         except BaseException:
             try:
@@ -94,12 +107,15 @@ class CoreEngine:
         if self._source:
             self._base = self._source.borrow()
             self._references.append(self._base)
-            self.container_id, self.terminal = self.spawn(self._base.image_id, restore=True)
+            image_id = self._base.image_id
         else:
             image = self._image(self.config.image)
             if image.labels.get("openresearch.core.managed") == "true":
                 raise SandboxError("managed snapshot requires a live snapshot lease")
-            self.container_id, self.terminal = self.spawn(str(image.id))
+            image_id = str(image.id)
+        if self.config.gpu_enabled:
+            self._gpu.acquire(image_id)
+        self.container_id, self.terminal = self.spawn(image_id, restore=self._source is not None)
 
     def execute(self, command: str, timeout: float, cancel: threading.Event) -> CommandResult:
         if self.terminal is None:
@@ -175,13 +191,10 @@ class CoreEngine:
             self.terminal = None
         filters = {"label": [f"{key}={value}" for key, value in self.labels.items()]}
         # 只清理本会话；查询也覆盖创建/提交成功但客户端未收到回执的资源。
-        for container in self.client.containers.list(all=True, filters=filters):
-            try:
-                container.remove(force=True, v=True)
-            except docker.errors.NotFound:
-                pass
-            except Exception as exc:
-                errors.append(exc)
+        try:
+            remove_owned_containers(self.client, self.labels)
+        except Exception as exc:
+            errors.append(exc)
         if errors:
             raise SandboxError(
                 "core cleanup failed: " + ", ".join(type(e).__name__ for e in errors)
@@ -195,3 +208,4 @@ class CoreEngine:
         self._references.clear()
         self._base = None
         self.container_id = ""
+        self._gpu.id = ""

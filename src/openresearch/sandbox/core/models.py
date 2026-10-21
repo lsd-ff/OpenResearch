@@ -16,6 +16,8 @@ class CoreConfig(BaseModel):
     runtime: str = Field(default="runc", pattern=r"^[A-Za-z0-9_.-]+$", max_length=64)
     working_dir: str = "/workspace"
     network: Literal["none", "bridge"] = "none"
+    gpu_enabled: bool = Field(default=False, strict=True)
+    gpu_wait_seconds: float = Field(default=30, ge=0, le=300, allow_inf_nan=False)
     memory_bytes: int = Field(default=2 * 1024**3, ge=64 * 1024**2, le=64 * 1024**3)
     cpus: float = Field(default=2, gt=0, le=64, allow_inf_nan=False)
     timeout_seconds: float = Field(default=300, gt=0, le=3600, allow_inf_nan=False)
