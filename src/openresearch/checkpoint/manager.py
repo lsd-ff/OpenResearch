@@ -1,3 +1,4 @@
+from openresearch.checkpoint.feedback import FeedbackHistory
 from openresearch.checkpoint.registry import RollbackReceipt, Snapshot, SnapshotRegistry
 from openresearch.sandbox.core.engine import CoreEngine
 from openresearch.sandbox.core.session import CoreSandbox
@@ -7,6 +8,7 @@ class CheckpointManager:
     def __init__(self, sandbox: CoreSandbox) -> None:
         self.sandbox = sandbox
         self.registry = SnapshotRegistry()
+        self.feedback = FeedbackHistory()
 
     async def commit(self, node_id: str) -> Snapshot:
         if not node_id.strip() or len(node_id) > 200 or "\x00" in node_id:
@@ -44,4 +46,12 @@ class CheckpointManager:
     def _restore(self, engine: CoreEngine, snapshot: Snapshot) -> RollbackReceipt:
         receipt = engine.restore(snapshot)
         self.registry.restore(snapshot.node_id)
+        self.feedback.record_restoration(receipt)
         return receipt
+
+    def record_failure_and_get_feedback(self, node_id: str, command: str, output: str) -> str:
+        self.feedback.record_failure(node_id, command, output)
+        return self.feedback.context()
+
+    def get_full_feedback_context(self) -> str:
+        return self.feedback.context()

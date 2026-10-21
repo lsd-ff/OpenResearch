@@ -18,6 +18,7 @@ class OutputCapture:
         self.stream = self.path.open("wb")
         self.size = 0
         self.limited = False
+        self.metadata: dict[str, object] | None = None
 
     def write(self, value: bytes) -> None:
         remaining = self.config.max_output_bytes - self.size
@@ -41,7 +42,7 @@ class OutputCapture:
                 + f"\n... [{len(lines) - first - last} lines omitted] ...\n"
                 + "".join(tail)
             )
-        metadata = {
+        metadata: dict[str, object] = {
             "command": self.command,
             "exit_code": exit_code,
             "timed_out": timed_out,
@@ -53,6 +54,7 @@ class OutputCapture:
         self.path.with_suffix(".json").write_text(
             json.dumps(metadata, ensure_ascii=False), encoding="utf-8"
         )
+        self.metadata = metadata
         return CommandResult(output, exit_code, timed_out, self.limited, summary, self.path)
 
     def __enter__(self) -> "OutputCapture":
@@ -64,12 +66,14 @@ class OutputCapture:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        if exc is not None:
-            self.stream.flush()
-            self.path.with_suffix(".json").write_text(
-                json.dumps(
-                    {"command": self.command, "error_type": type(exc).__name__, "partial": True}
-                ),
-                encoding="utf-8",
-            )
-        self.stream.close()
+        try:
+            if exc is not None:
+                self.stream.flush()
+                metadata = self.metadata or {"command": self.command}
+                metadata.update({"error_type": type(exc).__name__, "partial": True})
+                self.path.with_suffix(".json").write_text(
+                    json.dumps(metadata, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+        finally:
+            self.stream.close()

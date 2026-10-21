@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from openresearch.errors import SandboxError
+
 
 class CoreConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -53,3 +55,15 @@ class CommandResult:
     @property
     def succeeded(self) -> bool:
         return self.exit_code == 0 and not (self.timed_out or self.output_limited)
+
+
+class TerminalRecoveryError(SandboxError):
+    def __init__(self, result: CommandResult) -> None:
+        super().__init__("core terminal did not recover after interruption")
+        self.result = result
+
+
+class TerminalConnectionError(SandboxError):
+    def __init__(self, result: CommandResult) -> None:
+        super().__init__("core terminal disconnected")
+        self.result = result

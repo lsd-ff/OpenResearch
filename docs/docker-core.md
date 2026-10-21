@@ -53,13 +53,30 @@ asyncio.run(main())
 
 Bash 使用 [官方 `--noediting` 选项](https://www.gnu.org/s/bash/manual/html_node/Invoking-Bash.html) 关闭 Readline，并通过 `/dev/tty` 设置终端模式，避免行编辑恢复旧终端配置和命令 stdin 重定向导致设置无效。
 
+## 故障审计与诊断
+
+`openresearch.watchdog.service.Watchdog(sandbox, checkpoints=None, config=None, checker=None)` 包装同一个 `CoreSandbox`。不提供检查点管理器时创建空管理器；外部管理器必须绑定同一沙箱。`WatchdogConfig` 默认命令时限 300 秒、失败窗口 5，实际时限取沙箱预算和该配置的较小值。每次调用只执行一次原命令，诊断重试不重跑命令。
+
+- `execute(command, node_id="command")` 成功返回原始 `CommandResult`；失败抛出携带结果和提示的 `WatchdogError`。原因包括 `ENV_CORRUPTED`、`TIMEOUT_HANG`、`OUTPUT_LIMIT`、`CIRCUIT_BROKEN`。
+- Checker 优先拒绝超时、输出超量和崩溃信号，其余情况信任退出码。成功日志中的普通 error/failed 文字不进入失败窗口；真实失败的命令和输出摘要连续填满窗口时报告断路。取消继续传播，不记录为失败。断路器报告重复失败，调用方负责停止当前错误策略；它不承诺阻止此后显式调用。
+- 默认诊断使用退出码及缺失命令/权限规则。可明确传入 `Checker(LLMAdvisor(LLMClient(settings)), checker_config)` 使用现有模型配置。命令/输出各截为 2,000 字符，历史上下文默认 16,000 字符，按不可信证据发送；建议只作为提示返回，不执行建议、不改写原失败结论。
+- `CheckerConfig` 最多三次诊断尝试，单次默认 30 秒，失败记录异常类型并回退规则。一次结构化模型调用仍遵守 LLMClient 既有格式重试和请求总时限；最多三次指诊断调用层，不把内部请求忽略不计。取消不被吞为诊断失败。
+- `CheckpointManager.record_failure_and_get_feedback()` 与 `get_full_feedback_context()` 保留有界失败片段、传入命令/输出文本的 SHA、数量及被省略记录数；默认最多 32 条。原始捕获字节的摘要在执行回执中，超量和连接中断仍是部分输出。新失败清除旧恢复标记，只有实际回滚回执才更新 `last_rollback`。控制字符的 JSON 转义也计入上下文预算，紧预算可只保留最近失败的摘要身份。
+- `rollback_to_safe_state(image_id)` 显式调用真实检查点回滚，完成后返回回执。默认不会因失败或模型建议自行回滚。实际恢复后原命令仍保持失败；后续新命令是独立执行。
+
+看门狗审计保存在 `<data_dir>/watchdog/*.json`，引用实际命令原始回执。终端无法在中断后恢复时，`TerminalRecoveryError` 携带实际超时/输出上限与部分输出；连接终止时 `TerminalConnectionError` 同样保留部分输出，退出码未知就保持 `None`。异常元数据不会覆盖已保存的实际标志。
+
 ## 验证与剩余范围
 
 ```powershell
 $env:OPENRESEARCH_TEST_DOCKER='1'
-uv run --locked pytest tests/acceptance/test_core_checkpoints.py -q
+uv run --locked pytest tests/acceptance/test_core_checkpoints.py tests/acceptance/test_core_watchdog.py -q
 ```
 
 2026-10-21 的 14 项实际 Linux 容器测试通过（Windows Docker Desktop named pipe，62.84 秒）。覆盖文件/导出环境/cwd/函数恢复、Unicode 和引号、unset 不复活、真实退出码、空输出成功、长命令、LF/CRLF 原始字节、摘要、串行化、超时/取消/输出上限后的终端复用、主动退出、启动/提交期间取消、外来镜像拒绝、镜像/运行时创建失败以及 VOLUME 拒绝。每项关闭后所属容器和快照镜像均为零；测试中的延迟只控制取消时机，Docker 创建和提交仍实际执行。
 
-Linux 宿主 Unix socket 路径由新提交 CI 继续验证。失败负反馈、Checker/Watchdog、断路器、超时回滚策略、策略竞速、加权 IO/GPU 门控仍待实现。本页证明独立终端与检查点能力，不表示完整 Go 功能迁移或最终应用部署完成。
+后续终端/Watchdog 联合回归 21 项通过（112.32 秒），包括实际重复失败触发窗口、成功日志关键词不误判、普通超时和忽略 SIGINT 后超时的准确分类、取消、实际 SIGSEGV、输出上限、断开时部分输出和同命名空间双会话清理隔离；无显式管理器入口另经真实断开用例通过（4.31 秒）。终端/检查点初版 `4ae943f` 的 18 项远程检查已成功，含 Linux 宿主 Unix socket 路径；本批新功能以新 CI 为准。
+
+2026-10-21 真实配置模型验收位于忽略路径 `.data/parity-live/watchdog-eac1bac7c14b48f5b2a65a58703a3c82/summary.json`。缺失命令实际退出 127，一次诊断尝试成功且没有把失败提升为成功；只有显式回滚后，新容器恢复导出环境和文件，输出 `stable:original`。关闭后所属容器与快照均为零。这是故障诊断/恢复功能验收，不是论文训练效果。
+
+本批默认 809 项通过、2 项公共 PDF 按开关跳过，Ruff、严格 mypy（262 源文件）与构建通过。策略竞速、加权 IO/GPU 门控及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。

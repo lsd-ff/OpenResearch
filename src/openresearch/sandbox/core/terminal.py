@@ -9,7 +9,11 @@ from typing import Any
 from uuid import uuid4
 
 from openresearch.errors import SandboxError
-from openresearch.sandbox.core.models import CommandResult
+from openresearch.sandbox.core.models import (
+    CommandResult,
+    TerminalConnectionError,
+    TerminalRecoveryError,
+)
 from openresearch.sandbox.core.output import OutputCapture
 
 
@@ -84,14 +88,18 @@ class Terminal:
                 self._interrupt(recovery)
                 deadline = time.monotonic() + 3
             elif recovery is not None and expired:
-                raise SandboxError("core terminal did not recover after interruption")
+                if started:
+                    capture.write(pending)
+                raise TerminalRecoveryError(capture.finish(None, timed_out, cancel.is_set()))
             try:
                 chunk = self.queue.get(timeout=0.1)
             except Empty:
                 continue
             if isinstance(chunk, Exception):
-                capture.write(pending)
-                raise SandboxError("core terminal disconnected") from chunk
+                if started:
+                    capture.write(pending)
+                result = capture.finish(None, timed_out, cancel.is_set())
+                raise TerminalConnectionError(result) from chunk
             pending += chunk
             if not started and recovery is None:
                 position = pending.find(start)
