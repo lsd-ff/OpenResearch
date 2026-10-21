@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import PlainTextResponse
 
 from openresearch import __version__
 from openresearch.api.dependencies import RuntimeDep
@@ -11,6 +12,11 @@ router = APIRouter(tags=["system"])
 @router.get("/ping")
 def ping() -> dict[str, str]:
     return {"message": "pong"}
+
+
+@router.get("/api/hello", response_class=PlainTextResponse)
+def hello() -> str:
+    return "hello api group"
 
 
 @router.get("/api/health")

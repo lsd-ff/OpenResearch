@@ -61,9 +61,44 @@ def test_optional_service_auth_contract_and_recursion_prevention(settings):
     ).model_dump(mode="json")
     with TestClient(app) as client:
         assert app.state.parser.settings.intent_service_url == ""
+        assert client.get("/health").json() == {"status": "ok"}
+        assert client.post("/predict", json={"text": "smoke"}).status_code == 401
         assert client.post("/v1/intent", json=payload).status_code == 401
         response = client.post(
             "/v1/intent", json=payload, headers={"Authorization": "Bearer intent-only-key"}
         )
         assert response.status_code == 200
         assert IntentDraft.model_validate(response.json()).workflow == "code"
+
+
+async def test_legacy_intent_uses_real_parser_contract_and_propagates_model_errors(settings):
+    settings.llm_model, settings.llm_api_key = "test-model", SecretStr("test-key")
+    app = create_intent_app(settings)
+    requests = []
+
+    def classify(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"workflow":"reproduce"}'}}]},
+        )
+
+    app.state.parser.llm = LLMClient(settings, httpx.MockTransport(classify))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://intent.test"
+    ) as client:
+        response = await client.post("/predict", json={"text": "复现论文并运行测试"})
+        assert response.status_code == 200
+        assert response.json() == {
+            "intent_type": "Paper_Reproduction",
+            "confidence": 0.0,
+            "entities": {},
+        }
+        assert len(requests) == 1
+        assert (await client.post("/predict", json={"text": ""})).status_code == 422
+        app.state.parser.llm = LLMClient(
+            settings, httpx.MockTransport(lambda request: httpx.Response(503))
+        )
+        assert (
+            await client.post("/predict", json={"text": "复现论文并运行测试"})
+        ).status_code == 503

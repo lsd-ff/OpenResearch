@@ -57,6 +57,7 @@ def test_auth_cookie_covers_rest_and_sse(
 ) -> None:
     settings.api_token = SecretStr("test-token")
     with TestClient(create_app(settings, repository, sandbox)) as client:
+        assert client.get("/api/hello").status_code == 401
         assert client.post("/api/plan", json={"intent": "smoke"}).status_code == 401
         assert (
             client.post(
@@ -64,6 +65,9 @@ def test_auth_cookie_covers_rest_and_sse(
             ).status_code
             == 200
         )
+        hello = client.get("/api/hello")
+        assert hello.text == "hello api group"
+        assert hello.headers["Content-Type"].startswith("text/plain")
         response = client.post("/api/plan", json={"intent": "smoke"})
         assert response.status_code == 200
         plan_id = response.json()["plan_graph"]["id"]

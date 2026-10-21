@@ -13,6 +13,7 @@
 | 方法 | 路径 | 行为 |
 | --- | --- | --- |
 | GET | /ping、/api/health | 进程探活、沙箱就绪检查 |
+| GET | /api/hello | Go 连通性兼容入口，纯文本 hello api group；遵守 API 认证 |
 | POST | /api/auth/session | 认证 Cookie |
 | GET | /api/session | 当前持久会话、上传、计划、文档计划和历史 |
 | POST | /api/chat | message；模型答复和校验后的页码引用 |
@@ -90,6 +91,8 @@ repository 可省略；附件中只有一个 GitHub 仓库链接时可发现来�
 整图 SSE 的浏览器连接在短暂断流后由 EventSource 携带 Last-Event-ID 自动重连；收到终态、切换会话或卸载页面才主动关闭。服务端读取终态快照之后再次检查尾部事件，避免任务在两次数据库读取之间完成时漏发结果；单节点流同样先排空晚提交的日志，再发送 result/error。重连后首次收到产物时，已经打开的空日志面板会切换到对应结果视图。日志和结果仍来自持久记录，断线不会重新执行实验。
 
 ## 状态与错误
+
+独立可选意图服务还提供旧协议 `POST /predict`（请求 `text`，返回 `intent_type`、`confidence`、`entities`）与公开 `GET /health`（`{"status":"ok"}`）。分类复用真实 IntentParser，遵守独立服务令牌和模型错误；无会话记忆。`confidence=0.0` 表示当前未提供校准概率，旧实现的固定模拟值 `0.95` 不沿用。完整原生协议仍为 `/v1/intent`。
 
 正常计划 pending → ready → in_progress → completed；可有 awaiting_approval、failed、canceled。依赖失败的节点 blocked。单节点完成后，若仍有未执行节点，计划回到 pending。
 
