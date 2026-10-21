@@ -15,6 +15,7 @@ from openresearch.models.resources import ManagedSandbox
 from openresearch.models.runtime import ExecutionResult
 from openresearch.sandbox import docker_files
 from openresearch.sandbox.base import LogCallback
+from openresearch.sandbox.core.transactions import settle
 from openresearch.sandbox.namespace import runtime_namespace
 from openresearch.sandbox.profiles import selected_profile
 from openresearch.sandbox.workspaces import remove_workspace, workspace_volume
@@ -264,12 +265,29 @@ class DockerSandbox:
             ):
                 raise SandboxError("refusing to remove an unmanaged container")
             volume_name = container.labels.get("openresearch.workspace_volume")
-            container.remove(force=True)
+            self._remove_container(container)
             if volume_name:
                 remove_workspace(client, volume_name, self.namespace)
 
+    @staticmethod
+    def _remove_container(container: Any) -> None:
+        for attempt in range(2):
+            try:
+                container.remove(force=True)
+                return
+            except docker.errors.NotFound:
+                return
+            except docker.errors.APIError:
+                raise
+            except OSError:
+                # requests 的传输异常继承 OSError；响应丢失不代表删除没有生效。
+                # 只对已核验归属的不可变容器 ID 重试一次，404 也证明清理已完成。
+                if attempt:
+                    raise
+
     async def close(self, sandbox_id: str) -> None:
-        await asyncio.to_thread(self._close, sandbox_id)
+        # SDK 删除线程必须排空，再记录关闭/失败，避免取消后继续改变容器状态。
+        await settle(asyncio.create_task(asyncio.to_thread(self._close, sandbox_id)))
 
     def _inventory(self) -> list[ManagedSandbox]:
         with closing(docker.from_env(timeout=10)) as client:

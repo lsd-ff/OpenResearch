@@ -3,6 +3,7 @@ from contextlib import closing
 
 import docker
 import pytest
+from requests.exceptions import ReadTimeout
 from test_docker_smoke import pytestmark as pytestmark  # 同一套显式 Docker 开关。
 
 from openresearch.config import Settings
@@ -12,6 +13,36 @@ from openresearch.sandbox.docker import DockerSandbox
 from openresearch.scheduler.worker import Worker
 from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+async def test_actual_delete_response_loss_is_reconciled_without_leaving_a_container(
+    settings, monkeypatch, deleted
+):
+    sandbox = DockerSandbox(settings)
+    identifier = await sandbox.create("cleanup-acceptance", "response-loss")
+    original = docker.models.containers.Container.remove
+    calls = 0
+
+    def remove(container, **kwargs):
+        nonlocal calls
+        if container.id == identifier:
+            calls += 1
+            if calls == 1:
+                if deleted:
+                    original(container, **kwargs)
+                raise ReadTimeout("test-only lost response")
+        return original(container, **kwargs)
+
+    monkeypatch.setattr(docker.models.containers.Container, "remove", remove)
+    try:
+        await sandbox.close(identifier)
+        assert calls == 2
+        assert not await sandbox.inventory()
+    finally:
+        monkeypatch.setattr(docker.models.containers.Container, "remove", original)
+        await sandbox.close(identifier)
+        await sandbox.shutdown()
 
 
 def containers_for(plan_id: str) -> list[str]:
