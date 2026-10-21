@@ -1,6 +1,8 @@
 import ast
 import json
 
+MAX_API_SOURCE_BYTES = 128 * 1024
+
 
 def pytest_paths(files: dict[str, bytes]) -> list[str]:
     """按真实文件名与定义找测试候选，只解析 AST，不在宿主机导入。"""
@@ -10,7 +12,7 @@ def pytest_paths(files: dict[str, bytes]) -> list[str]:
         if (
             not path.endswith(".py")
             or not (name.startswith("test_") or name.endswith("_test.py"))
-            or len(raw) > 65536
+            or len(raw) > MAX_API_SOURCE_BYTES
         ):
             continue
         try:
@@ -43,7 +45,7 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
     remaining = 24000
     paths = [path for path in sorted(files) if path.endswith(".py")][:64]
     for path in paths:
-        if len(files[path]) > 65536:
+        if len(files[path]) > MAX_API_SOURCE_BYTES:
             continue
         try:
             tree = ast.parse(files[path])
@@ -71,8 +73,8 @@ def python_api(files: dict[str, bytes]) -> list[dict[str, object]]:
                 )
         item: dict[str, object] = {
             "path": path,
-            "signatures": signatures[:32],
-            "returns": dict(list(returns.items())[:32]),
+            "signatures": signatures[:64],
+            "returns": dict(list(returns.items())[:64]),
             "imports": [
                 ast.unparse(node)
                 for node in tree.body
