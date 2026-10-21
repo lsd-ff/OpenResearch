@@ -29,7 +29,7 @@ def owned_resources(namespace: str) -> tuple[list[str], list[str]]:
         filters = {"label": f"openresearch.core.namespace={namespace}"}
         return (
             [item.id for item in client.containers.list(all=True, filters=filters)],
-            [item.id for item in client.images.list(filters=filters)],
+            [item.id for item in client.images.list(all=True, filters=filters)],
         )
 
 

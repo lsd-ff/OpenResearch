@@ -49,9 +49,30 @@ asyncio.run(main())
 - `CheckpointManager.commit(node_id)` 先在容器可写层保存导出环境、函数和 cwd，再执行带暂停的实际 Docker Commit。`rollback(image_id)`、`rollback_to_node(node_id)` 和 `rollback_to_latest()` 仅接受当前注册表、当前会话所属镜像；新容器就绪后才移除旧容器并裁剪后续记录。相同节点替换快照时保留其原注册顺序。
 - Docker Commit 保存文件层，不保存进程内存和未导出的 shell 变量；工作目录、导出环境和函数通过容器内状态脚本恢复。[Docker 文档明确挂载卷不进入 Commit](https://docs.docker.com/reference/cli/docker/container/commit/)，因此本模块不接受宿主挂载，声明 VOLUME 的基础镜像会在创建容器前拒绝。
 - 已进入 Docker 的提交/重建在等待者取消后仍完成事务，再释放锁并传播取消，避免后台线程越过锁修改状态。调用者应查注册表确认已完成的提交；不能仅凭取消认定操作未发生。
-- 快照注册表属于本会话，关闭时移除所属容器和快照镜像。清理按独立命名空间及会话标签定位；原基础镜像、其他科研容器和其他会话不在清理范围内。命令、原始输出和导出环境属于本地私有运行数据，不提交 Git。
+- 快照注册表属于本会话，关闭时移除所属容器；无外部引用的快照镜像随后删除，显式租约与派生分支使用中的镜像按下节延后清理。清理按独立命名空间及会话标签定位；原基础镜像、其他科研容器和其他会话不在清理范围内。命令、原始输出和导出环境属于本地私有运行数据，不提交 Git。
 
 Bash 使用 [官方 `--noediting` 选项](https://www.gnu.org/s/bash/manual/html_node/Invoking-Bash.html) 关闭 Readline，并通过 `/dev/tty` 设置终端模式，避免行编辑恢复旧终端配置和命令 stdin 重定向导致设置无效。
+
+## 保留快照与隔离分支
+
+`await manager.pin(node_id)` 为已有检查点获取 `SnapshotLease`，`await manager.commit_and_pin(node_id)` 在同一事务中提交、注册并获取租约。原容器关闭后，租约仍保留实际镜像；使用完必须 `await lease.close()`，也可用 `async with lease` 管理。
+
+```python
+parent = CoreSandbox(config)
+async with parent:
+    manager = CheckpointManager(parent)
+    lease = await manager.commit_and_pin("base")
+async with lease, lease.fork() as candidate:
+    result = await candidate.execute("printf hello")
+```
+
+`lease.fork(config=None)` 返回尚未启动的独立 `CoreSandbox`，进入上下文时才借用镜像并创建实际容器。可同时打开多个分支，恢复导出环境、函数和 cwd，每个分支使用独立可写层。自定义配置可调整审计目录与资源约束，镜像始终固定为该租约的快照。父注册表不加入分支的检查点，分支也不能通过原始镜像字符串绕过租约启动受管快照。
+
+会话、显式租约、活容器和派生镜像共同决定镜像生命周期。活容器借用引用后，即使原租约关闭仍可继续；派生镜像保留其父镜像，最后一个引用归还时按子到父顺序删除。每次获取及清理均核对 Docker 标签，镜像删除不使用 force。镜像清单使用 `all=True`，避免漏掉 Docker 默认隐藏的中间镜像。
+
+启动失败或取消会等待实际 Docker 事务结束，再移除已创建容器并归还引用。提交/租约事务的调用者取消时，已提交检查点仍可查，但未返回给调用者的租约会归还。清理失败保留待清理记录，重复 `close()` 重试实际删除，引用只递减一次；容器未全部移除时不释放它们的基础镜像。
+
+租约只在当前进程内有效，不是持久化的跨进程能力、容器内存快照或策略竞速调度器。进程崩溃后的镜像回收及最终应用接入仍须独立治理。
 
 ## 故障审计与诊断
 
@@ -90,5 +111,7 @@ uv run --locked pytest tests/acceptance/test_core_checkpoints.py tests/acceptanc
 2026-10-21 真实配置模型验收位于忽略路径 `.data/parity-live/watchdog-eac1bac7c14b48f5b2a65a58703a3c82/summary.json`。缺失命令实际退出 127，一次诊断尝试成功且没有把失败提升为成功；只有显式回滚后，新容器恢复导出环境和文件，输出 `stable:original`。关闭后所属容器与快照均为零。这是故障诊断/恢复功能验收，不是论文训练效果。
 
 加入资源队列后的默认门禁为 821 项通过、2 项公共 PDF 按开关跳过，Ruff、严格 mypy（264 源文件）与构建通过。完整 Docker 回归 108 项通过、37 项按外网/独立服务/GPU 条件跳过（1065.63 秒），队列原语单独由上述 12 项行为测试覆盖。独立 CPython 3.12.13 环境也通过相同的 821 项默认测试、静态检查和构建，以及 21 项实际终端/Watchdog 容器回归；现有 3.13.5 环境未替换。
+
+加入快照租约后，最终默认门禁仍为 821 项通过、2 项公共 PDF 跳过，严格 mypy 为 267 源文件，静态检查和构建通过。终端/Watchdog/分支联合实际容器回归 29 项通过（199.14 秒），其中 8 项新增分支场景覆盖隔离、多层镜像引用、关闭后拒绝新借用、原始镜像/会话限制、启动与事务取消、创建失败及删除失败重试。初次联合回归的 VOLUME 拒绝原因被租约检查覆盖，修正统一初始化校验后重新通过，原失败日志保留。Python 3.12.13 的 5 项契约和 8 项实际分支测试亦通过（87.24 秒）；原环境未替换。267 个 wheel 源文件一致，539 个仓库/包文件密钥检查干净，底层所属容器和全部镜像（含中间镜像）均为零。本批未重复完整 Docker 矩阵、网页或单文件发行验收。
 
 策略竞速、资源队列的执行器/GPU 实际接入及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。最新 GitHub CI 因账号限制未分配 runner、没有执行步骤，本地结果与未启动的远端作业分别记录。

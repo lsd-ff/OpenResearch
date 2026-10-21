@@ -5,6 +5,8 @@ from uuid import uuid4
 
 import docker
 
+from openresearch.checkpoint.lease import SnapshotLease
+from openresearch.checkpoint.lifetime import BASE_LABEL, ImageReference, SnapshotOwner
 from openresearch.checkpoint.registry import RollbackReceipt, Snapshot
 from openresearch.errors import SandboxError
 from openresearch.sandbox.core.models import CommandResult, CoreConfig
@@ -15,7 +17,9 @@ STATE_PATH = "/opt/openresearch-core/state.sh"
 
 
 class CoreEngine:
-    def __init__(self, config: CoreConfig, namespace: str) -> None:
+    def __init__(
+        self, config: CoreConfig, namespace: str, source: SnapshotLease | None = None
+    ) -> None:
         self.config, self.namespace = config, namespace
         self.client: Any = docker.from_env(timeout=60)
         self.session_id = uuid4().hex
@@ -26,12 +30,19 @@ class CoreEngine:
         }
         self.container_id = ""
         self.terminal: Terminal | None = None
-        self.images: list[str] = []
+        self._source = source
+        self._snapshots = source._reference.owner if source else SnapshotOwner()
+        self._base: ImageReference | None = None
+        self._references: list[ImageReference] = []
 
-    def spawn(self, image: str, restore: bool = False) -> tuple[str, Terminal]:
+    def _image(self, image: str) -> Any:
         source = self.client.images.get(image)
         if source.attrs["Config"].get("Volumes"):
             raise SandboxError("core snapshots require an image without declared volumes")
+        return source
+
+    def spawn(self, image: str, restore: bool = False) -> tuple[str, Terminal]:
+        source = self._image(image)
         command = ["/bin/bash", "--noprofile", "--norc", "--noediting", "-i"]
         if restore:
             command = ["/usr/bin/env", "-i", *command]
@@ -80,7 +91,15 @@ class CoreEngine:
             raise
 
     def start(self) -> None:
-        self.container_id, self.terminal = self.spawn(self.config.image)
+        if self._source:
+            self._base = self._source.borrow()
+            self._references.append(self._base)
+            self.container_id, self.terminal = self.spawn(self._base.image_id, restore=True)
+        else:
+            image = self._image(self.config.image)
+            if image.labels.get("openresearch.core.managed") == "true":
+                raise SandboxError("managed snapshot requires a live snapshot lease")
+            self.container_id, self.terminal = self.spawn(str(image.id))
 
     def execute(self, command: str, timeout: float, cancel: threading.Event) -> CommandResult:
         if self.terminal is None:
@@ -97,36 +116,54 @@ class CoreEngine:
         )
         if not self.execute(command, 10, threading.Event()).succeeded:
             raise SandboxError("cannot capture shell checkpoint state")
+        labels = {
+            **self.labels,
+            "openresearch.core.node": node_id,
+            BASE_LABEL: self._base.image_id if self._base else "",
+        }
         response = self.client.api.commit(
             self.container_id,
             pause=True,
             message=f"OpenResearch checkpoint {node_id}",
-            conf={"Labels": {**self.labels, "openresearch.core.node": node_id}},
+            conf={"Labels": labels},
         )
         image_id = str(response["Id"])
-        self.images.append(image_id)
+        self._snapshots.register(image_id, labels)
         return Snapshot(node_id, image_id, time.time())
+
+    def pin(self, snapshot: Snapshot) -> SnapshotLease:
+        reference = self._snapshots.acquire(snapshot.image_id, self.labels)
+        return SnapshotLease(snapshot, self.config, reference)
 
     def restore(self, snapshot: Snapshot) -> RollbackReceipt:
         image = self.client.images.get(snapshot.image_id)
         if any(image.labels.get(key) != value for key, value in self.labels.items()):
             raise SandboxError("checkpoint does not belong to this core session")
         # 新容器成功启动并恢复终端后才替换旧容器，启动失败不能先销毁可用状态。
-        new_id, terminal = self.spawn(snapshot.image_id, restore=True)
+        reference = self._snapshots.acquire(snapshot.image_id, self.labels)
+        try:
+            new_id, terminal = self.spawn(snapshot.image_id, restore=True)
+        except BaseException:
+            reference.close()
+            raise
+        self._references.append(reference)
+        old_base = self._base
         old_id, old_terminal = self.container_id, self.terminal
         self.container_id, self.terminal = new_id, terminal
+        self._base = reference
         try:
             if old_terminal:
                 old_terminal.close()
         finally:
             self.client.containers.get(old_id).remove(force=True, v=True)
+        if old_base:
+            old_base.close()
+            self._references.remove(old_base)
         return RollbackReceipt(old_id, new_id, snapshot.node_id, snapshot.image_id)
 
     def close(self) -> None:
-        try:
-            self._remove_owned()
-        finally:
-            self.client.close()
+        self._remove_owned()
+        self.client.close()
 
     def _remove_owned(self) -> None:
         errors: list[Exception] = []
@@ -145,16 +182,16 @@ class CoreEngine:
                 pass
             except Exception as exc:
                 errors.append(exc)
-        images = [item.id for item in self.client.images.list(filters=filters)]
-        for image_id in dict.fromkeys([*reversed(self.images), *images]):
-            try:
-                self.client.images.remove(image_id)
-            except docker.errors.ImageNotFound:
-                pass
-            except Exception as exc:
-                errors.append(exc)
         if errors:
             raise SandboxError(
                 "core cleanup failed: " + ", ".join(type(e).__name__ for e in errors)
             )
+        # 容器全部移除后才能释放其基础镜像。查询也接管 Commit 成功但响应丢失的镜像。
+        for image in self.client.images.list(all=True, filters=filters):
+            self._snapshots.register(str(image.id), image.labels)
+        self._snapshots.retire(self.session_id)
+        for reference in self._references:
+            reference.close()
+        self._references.clear()
+        self._base = None
         self.container_id = ""
