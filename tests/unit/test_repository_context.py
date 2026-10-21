@@ -1,6 +1,28 @@
 import json
 
-from openresearch.research.repository_context import pytest_paths, repository_context
+from openresearch.research.repository_context import (
+    pytest_implementation_paths,
+    pytest_paths,
+    repository_context,
+)
+
+
+def test_suite_source_candidates_are_static_real_modules_and_exclude_test_support():
+    sources = {
+        "tests/test_model.py": (
+            b"import conftest, tests.helpers, nonexistent\n"
+            b"from model.layers import forward\nimport package\n"
+            b"raise RuntimeError('do not execute this test')"
+        ),
+        "src/model/layers.py": b"raise RuntimeError('do not import this source')",
+        "package/__init__.py": b"",
+        "conftest.py": b"",
+        "tests/helpers.py": b"",
+        "tests/test_broken.py": b"this is not valid Python (",
+    }
+    assert pytest_implementation_paths(
+        sources, ["tests/test_model.py", "tests/test_broken.py"]
+    ) == ["package/__init__.py", "src/model/layers.py"]
 
 
 def test_truncated_excerpts_still_expose_actual_module_apis_without_execution():

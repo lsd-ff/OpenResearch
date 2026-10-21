@@ -12,7 +12,11 @@ from openresearch.models.research import ResearchSpec
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.environment_preparation import EnvironmentPreparation
 from openresearch.research.interpreter import InterpreterProbe
-from openresearch.research.repository_context import pytest_paths, repository_context
+from openresearch.research.repository_context import (
+    pytest_implementation_paths,
+    pytest_paths,
+    repository_context,
+)
 from openresearch.research.runtime_selection import runtime_python
 from openresearch.research.source_context import document_context
 from openresearch.sources.dependency_resolution import DependencyResolver
@@ -60,6 +64,12 @@ DESIGN_PROMPT = (
     "require additional adapter-generated checks or printed tensors absent from the suite. "
     "Keep entrypoint a NEW adapter path, arguments/ablations empty, and include pytest in "
     "dependencies. Use an empty test_paths list for benchmarks or goals needing custom code."
+    " In test_paths mode, reserve the actual implementation files imported by the selected "
+    "suite in patch_paths, alongside the new launcher, within the same three-path limit. "
+    "Use pytest_implementation_candidates as source evidence; reserve at most two relevant "
+    "implementation paths so a real source defect can be repaired after an observed failure. "
+    "Never authorize test files, conftest, test support, or alter assertions/tolerances to "
+    "obtain a pass. Reserving a source path is not a request to modify it before testing."
     " Preserve requested_requirements exactly. When a fixed package needs another registered "
     "CPU Python, keep the package; the server may select that runtime after actual failure "
     "and verified Requires-Python evidence. Do not invent a runtime or claim it already ran."
@@ -96,6 +106,9 @@ class ResearchDesigner:
             "repository": snapshot.model_dump() if snapshot else None,
             "file_paths": list(sources)[:200],
             "available_pytest_files": pytest_paths(sources),
+            "pytest_implementation_candidates": pytest_implementation_paths(
+                sources, pytest_paths(sources)
+            ),
             "source_excerpts": repository_context(sources),
             "papers": await asyncio.to_thread(document_context, plan, self.files),
             "benchmark": spec.benchmark.model_dump() if spec.benchmark else None,
