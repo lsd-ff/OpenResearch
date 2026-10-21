@@ -8,6 +8,7 @@ from pathlib import Path
 
 from packaging.requirements import InvalidRequirement, Requirement
 
+from openresearch.distribution.resources import bundled_uv
 from openresearch.errors import ContractError, DependencyResolutionError
 from openresearch.models.interpreters import InterpreterIdentity
 from openresearch.models.runtime_profiles import TargetPython
@@ -72,7 +73,7 @@ class DependencyResolver:
         dependencies = dependency_requests(requests, limit=limit)
         if not dependencies:
             return EnvironmentSpec(interpreter=self.interpreter)
-        executable = shutil.which("uv")
+        executable = bundled_uv() or shutil.which("uv")
         if executable is None:
             raise ContractError("automatic dependency resolution requires the bundled uv runtime")
         with tempfile.TemporaryDirectory(prefix="openresearch-dependencies-") as directory:

@@ -50,6 +50,47 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --locked --group release
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: uv run --locked --group release python scripts/build_release.py
+      - name: Audit frozen resources and private-file boundaries
+        shell: bash
+        run: |
+          artifact=dist/release/openresearch
+          if [ "$RUNNER_OS" = Windows ]; then artifact="$artifact.exe"; fi
+          uv run --locked --group release python scripts/audit_release.py "$artifact"
+      - name: Frozen CLI startup on Windows
+        if: runner.os == 'Windows'
+        run: ./dist/release/openresearch.exe --help
+      - name: Isolated executable, real Docker, dependencies, PDF and restart
+        if: runner.os == 'Linux'
+        run: uv run --locked --group release python scripts/verify_release.py dist/release/openresearch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ matrix.os }}
+          path: |
+            dist/release/
+            .data/release-acceptance/
+          retention-days: 7
   browser:
     runs-on: ubuntu-latest
     env:

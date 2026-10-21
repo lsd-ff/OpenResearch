@@ -3,11 +3,14 @@ import asyncio
 import json
 import signal
 from contextlib import suppress
+from pathlib import Path
 
 import uvicorn
 
 from openresearch.api.app import create_app
 from openresearch.config import Settings
+from openresearch.distribution.application import run_application
+from openresearch.distribution.resources import load_settings
 from openresearch.logging import configure_logging
 from openresearch.sandbox.factory import build_sandbox
 from openresearch.scheduler.worker import Worker
@@ -51,7 +54,14 @@ async def doctor(settings: Settings) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="OpenResearch Python runtime")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--env-file", type=Path, help="load this external configuration file")
+    parser.add_argument(
+        "--exit-on-stdin-close",
+        action="store_true",
+        help="stop the integrated app when its input pipe closes",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("app", help="start the workbench, API, Worker and local sandbox")
     subparsers.add_parser("serve", help="start the HTTP API")
     subparsers.add_parser("worker", help="start the durable execution worker")
     subparsers.add_parser("sandbox", help="start the isolated execution HTTP service")
@@ -61,8 +71,10 @@ def main() -> None:
     db.add_argument("action", choices=["upgrade"])
     args = parser.parse_args()
     configure_logging()
-    settings = Settings()
-    if args.command == "serve":
+    settings = load_settings(args.env_file)
+    if args.command in {None, "app"}:
+        asyncio.run(run_application(settings, exit_on_stdin_close=args.exit_on_stdin_close))
+    elif args.command == "serve":
         uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
     elif args.command == "worker":
         asyncio.run(run_worker(settings))

@@ -4,7 +4,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from openresearch import __version__
 from openresearch.api import (
@@ -19,6 +18,7 @@ from openresearch.api import (
 )
 from openresearch.api.body_limit import BodyLimitMiddleware
 from openresearch.api.dependencies import Runtime
+from openresearch.api.frontend import WorkbenchFiles
 from openresearch.api.middleware import install_error_handlers, install_middleware
 from openresearch.config import Settings
 from openresearch.sandbox.base import Sandbox
@@ -116,5 +116,5 @@ def create_app(
     ):
         app.include_router(router)
     if configuration.web_dir is not None:
-        app.mount("/", StaticFiles(directory=configuration.web_dir, html=True), name="workbench")
+        app.mount("/", WorkbenchFiles(directory=configuration.web_dir, html=True), name="workbench")
     return app

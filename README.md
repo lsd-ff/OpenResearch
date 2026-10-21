@@ -24,6 +24,8 @@ uv run --locked openresearch worker
 
 工作台：http://127.0.0.1:8080/；接口文档：http://127.0.0.1:8080/docs。
 
+也可用 `uv run --locked openresearch app` 一次启动工作台、API、Worker 和本地沙箱。单文件构建使用 `uv sync --locked --group release` 后运行 `uv run --locked --group release python scripts/build_release.py`；发行物自带网页、Python 运行时和 uv，目标机器仍需 Docker 及对应外部服务配置。构建、配置、退出和真实发行物验收见 [单文件发行](docs/release.md)。
+
 也可在本目录启动容器部署，镜像会构建工作台：
 
 ```powershell
