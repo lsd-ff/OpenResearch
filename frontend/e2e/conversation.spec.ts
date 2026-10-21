@@ -1,6 +1,46 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pdfFixture } from './pdfFixture';
 
+test('一条聊天请求自动比较结果、修复差距并返回同图实际报告', async ({ page }, testInfo) => {
+  await page.goto('/');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'native-gap.csv', mimeType: 'text/csv',
+    buffer: Buffer.from('id,x,outcome\n' + Array.from({ length: 12 }, (_, i) =>
+      `${i},${i % 2},${i % 2 ? 'yes' : 'no'}\n`).join('')),
+  });
+  await expect(page.getByRole('button', { name: '移除 native-gap.csv', exact: true })).toBeVisible();
+  const code = "import json, os, pathlib\n" +
+    "rows = json.loads(pathlib.Path(os.environ['OPENRESEARCH_INPUT']).read_text())\n" +
+    "assert all('outcome' not in row['inputs'] for row in rows)\n" +
+    "predictions = [{'id': row['id'], 'prediction': 'yes' if row['inputs']['x'] == '0' else 'no'} for row in rows]\n" +
+    "pathlib.Path(os.environ['OPENRESEARCH_PREDICTIONS']).write_text(json.dumps(predictions))\n" +
+    "print('ACTUAL_NATIVE_ROWS', len(rows))\n";
+  const response = await send(page, 'UI_NATIVE_GAP_FLOW benchmark：输入列 x，标签列 outcome，ID 列 id。' +
+    '先测量原入口，比较结果并修复差距后重跑，保留原断言和数据，准确率要求至少 0.9。\n```python\n' + code + '```');
+  const received = await response.json();
+  expect(received.response).toContain('已开始执行');
+  const allHeaders = await response.request().allHeaders();
+  const headers = { 'X-User-Id': allHeaders['x-user-id'], 'X-Session-Id': allHeaders['x-session-id'] };
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toBeVisible({ timeout: 60_000 });
+  const graph = (await (await page.request.get(`/api/plans/${received.plan_graph.id}`, { headers })).json()).plan_graph;
+  expect(graph.status).toBe('completed');
+  expect(graph.nodes.every((node: { run_count: number }) => node.run_count === 1)).toBe(true);
+  const artifact = graph.artifacts.result_gap__gap_debug_report;
+  const debug = JSON.parse(await (await page.request.get(`/api/plans/${graph.id}/artifacts/${artifact.id}/content`, { headers })).text());
+  expect(debug.before_metrics.baseline.accuracy).toBe(0);
+  expect(debug.after_metrics.baseline.accuracy).toBe(1);
+  expect(debug.source.source_plan_id).toBe(graph.id);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByText('科研执行与结果差距报告', { exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('native-gap-complete.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByText('科研执行与结果差距报告', { exact: true })).toHaveCount(1);
+  const after = (await (await page.request.get(`/api/plans/${graph.id}`, { headers })).json()).plan_graph;
+  expect(after.nodes.map((node: { run_count: number }) => node.run_count))
+    .toEqual(graph.nodes.map((node: { run_count: number }) => node.run_count));
+});
+
 for (const rejected of [false, true]) {
 test(`结果修复${rejected ? '拒绝删除断言' : '没有有据补丁'}时显示真实报告，刷新不重复`, async ({ page }, testInfo) => {
   await page.goto('/');
@@ -142,7 +182,7 @@ test('真实运行结果可独立复核并绘图，刷新后保留图表和审�
     expect(event, text).toBeDefined();
     return JSON.parse(event!.split('data: ', 2)[1]);
   };
-  const executed = await page.request.post('/api/execute', { headers, data: {
+  const executed = await page.request.post('/api/execute', { headers, timeout: 60_000, data: {
     task_type: 'execute_code', assigned_to: 'coder_agent',
     task_description: '执行原断言，不要自动修复', inputs: { code: 'assert sum([2,3,5]) == 10\nprint(10)\n' },
   } });

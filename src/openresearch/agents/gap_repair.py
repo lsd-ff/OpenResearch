@@ -14,6 +14,7 @@ from openresearch.models.gap import GapDebugReport, GapProposal
 from openresearch.models.research import BenchmarkPreflightReport, ResearchPatch, ResearchReport
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.gap import (
+    native_snapshot,
     patch_identities,
     report_context,
     source_context,
@@ -105,7 +106,11 @@ class GapRepairer:
     async def execute(self, plan: Plan, task: Task, lease: ExecutionLease) -> TaskResult:
         if not {"results.gap_repair", "research.patch"}.issubset(task.contract.allowed_tools):
             raise ContractError("task is not authorized to repair saved scientific results")
-        snapshot = ReviewSnapshot.model_validate(task.inputs["snapshot"])
+        snapshot = (
+            ReviewSnapshot.model_validate(task.inputs["snapshot"])
+            if "snapshot" in task.inputs
+            else await asyncio.to_thread(native_snapshot, plan, task, self.files)
+        )
         debug = GapDebugReport(source=snapshot)
         outputs: dict[str, str] = {}
         try:
@@ -171,6 +176,7 @@ class GapRepairer:
             files=apply_patch(prepared.original, final_patch, spec),
             lock=old.final_environment_lock or request.lock,
             preserve_checks=True,
+            preserve_raises=True,
         )
         outputs = source_context(material, self.files)
         outputs.update(
@@ -229,7 +235,7 @@ class GapRepairer:
         virtual = material.plan.model_copy(
             update={
                 "id": plan.id,
-                "nodes": plan.nodes,
+                "nodes": [task],
                 "artifacts": {
                     key: value
                     for key, value in material.plan.artifacts.items()

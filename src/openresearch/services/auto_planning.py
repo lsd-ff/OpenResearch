@@ -9,6 +9,7 @@ from openresearch.models.context import Conversation
 from openresearch.models.planning import IntentDraft, PendingPlanning
 from openresearch.models.research import BenchmarkSpec, ResearchSpec
 from openresearch.models.submissions import PlanSubmission
+from openresearch.planner.gap import requests_gap_repair
 from openresearch.services.intent import IntentParser, requests_source_reproduction
 from openresearch.services.planning_inputs import (
     benchmark_mapping,
@@ -275,6 +276,7 @@ class AutoPlanner:
                 research=research,
                 code=code,
                 auto_design=True,
+                result_gap_repair=submission.result_gap_repair or requests_gap_repair(state.intent),
             ),
         )
         if repository and (draft.repository_choice or repository_urls(state.intent)):

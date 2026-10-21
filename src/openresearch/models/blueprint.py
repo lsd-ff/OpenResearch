@@ -22,6 +22,8 @@ TaskKind = Literal[
     "research_prepare",
     "benchmark_preflight",
     "research_execute",
+    "result_audit",
+    "research_gap_repair",
     "chat_answer",
     "source_discover",
     "data_analyze",

@@ -7,6 +7,7 @@ from openresearch.models.submissions import PlanSubmission
 from openresearch.planner.code import code_permissions
 from openresearch.planner.compute import compute_task
 from openresearch.planner.documents import document_task
+from openresearch.planner.gap import append_gap_tasks
 from openresearch.research.ablation import requested_ablation_budget
 from openresearch.research.compute import compute_runtime
 from openresearch.research.reproduction_mode import request_from_intent
@@ -258,7 +259,10 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
                     ]
                     + [compute],
                 )
-    if submission.auto_design or request:
+    gap_task = (
+        append_gap_tasks(nodes, execute, spec, settings) if submission.result_gap_repair else None
+    )
+    if submission.auto_design or request or gap_task:
         summary = research_task("chat_answer", ["chat.answer"], ["chat_answer"], settings)
         summary.name = "实际执行报告"
         summary.assigned_to = "chat_agent"
@@ -266,6 +270,12 @@ def build_research_plan(submission: PlanSubmission, settings: Settings) -> Plan:
         # 只读报告等待全部节点；准备阶段失败也须把实际诊断回传聊天。
         summary.trigger_rule = "all_done"
         summary.dependencies = [node.id for node in nodes]
+        if gap_task:
+            summary.inputs = {
+                "native_gap_summary": True,
+                "source_task_id": execute.id,
+                "gap_task_id": gap_task.id,
+            }
         nodes.append(summary)
     approval = Approval(
         required=settings.require_approval,

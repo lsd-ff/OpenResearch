@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 
 from openresearch.models.gap import GapProposal
 from openresearch.models.knowledge import KnowledgeProposal
-from openresearch.models.planning import IntentDraft, SourceSelection
+from openresearch.models.planning import ExperimentDesign, IntentDraft, SourceSelection
 from openresearch.models.recovery import RecoveryProposal
 from openresearch.models.research import FilePatch, ResearchPatch
 
@@ -28,8 +28,47 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
             reason="Controlled JSON API correction.",
             code=context["code"].replace("json.decode", "json.loads"),
         )
+    elif any('"title": "ExperimentDesign"' in schema for schema in schemas):
+        context = json.loads(messages[-1]["content"])
+        if "UI_NATIVE_GAP_FLOW" not in context["goal"] or not context["provided_source"]:
+            raise HTTPException(400, "only the explicit native gap design fixture is supported")
+        result = ExperimentDesign(
+            rationale="网页有界设计夹具，保留给定源码和实际数据。",
+            rubric={
+                "claims": [
+                    {
+                        "title": "Functional classifier",
+                        "statement": "accuracy >= 0.9",
+                        "criteria": [
+                            {
+                                "description": "accuracy on declared rows",
+                                "metric_name": "accuracy",
+                                "expected_value": 0.9,
+                                "operator": "at_least",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
     elif any('"title": "GapProposal"' in schema for schema in schemas):
         context = json.loads(messages[-1]["content"])
+        if "UI_NATIVE_GAP_FLOW" in context["original_request"]:
+            entry = context["allowed_paths"]["openresearch_run.py"]
+            result = GapProposal(
+                status="patched",
+                diagnosis="网页补丁夹具，修复条件后实际重跑。",
+                patch=ResearchPatch(
+                    files=[
+                        FilePatch(
+                            path="openresearch_run.py",
+                            base_sha256=entry["base_sha256"],
+                            content=entry["content"].replace("== '0'", "== '1'"),
+                        )
+                    ]
+                ),
+            )
+            return {"choices": [{"message": {"content": result.model_dump_json()}}]}
         if context["request"] not in {"UI_GAP_NO_PATCH_FIXTURE", "UI_GAP_REJECTED_PATCH_FIXTURE"}:
             raise HTTPException(400, "only the explicit no-patch display fixture is supported")
         result = GapProposal(

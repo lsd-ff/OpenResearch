@@ -31,7 +31,11 @@ def review_snapshot(
         raise ContractError("review requires an owned workflow_ref with actual saved results")
     source = repository.get_plan(workflow_plan_id(reference), identity.user_id)
     selected = text_input(payload.inputs, "stage_task_id", limit=32)
-    parent = next((node for node in source.nodes if node.type == "result_audit"), None)
+    parent = (
+        next((node for node in source.nodes if node.type == "result_audit"), None)
+        if source.intent_type == "Result_Review"
+        else None
+    )
     if parent is None:
         return capture_review(source, selected)
     if parent.status not in TERMINAL or "audit_report" not in source.artifacts:

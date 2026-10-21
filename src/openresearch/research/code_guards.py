@@ -47,8 +47,18 @@ def used_imports(tree: ast.AST) -> set[str]:
     }
 
 
-def protected_checks(tree: ast.AST, required_imports: set[str]) -> list[str]:
+def protected_checks(
+    tree: ast.AST, required_imports: set[str], preserve_raises: bool = True
+) -> list[str]:
     checks: list[str] = []
+    signal_names = {"AssertionError", "SystemExit"}
+    for item in ast.walk(tree):
+        if isinstance(item, ast.ImportFrom) and item.module == "builtins":
+            signal_names.update(
+                alias.asname or alias.name
+                for alias in item.names
+                if alias.name in {"AssertionError", "SystemExit"}
+            )
 
     def walk(node: ast.AST, context: tuple[str, ...]) -> None:
         roots = set()
@@ -59,7 +69,11 @@ def protected_checks(tree: ast.AST, required_imports: set[str]) -> list[str]:
         for root in sorted(roots & required_imports):
             checks.append(repr(context) + "import:" + root)
         test_call = isinstance(node, ast.Call) and (
-            (isinstance(node.func, ast.Name) and node.func.id.startswith("test_"))
+            (isinstance(node.func, ast.Name) and node.func.id.startswith(("test_", "assert")))
+            or (
+                isinstance(node.func, ast.Attribute)
+                and (node.func.attr.startswith("assert") or node.func.attr == "fail")
+            )
             or ast.unparse(node.func)
             in {
                 "pytest.main",
@@ -74,7 +88,21 @@ def protected_checks(tree: ast.AST, required_imports: set[str]) -> list[str]:
                 "unittest.skip",
             }
         )
-        if isinstance(node, ast.Assert | ast.Raise) or test_call:
+        raised = node.exc if isinstance(node, ast.Raise) else None
+        raised = raised.func if isinstance(raised, ast.Call) else raised
+        signal = (
+            (isinstance(node, ast.Raise) and raised is None)
+            or (isinstance(raised, ast.Name) and raised.id in signal_names)
+            or (
+                isinstance(raised, ast.Attribute)
+                and raised.attr in {"AssertionError", "SystemExit"}
+            )
+        )
+        if (
+            isinstance(node, ast.Assert)
+            or (isinstance(node, ast.Raise) and (preserve_raises or signal))
+            or test_call
+        ):
             checks.append(repr(context) + ast.dump(node))
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             context += (
@@ -140,7 +168,9 @@ def syntax_tokens(code: str) -> list[tuple[int, str]]:
     ]
 
 
-def validate_code_repair(original: str, candidate: str, python: TargetPython = "3.12") -> None:
+def validate_code_repair(
+    original: str, candidate: str, python: TargetPython = "3.12", *, preserve_raises: bool = True
+) -> None:
     tree = syntax_tree(candidate, python)
     if original == candidate:
         raise ContractError("code repair did not change the failing program")
@@ -163,7 +193,16 @@ def validate_code_repair(original: str, candidate: str, python: TargetPython = "
     imports = used_imports(previous)
     if not imports.issubset(used_imports(tree)):
         raise ContractError("code repair must preserve actually used libraries")
-    if protected_checks(previous, imports) != protected_checks(tree, imports):
+    before_checks = protected_checks(previous, imports, preserve_raises)
+    after_checks = protected_checks(tree, imports, preserve_raises)
+    remaining_checks = iter(after_checks)
+    preserved = (
+        before_checks == after_checks
+        if preserve_raises
+        else all(item in remaining_checks for item in before_checks)
+    )
+    # 业务修复可增加真实断言，但不能新增 skip/退出控制来绕过原测试。
+    if not preserved or (not preserve_raises and exit_controls(previous) != exit_controls(tree)):
         raise ContractError("code repair must preserve assertions, raises and their control flow")
     tests = {
         ast.dump(node)
@@ -178,3 +217,30 @@ def validate_code_repair(original: str, candidate: str, python: TargetPython = "
             and ast.dump(before) not in tests
         ):
             raise ContractError("code repair cannot rewrite existing test functions")
+
+
+def exit_controls(tree: ast.AST) -> list[str]:
+    names = {
+        "sys.exit",
+        "os._exit",
+        "exit",
+        "quit",
+        "pytest.skip",
+        "pytest.xfail",
+        "pytest.importorskip",
+        "unittest.skip",
+        "SystemExit",
+    }
+    for item in ast.walk(tree):
+        if isinstance(item, ast.ImportFrom) and item.module:
+            names.update(
+                alias.asname or alias.name
+                for alias in item.names
+                if f"{item.module}.{alias.name}" in names
+                or (item.module == "builtins" and alias.name == "SystemExit")
+            )
+    return [
+        ast.dump(item)
+        for item in ast.walk(tree)
+        if isinstance(item, ast.Call) and ast.unparse(item.func) in names
+    ]

@@ -3,6 +3,7 @@ import json
 
 from openresearch.agents.context import AgentContext
 from openresearch.agents.framework_answers import FrameworkAnswerer
+from openresearch.agents.gap_summary import native_gap_summary
 from openresearch.errors import ContractError
 from openresearch.llm.client import LLMClient
 from openresearch.models.chat import ChatReply, ExecutionSummary
@@ -40,6 +41,8 @@ class ChatAgent:
             return await self.frameworks.execute(plan, task)
         if task.type != "chat_answer" or "chat.answer" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to use the chat agent")
+        if task.inputs.get("native_gap_summary") is True:
+            return await asyncio.to_thread(native_gap_summary, plan, task, self.files)
         keys = list(task.required_artifacts)
         if task.trigger_rule == "all_done":
             keys.extend(

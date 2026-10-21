@@ -71,6 +71,7 @@ def source_view(plan: Plan, task: Task) -> Plan:
                 key: artifact
                 for key, artifact in projected.artifacts.items()
                 if artifact.producer_task_id in ancestors
+                and (task.artifact_scope != "result_gap" or artifact.producer_task_id == task.id)
             }
         }
     )

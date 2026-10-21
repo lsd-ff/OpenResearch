@@ -43,6 +43,7 @@ class ExperimentInput:
     allow_runtime_select: bool = False
     runtime_fixed: bool = True
     interpreter_probe: InterpreterProbe | None = None
+    preserve_raises: bool = True
 
 
 @dataclass(frozen=True)

@@ -1,12 +1,15 @@
 import hashlib
 
 from openresearch.errors import ContractError
+from openresearch.models.audit import ReviewSnapshot
 from openresearch.models.gap import GapPatchIdentity
+from openresearch.models.graph import ancestor_map
 from openresearch.models.research import ResearchPatch, ResearchReport, ResearchSpec
+from openresearch.models.runtime import Plan, Task
 from openresearch.models.runtime_profiles import TargetPython
 from openresearch.research.code_guards import validate_code_repair
 from openresearch.research.patches import apply_patch
-from openresearch.research.review_sources import ReviewMaterial
+from openresearch.research.review_sources import ReviewMaterial, pin
 from openresearch.storage.files import ArtifactStore
 
 GAP_OUTPUTS = [
@@ -43,18 +46,46 @@ def source_context(material: ReviewMaterial, files: ArtifactStore) -> dict[str, 
     }
 
 
+def native_snapshot(plan: Plan, task: Task, files: ArtifactStore) -> ReviewSnapshot:
+    if "gap_source_snapshot" not in task.required_artifacts:
+        raise ContractError("native repair requires its declared comparison snapshot")
+    snapshot = ReviewSnapshot.model_validate_json(files.read(plan.artifacts["gap_source_snapshot"]))
+    if (
+        snapshot.source_plan_id != plan.id
+        or snapshot.source_task_id != task.inputs.get("source_task_id")
+        or snapshot.source_task_id
+        not in ancestor_map({node.id: node for node in plan.nodes})[task.id]
+    ):
+        raise ContractError("native repair snapshot differs from the frozen source ancestor")
+    artifact = plan.artifacts.get("comparison_report")
+    if artifact is None or artifact.producer_task_id not in task.dependencies:
+        raise ContractError("native repair has no declared actual comparison")
+    parent = next(node for node in plan.nodes if node.id == artifact.producer_task_id)
+    if parent.inputs.get("source_task_id") != snapshot.source_task_id:
+        raise ContractError("native comparison belongs to another execution source")
+    snapshot.supplements["comparison_report"] = pin(plan.id, artifact)
+    return snapshot
+
+
 def validate_gap_patch(
     current: dict[str, bytes],
     proposal: ResearchPatch,
     spec: ResearchSpec,
     python: TargetPython = "3.12",
+    *,
+    preserve_raises: bool = True,
 ) -> tuple[dict[str, bytes], list[GapPatchIdentity]]:
     updated = apply_patch(current, proposal, spec)
     identities = []
     for patch in proposal.files:
         if patch.path not in current:
             raise ContractError("result-gap repair must modify an existing authorized source")
-        validate_code_repair(current[patch.path].decode("utf-8"), patch.content, python)
+        validate_code_repair(
+            current[patch.path].decode("utf-8"),
+            patch.content,
+            python,
+            preserve_raises=preserve_raises,
+        )
         identities.append(
             GapPatchIdentity(
                 path=patch.path,

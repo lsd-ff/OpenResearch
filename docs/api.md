@@ -21,7 +21,7 @@
 | GET | /api/uploads/{id}、/api/uploads/{id}/content | 元数据、原文件与 SHA ETag |
 | POST | /api/sources/search | kind=paper/repository、query、limit；返回来源元数据 |
 | GET | /api/pdf-proxy?url=... | 公共 HTTP/HTTPS PDF，校验 DNS、实际连接及重定向；支持 arXiv |
-| POST | /api/plan | 创建图，不自动执行 |
+| POST | /api/plan | 显式工作流创建图；默认 auto 可复用统一消息服务 |
 | GET | /api/plans/{id} | plan_graph 包含状态、节点和产物索引 |
 | POST | /api/plans/{id}/execute | 202，整图排队 |
 | POST | /api/plans/{id}/approve、cancel | 批准或取消 |
@@ -45,7 +45,11 @@ workflow 为 auto/code/paper/reproduce/benchmark。attachments 为本身份已�
 
 `/api/messages` 与 `/api/plan` 的 `papers` 列表只包含本次计划实际所属的 PDF 元数据及内容地址，不包含内部文件路径或所有者字段。网页阅读按钮绑定这个列表，打开已保存的原始附件；CSV 等非 PDF 附件不显示论文入口。远程链接下载同样先保存为有归属及 SHA-256 的附件，随后才进入沙箱解析。网络、代理及大小边界见 [公共 PDF](remote-pdf.md)。
 
-工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。生成图后仍由 `/execute` 排队，生成计划本身不执行代码。
+工作台统一调用 `/api/messages`，例如 `{"message":"复现 https://github.com/pallets/itsdangerous 的签名校验"}`。服务器解析意图、核验实际来源和附件，返回 type=plan 及 plan_graph；材料不足返回 type=clarification 及中文追问，不插入虚假计划。下一条简短回复沿用持久化 pending_planning。发送「取消」清除当前追问；普通聊天返回校验后的 citations。显式工作流的 `/api/plan` 只创建图，须另行排队；默认 auto 且未传 code/research/comparison 时则复用统一消息服务。消息服务对明确执行请求和已接通的自动流程使用标准队列，响应说明是否已开始执行。审批或「先规划」「不要执行」继续阻止自动入队。
+
+原生科研请求明确包含「修复结果差距并重跑」等指令时，同一张图保留原执行、实际结果比较与来源快照、受约束的差距修复及终态聊天报告。已有 CSV/PDF/源码按原规则上传或提供，不由模型虚构材料；代码块和行内代码中的修复文字不能授权执行。比较只读取实际原回执，修复产物使用 `result_gap__` 前缀，原结果不覆盖，预算不重新起算。没有有据补丁时仅诊断，不生成重跑回执；程序完成和冻结规则达标分开报告。原执行或修复失败时仍通过既定只读终态节点返回实际错误，图的失败状态保留。
+
+高级请求可以在 `/api/plan` 传 `"result_gap_repair":true`，仅允许 `workflow=reproduce` / `benchmark` 或显式 `research`；普通 code/paper 工作流拒绝该标记。原科研规范必须允许修复且保留修复预算。这个标记只建立同图后继，不自动执行高级计划，也不替换引用既有运行创建独立计划的旧 `fix_and_rerun`。
 
 自动研究图增加 research_design，输出 research_spec 和 experiment_design；依赖解析成固定版本再锁定 wheel。论文分析图包含 document_extract → paper_analyze。来源检索的多个候选需要选择实际编号；模型推测的 URL 不能直接执行。消息、追问和计划插入同一事务，revision 冲突返回 409。
 

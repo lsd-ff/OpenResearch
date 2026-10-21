@@ -130,7 +130,12 @@ class RepairPipeline:
         proposal = await self.preparer.propose(intent, request.spec, request.files, feedback)
         if request.preserve_checks:
             patched, _ = await asyncio.to_thread(
-                validate_gap_patch, request.files, proposal, request.spec, request.lock.python
+                validate_gap_patch,
+                request.files,
+                proposal,
+                request.spec,
+                request.lock.python,
+                preserve_raises=request.preserve_raises,
             )
         else:
             patched = await asyncio.to_thread(apply_patch, request.files, proposal, request.spec)

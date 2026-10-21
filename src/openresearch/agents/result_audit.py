@@ -5,10 +5,11 @@ from openresearch.agents.claim_assess import ClaimAssessor, verification_markdow
 from openresearch.config import Settings
 from openresearch.errors import ContractError
 from openresearch.models.audit import AUDIT_ROLES, ReviewSnapshot
+from openresearch.models.graph import ancestor_map
 from openresearch.models.runtime import Plan, Task, TaskResult
 from openresearch.research.review_outputs import comparison_markdown, plot_results, review_markdown
 from openresearch.research.review_results import empty_audit, verify_results
-from openresearch.research.review_sources import load_review
+from openresearch.research.review_sources import capture_review, load_review
 from openresearch.storage.files import ArtifactStore
 from openresearch.storage.repository import Repository
 
@@ -19,6 +20,31 @@ class ResultAuditor:
         self.claims = ClaimAssessor(settings, files)
 
     async def execute(self, plan: Plan, task: Task) -> TaskResult:
+        if task.inputs.get("native_gap_comparison") is True:
+            source = task.inputs.get("source_task_id")
+            ancestors = ancestor_map({node.id: node for node in plan.nodes})[task.id]
+            if not isinstance(source, str) or source not in ancestors:
+                raise ContractError("native comparison requires its frozen execution ancestor")
+            snapshot = capture_review(plan, source)
+            selected = task.model_copy(
+                update={
+                    "inputs": {
+                        "operation": "paper_compare",
+                        "snapshot": snapshot.model_dump(),
+                    }
+                }
+            )
+            result = await self.review(plan, selected)
+            names = {
+                "claim_evidence_graph": "gap_before_claim_evidence_graph",
+                "claim_verification_report": "gap_before_claim_verification_report",
+            }
+            result.outputs = {names.get(key, key): value for key, value in result.outputs.items()}
+            result.outputs["gap_source_snapshot"] = snapshot.model_dump_json()
+            return result
+        return await self.review(plan, task)
+
+    async def review(self, plan: Plan, task: Task) -> TaskResult:
         if "results.audit" not in task.contract.allowed_tools:
             raise ContractError("task is not authorized to audit saved results")
         operation = task.inputs.get("operation")

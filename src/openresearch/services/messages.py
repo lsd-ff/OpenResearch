@@ -75,6 +75,7 @@ class MessageService:
             and not outcome.plan.approval.required
             and (
                 outcome.plan.intent_type == "Framework_Comparison"
+                or any(node.type == "research_gap_repair" for node in outcome.plan.nodes)
                 or (
                     any(node.type == "code_execute" for node in outcome.plan.nodes)
                     and bool(

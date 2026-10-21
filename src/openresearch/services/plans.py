@@ -22,6 +22,12 @@ class PlanService:
 
     def build(self, submission: PlanSubmission) -> Plan:
         """先校验附件归属，再按工作流构建已验证的持久化计划。"""
+        if submission.result_gap_repair and (
+            submission.comparison is not None
+            or submission.workflow not in {"auto", "reproduce", "benchmark"}
+            or (submission.workflow == "auto" and submission.research is None)
+        ):
+            raise ContractError("result-gap repair requires a scientific execution workflow")
         for identifier in submission.attachments:
             self.repository.uploads.get(identifier, submission.identity.user_id)
         if len(set(submission.attachments)) != len(submission.attachments):

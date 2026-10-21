@@ -127,6 +127,10 @@ class ResearchExecutor:
             dependency_constraints=constraints,
             allow_environment_repair="environment.repair" in task.contract.allowed_tools,
             allow_patch_repair="research.patch" in task.contract.allowed_tools,
+            # 原运行也不能通过删除断言、测试或实际库来制造成功；与差距修复共用校验。
+            preserve_checks=True,
+            # 业务 RuntimeError 可被实际重测纠正；断言、测试函数和退出信号仍不可删除。
+            preserve_raises=False,
             allow_runtime_select="runtime.select" in task.contract.allowed_tools,
             runtime_fixed=ResearchSpec.model_validate(task.inputs.get("research", {})).runtime
             is not None,

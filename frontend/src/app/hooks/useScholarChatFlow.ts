@@ -196,8 +196,8 @@ export function useScholarChatFlow(options: UseScholarChatFlowOptions) {
             if (!terminal || alreadyReported) return { ...session, planGraph: graph };
             const failure = graph.nodes.find(node => node.status === 'failed');
             const analysis = graph.nodes.find(node => node.type === 'framework_report')
-              ?? graph.nodes.find(node => node.type === 'research_gap_repair')
               ?? graph.nodes.find(node => node.type === 'chat_answer')
+              ?? graph.nodes.find(node => node.type === 'research_gap_repair')
               ?? graph.nodes.find(node => node.type === 'paper_analyze')
               ?? graph.nodes.find(node => node.type === 'knowledge_synthesis')
               ?? graph.nodes.find(node => node.type === 'knowledge_process')

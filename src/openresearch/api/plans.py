@@ -25,6 +25,7 @@ async def create_plan(
         workflow=payload.workflow,
         research=payload.research,
         comparison=payload.comparison,
+        result_gap_repair=payload.result_gap_repair,
     )
     if (
         payload.workflow == "auto"

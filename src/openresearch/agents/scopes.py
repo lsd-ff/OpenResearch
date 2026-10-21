@@ -15,7 +15,13 @@ def scoped_context(context: AgentContext) -> AgentContext:
 def scoped_plan_task(plan: Plan, task: Task) -> tuple[Plan, Task]:
     if task.artifact_scope is None:
         return plan, task
-    if plan.intent_type != "Framework_Comparison":
+    gap = task.artifact_scope == "result_gap"
+    if gap and (
+        task.type != "research_gap_repair"
+        or plan.intent_type not in {"Benchmark", "Paper_Reproduction"}
+    ):
+        raise ContractError("result-gap scopes require a native scientific repair stage")
+    if not gap and plan.intent_type != "Framework_Comparison":
         raise ContractError("artifact scopes are restricted to comparison branches")
     prefix = task.artifact_scope + "__"
 
@@ -31,7 +37,13 @@ def scoped_plan_task(plan: Plan, task: Task) -> tuple[Plan, Task]:
     inputs = [local(key) for key in task.required_artifacts]
     outputs = [local(key) for key in task.output_artifacts]
     contract = task.contract.model_copy(
-        update={"input_artifacts": inputs, "output_artifacts": outputs}
+        update={
+            "input_artifacts": inputs,
+            "output_artifacts": outputs,
+            "optional_output_artifacts": [
+                local(key) for key in task.contract.optional_output_artifacts
+            ],
+        }
     )
     projected_task = task.model_copy(
         update={
@@ -45,8 +57,12 @@ def scoped_plan_task(plan: Plan, task: Task) -> tuple[Plan, Task]:
     artifacts = {
         local(key): artifact
         for key, artifact in plan.artifacts.items()
-        if key.startswith(prefix) or not re.match(r"^framework_[1-9][0-9]*__", key)
+        if not key.startswith(prefix) and not re.match(r"^framework_[1-9][0-9]*__", key)
     }
+    # 本节点已有输出必须覆盖同名的原始输入，不能依赖数据库/字典插入顺序。
+    artifacts.update(
+        {local(key): artifact for key, artifact in plan.artifacts.items() if key.startswith(prefix)}
+    )
     return plan.model_copy(update={"artifacts": artifacts}), projected_task
 
 

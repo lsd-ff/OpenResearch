@@ -9,11 +9,12 @@ def artifact_producers(nodes: dict[str, "Task"]) -> dict[str, str]:
     producers: dict[str, str] = {}
     for node in nodes.values():
         optional = set(node.contract.optional_output_artifacts)
+        canonical_optional = {key.removeprefix("result_gap__") for key in optional}
         if optional and (
             node.type != "research_gap_repair"
-            or node.artifact_scope is not None
+            or node.artifact_scope not in {None, "result_gap"}
             or not optional.issubset(node.output_artifacts)
-            or optional
+            or canonical_optional
             - {
                 "research_report",
                 "benchmark_predictions",
@@ -78,6 +79,12 @@ def validate_graph(plan: "Plan") -> None:
     producers = artifact_producers(nodes)
     ancestors = ancestor_map(nodes)
     for node in nodes.values():
+        if node.artifact_scope == "result_gap" and (
+            node.type != "research_gap_repair"
+            or plan.intent_type not in {"Paper_Reproduction", "Benchmark"}
+            or any(not key.startswith("result_gap__") for key in node.output_artifacts)
+        ):
+            raise ValueError("result-gap namespaces require a native scientific repair stage")
         if node.trigger_rule == "all_done" and (set(nodes) - {node.id}) - ancestors[node.id]:
             raise ValueError("a final report must wait for every other task")
         if any(producers.get(key) not in ancestors[node.id] for key in node.required_artifacts):

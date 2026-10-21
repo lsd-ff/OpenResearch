@@ -20,3 +20,4 @@ class PlanSubmission:
     auto_design: bool = False
     comparison: ComparisonSpec | None = None
     repository_search: RepositoryDiscoveryRequest | None = None
+    result_gap_repair: bool = False
