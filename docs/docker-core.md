@@ -89,13 +89,49 @@ async with lease, lease.fork() as candidate:
 
 ## 加权资源队列
 
-`openresearch.executor.gates` 提供 `WeightedSemaphore`、`Gatekeeper` 和 `ResourceConfig`。默认 IO 配额为 5、GPU 逻辑配额为 1；CPU 环境可明确设 `max_gpu_tasks=0`。这些值是调度预算，不探测物理设备，GPU 容器准入及策略调度接入仍待完成。
+`openresearch.executor.gates` 提供 `WeightedSemaphore`、`Gatekeeper` 和 `ResourceConfig`。默认 IO 配额为 5、GPU 逻辑配额为 1；CPU 环境可明确设 `max_gpu_tasks=0`。这些值是调度预算，不探测物理设备。下节 CPU 执行器已使用 IO 配额约束候选容器，GPU 设备透传与准入仍待完成，不能把逻辑 GPU 配额当作物理支持。
 
 `acquire_io(weight)` / `acquire_gpu(weight)` 为异步获取，`release_io(weight)` / `release_gpu(weight)` 为同一事件循环内同步归还。推荐使用 `async with gates.reserve(io_weight=1, gpu_weight=0)`：先校验两个权重，再按 IO→GPU 顺序获取，后者等待时取消也会归还前者。零权重不占配额，负数、非整数、超过总容量和超额归还均拒绝。
 
 FIFO 队首需要完整权重才能运行，后来的小请求不能抢占其可用份额。队首取消后会立即推进下一可满足请求；即使等待 Future 已获配额、任务尚未恢复就取消，也会归还预留份额。`io_usage`、`gpu_usage` 和单个信号量的 `usage` 提供不可变的容量/占用/等待快照。一个队列绑定首次使用的事件循环，不跨循环或跨线程共享。等待预算可由调用方的 `asyncio.timeout()` 覆盖。
 
 12 项行为回归覆盖 FIFO、队首取消、获配后取消、异常释放、组合等待取消、CPU 零 GPU 配额、手动 API、无效权重/超额释放、跨循环拒绝及 50 个加权并发任务。它们验证调度原语，不把逻辑 GPU 份额当作真实设备测试。
+
+## DAG 与隔离策略竞速
+
+`openresearch.executor.engine.Engine` 管理一次独立 CPU 图执行，使用 `async with` 释放资源。`Node` 的 `commands` 是最多三条独立替代命令，依赖由 `dependencies` 指定；空命令集合需要显式提供规划智能体。`DAG` 在执行前拒绝重复节点/依赖、未知依赖、空命令和环；节点、命令和依赖均不可变。非空命令不能依赖其他候选的写入。
+
+```python
+from openresearch.executor.engine import Engine
+from openresearch.executor.models import DAG, ExecutorConfig, Node
+
+graph = DAG(
+    nodes=[
+        Node(id="write", commands=["printf first > value", "printf second > value"]),
+        Node(id="verify", commands=["test -s value"], dependencies=["write"]),
+    ]
+)
+async with Engine(ExecutorConfig(sandbox=config)) as engine:
+    receipt = await engine.execute_graph(graph)
+    async with await engine.snapshot() as snapshot, snapshot.fork() as reader:
+        actual = await reader.execute("cat value")
+```
+
+ready 节点实际并发，每个候选借用同一已提交基线、创建独立可写容器。首个执行、检查点及清理都成功的候选获得发布机会，其余候选取消并排空；已经成功但未被选中的结果标记 `discarded`，不谎称已完成任务被中途取消。空 stdout 的零退出仍成功，失败、超时、输出超限或崩溃信号不能获胜。检查和原始输出继续使用真实 Watchdog/Core 回执。
+
+发布使用全局状态版本。兄弟节点已发布时，旧候选标记 `superseded`、释放其快照，并从最新状态重新竞跑同一组命令；不覆盖兄弟的文件、安装结果及环境。依赖只在节点实际发布后解锁。模型候选每节点只生成一次，基线重算不重新请求模型，也不重置原节点时限和累计预算。最多经历其他节点的发布次数，另有显式尝试预算及整体时限。
+
+基线重算会再次执行原命令，容器外的副作用不会随镜像回滚；显式启用网络的任务需要按这种重跑语义设计。默认网络仍为 `none`。
+
+默认最多 64 节点、5 个并行节点，候选按 `io_weight`（默认 1）预留实际 IO 额度，从创建前持有到容器清理成功才归还。清理失败保留额度并中止竞速、取消等候者，再重试所属资源清理，不能先释放额度再启动超额容器。当前 `gpu_weight>0` 在候选启动前明确拒绝，GPU 接入另行验收。
+
+`ExecutorConfig` 默认节点时限 900 秒、整图时限 1800 秒、每节点最多 192 个候选尝试槽、整图最多 256 个。节点时限覆盖内部候选生成、门控等待、容器生命周期和所有基线重算；整图时限还覆盖初始快照。槽位在本轮准入前一次性预留，排队后取消也消费槽位，但 `started_at` 为空表示没有观察到命令开始；不把槽数当作实际命令执行次数。超时/取消后仍排空已进入 Docker 的事务，实际清理可晚于触发时限。发生错误时抛出携带真实 `GraphReceipt` 的 `ExecutionError`，下游标记未运行，不能返回虚假成功。
+
+`LLMAgent(LLMClient(settings))` 提供独立 `plan(goal)` 和 `generate_strategies(instruction)`。计划保留 Go 的 id/instruction/dependencies 格式，非空 instruction 成为一个候选，空值按节点完整目标生成 2–3 个结构化方案。非法图或空方案拒绝，无原始文字 shell 回退。外部 `plan()` 遵守模型客户端自身时限；进入图后的候选生成还受原节点时限约束。该智能体只提议，命令由执行器送入 Docker。
+
+私有记录位于 `<data_dir>/executor/<run_id>/`，保存原图、一次性解析的候选、实际尝试、版本和终态回执。候选拥有独立日志目录；命令输出保存为原始字节，回执仅保留有界摘要和实际路径。`engine.snapshot()` 返回需显式关闭的独立租约，执行器关闭不会提前删除外部仍使用的快照。一个执行器上下文只运行一个图，主动关闭会取消并等待活动图，不会在后台遗留候选。
+
+这是独立库接口，未替换现有持久科研 Worker，也没有新增聊天/HTTP 任意命令入口。跨进程租约恢复、GPU 准入和最终应用部署均不由本节承诺。
 
 ## 验证与剩余范围
 
@@ -114,4 +150,10 @@ uv run --locked pytest tests/acceptance/test_core_checkpoints.py tests/acceptanc
 
 加入快照租约后，最终默认门禁仍为 821 项通过、2 项公共 PDF 跳过，严格 mypy 为 267 源文件，静态检查和构建通过。终端/Watchdog/分支联合实际容器回归 29 项通过（199.14 秒），其中 8 项新增分支场景覆盖隔离、多层镜像引用、关闭后拒绝新借用、原始镜像/会话限制、启动与事务取消、创建失败及删除失败重试。初次联合回归的 VOLUME 拒绝原因被租约检查覆盖，修正统一初始化校验后重新通过，原失败日志保留。Python 3.12.13 的 5 项契约和 8 项实际分支测试亦通过（87.24 秒）；原环境未替换。267 个 wheel 源文件一致，539 个仓库/包文件密钥检查干净，底层所属容器和全部镜像（含中间镜像）均为零。本批未重复完整 Docker 矩阵、网页或单文件发行验收。
 
-策略竞速、资源队列的执行器/GPU 实际接入及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。最新 GitHub CI 因账号限制未分配 runner、没有执行步骤，本地结果与未启动的远端作业分别记录。
+CPU 执行器的最终默认门禁为 841 项通过、2 项公共 PDF 跳过，Ruff、严格 mypy（277 源文件）和构建通过。底层四模块联合实际容器回归 44 项通过（369.35 秒），包含并发屏障、菱形基线重算、失败文件隔离、累计预算、加权等待、主动关闭、整体/节点超时和清理异常时仍占配额。真实模型验收还暴露 Windows 深层审计路径超限，现使用显式扩展路径保存原位置日志；深目录实际图与字节审计均通过，完整联合回归在修正后重跑。
+
+真实模型独立记录 `.data/parity-live/core-executor-51a62cf85613471bafdd1fc6c0d48e95/summary.json`：一次规划和一次候选生成共两个有效实际请求，先前协议失败记录另行保留；三条原始候选均实际开始，一个发布、两个取消并排空。图 `d1569a466dc84f5289f99d7aa4ce8332` 的新容器独立读取核对输入 `[2,5,7]` 和输出 `[4,25,49]`，关闭后所属容器和全部镜像为零。原长路径失败图保留，不改模型方案伪造原图成功。该样例验证执行能力，不代表论文效果。277 个 wheel 源文件一致，552 个仓库/包文件密钥检查干净。
+
+独立 CPython 3.12.13 环境对最终代码通过 40 项专项（25 项契约/模型接口、15 项实际容器，190.74 秒），覆盖新执行器和深目录，原 3.13.5 环境未替换。最后全体 Core 受管容器和镜像（all=True）均为零。源文件已验证不代表新单文件程序已重建，本批未部署主应用或重跑完整网页。
+
+CPU 竞速与加权 IO 已接入上节独立执行器，最终联合验收按对应开发记录确认；GPU 实际接入及最终应用集成仍待完成，本页不表示完整 Go 功能迁移或最终部署完成。最新 GitHub CI 因账号限制未分配 runner、没有执行步骤，本地结果与未启动的远端作业分别记录。

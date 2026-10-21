@@ -5,6 +5,7 @@ from types import TracebackType
 from uuid import uuid4
 
 from openresearch.sandbox.core.models import CommandResult, CoreConfig
+from openresearch.storage.localpath import filesystem_path
 
 
 class OutputCapture:
@@ -12,7 +13,7 @@ class OutputCapture:
 
     def __init__(self, root: Path, command: str, config: CoreConfig) -> None:
         self.config, self.command = config, command
-        folder = root / "commands" / uuid4().hex
+        folder = filesystem_path(root) / "commands" / uuid4().hex
         folder.mkdir(parents=True)
         self.path = folder / "output.bin"
         self.stream = self.path.open("wb")

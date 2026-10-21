@@ -215,3 +215,51 @@ async def test_actual_image_delete_failure_can_retry_without_double_releasing(
     finally:
         await pin.close()
     assert failures == 1 and owned_resources(parent.namespace) == ([], [])
+
+
+async def test_actual_retained_lease_has_independent_lifetime(tmp_path: Path):
+    parent = CoreSandbox(CoreConfig(data_dir=tmp_path, image="python:3.12-slim"))
+    async with parent:
+        pin = await CheckpointManager(parent).commit_and_pin("retained")
+    retained = await pin.retain()
+    await pin.close()
+    try:
+        async with retained.fork() as child:
+            assert (await child.execute("true")).succeeded
+        with pytest.raises(SandboxError, match="closed"):
+            await pin.retain()
+    finally:
+        await retained.close()
+    assert owned_resources(parent.namespace) == ([], [])
+
+
+async def test_actual_retain_cancellation_releases_unreturned_reference(
+    tmp_path: Path, monkeypatch
+):
+    from openresearch.checkpoint.lifetime import ImageReference
+
+    parent = CoreSandbox(CoreConfig(data_dir=tmp_path, image="python:3.12-slim"))
+    async with parent:
+        pin = await CheckpointManager(parent).commit_and_pin("canceled-retain")
+    entered, release = threading.Event(), threading.Event()
+    original = ImageReference.clone
+
+    def delayed_clone(reference):
+        result = original(reference)
+        entered.set()
+        assert release.wait(10)
+        return result
+
+    monkeypatch.setattr(ImageReference, "clone", delayed_clone)
+    task = asyncio.create_task(pin.retain())
+    try:
+        assert await asyncio.to_thread(entered.wait, 15)
+        task.cancel()
+    finally:
+        release.set()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        await pin.close()
+    assert owned_resources(parent.namespace) == ([], [])

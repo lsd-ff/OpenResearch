@@ -10,13 +10,14 @@ from openresearch.sandbox.core.engine import CoreEngine
 from openresearch.sandbox.core.models import CommandResult, CoreConfig
 from openresearch.sandbox.core.transactions import settle
 from openresearch.sandbox.namespace import runtime_namespace
+from openresearch.storage.localpath import filesystem_path
 
 
 class CoreSandbox:
     """通过 async with 管理的独立持久终端；不接受宿主挂载和任意 Docker 参数。"""
 
     def __init__(self, config: CoreConfig, *, snapshot: SnapshotLease | None = None) -> None:
-        self.config = config.model_copy(update={"data_dir": config.data_dir.resolve()})
+        self.config = config.model_copy(update={"data_dir": filesystem_path(config.data_dir)})
         self.namespace = runtime_namespace(self.config.data_dir)
         self._lock = asyncio.Lock()
         self._engine: CoreEngine | None = None

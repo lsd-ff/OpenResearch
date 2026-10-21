@@ -85,3 +85,14 @@ async def test_unstarted_close_is_idempotent_and_cannot_be_reopened(tmp_path: Pa
     await sandbox.close()
     with pytest.raises(SandboxError, match="cannot be started twice"):
         await sandbox.__aenter__()
+
+
+def test_deep_audit_paths_preserve_actual_output_and_metadata(tmp_path: Path):
+    root = tmp_path / ("first" * 12) / ("second" * 10) / ("third" * 12)
+    with OutputCapture(root, "deep audit", CoreConfig(data_dir=root)) as capture:
+        capture.write(b"actual bytes")
+        result = capture.finish(0, False)
+    assert result.audit_path.read_bytes() == b"actual bytes"
+    assert len(str(result.audit_path)) > 260
+    metadata = json.loads(result.audit_path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert metadata["captured_bytes"] == 12 and metadata["exit_code"] == 0

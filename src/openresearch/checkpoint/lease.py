@@ -21,6 +21,21 @@ class SnapshotLease:
     def borrow(self) -> ImageReference:
         return self._reference.clone()
 
+    async def retain(self) -> "SnapshotLease":
+        retained: SnapshotLease | None = None
+
+        def operation() -> SnapshotLease:
+            nonlocal retained
+            retained = SnapshotLease(self.snapshot, self.config, self.borrow())
+            return retained
+
+        try:
+            return await settle(asyncio.create_task(asyncio.to_thread(operation)))
+        except BaseException:
+            if retained is not None:
+                await retained.close()
+            raise
+
     def fork(self, config: CoreConfig | None = None) -> "CoreSandbox":
         from openresearch.sandbox.core.session import CoreSandbox
 
