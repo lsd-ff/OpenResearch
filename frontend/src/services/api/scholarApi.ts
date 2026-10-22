@@ -100,11 +100,14 @@ export const createPlanEventSource = (
     onPlanEvent: (event: PlanEvent) => void;
     onError?: () => void;
   },
+  after = 0,
 ): EventSource => {
-	const source = new EventSource(`${API_BASE_URL}/api/plans/${planId}/stream`, { withCredentials: true });
+  const cursor = after > 0 ? `?after=${after}` : '';
+  const source = new EventSource(`${API_BASE_URL}/api/plans/${planId}/stream${cursor}`, { withCredentials: true });
   source.addEventListener(PLAN_STREAM_EVENT_NAME, (evt) => {
     const parsed = JSON.parse((evt as MessageEvent).data) as PlanEvent;
-    handlers.onPlanEvent(parsed);
+    const sequence = parsed.sequence ?? Number((evt as MessageEvent).lastEventId);
+    handlers.onPlanEvent({ ...parsed, sequence });
   });
   if (handlers.onError) {
     source.onerror = handlers.onError;

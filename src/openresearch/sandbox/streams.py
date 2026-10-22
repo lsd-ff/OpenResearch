@@ -12,7 +12,8 @@ async def stream_events(
 ) -> AsyncIterator[dict[str, Any]]:
     buffer = b""
     total = 0
-    async for chunk in response.aiter_bytes(chunk_size=65536):
+    # 显式块大小会等待凑满 64 KiB，导致短日志直到 EOF 才交付；按实际到达块增量解析。
+    async for chunk in response.aiter_bytes():
         total += len(chunk)
         if total > max_bytes:
             raise SandboxError("sandbox output exceeds configured size limit")
