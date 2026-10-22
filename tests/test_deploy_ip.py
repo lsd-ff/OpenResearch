@@ -52,6 +52,7 @@ def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: P
         "OPENRESEARCH_SANDBOX_TOKEN": credential,
         "OPENRESEARCH_LLM_API_KEY": credential,
         "OPENRESEARCH_CORS_ORIGINS": '["http://127.0.0.1:18080"]',
+        "OPENRESEARCH_PIP_INDEX_URL": "https://pypi.tuna.tsinghua.edu.cn/simple",
     }
     env_file = runtime / "runtime.env"
     deploy.write_private(env_file, deploy.render_environment("CUSTOM=preserved\n", values))
@@ -62,6 +63,9 @@ def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: P
     config = deploy.read_config(deploy.compose_command(root, env_file, deployed=True))
     deploy.verify_config(config, values)
     assert config["name"] == "deployment-contract-test"
+    assert config["services"]["api"]["build"]["args"]["OPENRESEARCH_PIP_INDEX_URL"] == (
+        "https://pypi.tuna.tsinghua.edu.cn/simple"
+    )
     assert not config["services"]["api"].get("ports")
     assert not config["services"]["sandbox"].get("ports")
     assert config["services"]["web"]["ports"][0]["published"] == "18080"
