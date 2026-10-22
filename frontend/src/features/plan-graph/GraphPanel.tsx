@@ -27,22 +27,30 @@ interface GraphPanelProps {
 
 export function GraphPanel(props: GraphPanelProps) {
   const viewport = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   const [flow, setFlow] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   const graphKey = props.nodes.map(node => node.id).join(':');
+  const left = Math.min(...props.nodes.map(node => node.position.x), 0);
+  const right = Math.max(...props.nodes.map(node => node.position.x + 216), 216);
+  const bottom = Math.max(...props.nodes.map(node => node.position.y + 100), 100);
+  const zoom = Math.min(1, Math.max(0.1, (size.width - 36) / (right - left)));
+  const canvasHeight = Math.max(size.height, (bottom + 40) * zoom);
   useEffect(() => {
     const element = viewport.current;
-    if (!element || !flow) return;
-    let frame = 0;
+    if (!element) return;
     const observer = new ResizeObserver(entries => {
-      if (!entries[0]?.contentRect.width) return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        void flow.fitView({ padding: 0.16, maxZoom: 1.08 });
-      });
+      const rect = entries[0]?.contentRect;
+      if (rect?.width && rect.height) setSize({ width: rect.width, height: rect.height });
     });
     observer.observe(element);
-    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, [flow, graphKey]);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!flow || !size.width) return;
+    // 仅按栏宽缩放，长流程通过纵向滚动阅读，避免所有步骤被缩成不可读的小点。
+    const frame = requestAnimationFrame(() => void flow.setViewport({ x: (size.width - (right - left) * zoom) / 2 - left * zoom, y: 24, zoom }));
+    return () => cancelAnimationFrame(frame);
+  }, [flow, graphKey, size.width, right, left, zoom]);
   const {
     nodes,
     edges,
@@ -72,10 +80,9 @@ export function GraphPanel(props: GraphPanelProps) {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800" title={subtitle}>
-              <GitBranch className="h-4 w-4 text-blue-600" />
               {graphTitle}
             </h2>
-            <div className="graph-progress flex flex-wrap items-center gap-2 text-xs">
+            {nodes.length > 0 && <div className="graph-progress flex flex-wrap items-center gap-2 text-xs">
               <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {completedCount}/{nodes.length} 完成
@@ -87,7 +94,7 @@ export function GraphPanel(props: GraphPanelProps) {
                 </span>
               )}
 			  {failedCount > 0 && <span className="rounded-md bg-rose-50 px-2 py-1 font-medium text-rose-700">{failedCount} 失败</span>}
-            </div>
+            </div>}
           </div>
 		  <div className="flex shrink-0 items-center gap-2">
             <button className="icon-button" onClick={props.onToggleExpanded}
@@ -122,22 +129,22 @@ export function GraphPanel(props: GraphPanelProps) {
 				<RotateCcw className="h-4 w-4" />
 				重试失败节点
 			  </button>
-			) : (
+			) : pendingCount > 0 ? (
 			  <button
 				type="button"
 				onClick={onRunAll}
-				disabled={pendingCount === 0}
 				className="flex items-center gap-2 rounded-md bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
 			  >
 				<Play className="h-4 w-4 fill-current" />
 				{runAllText}
 			  </button>
-			)}
+			) : null}
 		  </div>
         </div>
       </div>
 
       <div ref={viewport} className="graph-viewport">
+        {nodes.length === 0 ? <div className="workflow-empty"><GitBranch size={28} /><h3>等待执行计划</h3><p>在左侧对话中描述研究目标，生成的步骤会在这里展示。</p></div> : <div className="graph-canvas" style={{ height: canvasHeight }}>
         <ReactFlow
           onInit={setFlow}
           nodes={nodes}
@@ -147,14 +154,15 @@ export function GraphPanel(props: GraphPanelProps) {
           onNodeClick={onNodeClick}
           nodesConnectable={false}
           nodesDraggable={false}
+          zoomOnScroll={false}
+          preventScrolling={false}
           minZoom={0.1}
-          fitView
-          fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}
           className="research-flow-canvas"
         >
           <Background color="#dce5e9" gap={24} size={0.7} />
           <Controls showInteractive={false} />
         </ReactFlow>
+        </div>}
       </div>
       <ResearchArtifacts nodes={nodes} />
     </section>

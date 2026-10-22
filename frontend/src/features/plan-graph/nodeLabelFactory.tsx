@@ -9,6 +9,7 @@ interface CreateTaskNodeLabelOptions {
 }
 
 const agentLabels: Record<string, string> = {
+  chat_agent: '对话智能体',
   librarian_agent: '文献智能体',
   coder_agent: '代码智能体',
   sandbox_agent: '沙箱智能体',
