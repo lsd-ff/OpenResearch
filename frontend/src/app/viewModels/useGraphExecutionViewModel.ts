@@ -23,10 +23,16 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
   const runtime = useScholarRuntimeContext();
 
   return useMemo(() => {
+    const selectedTask = (nodes.find(node => node.id === runtime.state.executionState.selectedTask?.ID)?.data.task as Task | undefined)
+      ?? runtime.state.executionState.selectedTask;
     const isExecuting = runtime.state.executionState.isExecuting
       || activePlanStatus === 'ready' || activePlanStatus === 'in_progress';
     const graphPanelProps = {
-      nodes,
+      // 概览和聊天也能打开节点；高亮必须跟随当前详情，不能停在上一次鼠标点击处。
+      nodes: nodes.map(node => {
+        const selected = node.id === selectedTask?.ID;
+        return Boolean(node.selected) === selected ? node : { ...node, selected };
+      }),
       edges,
       onNodesChange,
       onEdgesChange,
@@ -47,8 +53,6 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
     const showExecutionResizeHandle =
       Boolean(runtime.state.executionState.selectedTask) && !isExpandedMode;
 
-    const selectedTask = (nodes.find(node => node.id === runtime.state.executionState.selectedTask?.ID)?.data.task as Task | undefined)
-      ?? runtime.state.executionState.selectedTask;
     const executionSidebarProps = selectedTask
       ? {
           selectedTask,

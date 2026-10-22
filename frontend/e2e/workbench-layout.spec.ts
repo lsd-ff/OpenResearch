@@ -7,7 +7,7 @@ const code = 'assert sum([2, 3]) == 5\nprint("LAYOUT_TEST_OK")\n';
 const report = '# 界面回归报告\n\n此内容来自界面显示夹具，用于验证报告阅读与下载。\n\n```text\nLAYOUT_TEST_OK\n```';
 const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9gAAAABJRU5ErkJggg==';
 
-async function prepare(page: Page, status = 'completed', evidence = false) {
+async function prepare(page: Page, status = 'completed', evidence = false, summary = false) {
   const graph = {
     id: planId, user_intent: '科研工作台界面验收', intent_type: 'Code_Execution', status,
     trace_id: 'layout-fixture', approval: { required: status === 'awaiting_approval', status: 'pending' },
@@ -17,6 +17,10 @@ async function prepare(page: Page, status = 'completed', evidence = false) {
       required_artifacts: [], output_artifacts: [], inputs: {}, run_count: 1, code, result: report,
       image_base64: image, contract: { version: 'task/v1', input_artifacts: [], output_artifacts: [], allowed_tools: [] } }],
   };
+  if (summary) Object.assign(graph, { nodes: [graph.nodes[0], { ...graph.nodes[0],
+    id: '556677889900aabbccddeeff00112233', name: '汇总报告节点', assigned_to: 'chat_agent', type: 'chat_process',
+    dependencies: [taskId], code: '', image_base64: '', result: '# 汇总报告\n\n报告选中态验收。',
+  }], edges: [{ id: 'summary-edge', from: taskId, to: '556677889900aabbccddeeff00112233', type: 'control' }] });
   if (evidence) Object.assign(graph.nodes[0], { structured_data: JSON.stringify({ version: 'claim.evidence/v1', status: 'completed', rubric_sha256: 'ui-fixture',
     claims: [{ claim_id: 'claim-ui', title: '界面主张夹具', statement: '验证证据关系的展示', source_locator: 'UI fixture', claim_type: 'test',
       status: 'verified', confidence: 1, criteria: [{ criterion_id: 'criterion-ui', description: '证据引用可见', status: 'verified', confidence: 1,
@@ -94,6 +98,17 @@ test('会话搜索、切换和身份设置继续可用', async ({ page }) => {
   await expect(page.getByRole('complementary', { name: '会话导航' })).toContainText('workbench-test-user');
   await page.getByRole('button', { name: '新建 Session', exact: true }).click();
   await expect(page.getByRole('textbox', { name: '搜索会话' })).toHaveValue('');
+});
+
+test('从概览打开汇总报告时同步高亮流程节点，关闭详情清除高亮', async ({ page }) => {
+  await prepare(page, 'completed', false, true);
+  await page.locator('.scholar-task-node').filter({ hasText: '界面验收节点' }).click();
+  await page.getByRole('button', { name: '查看报告', exact: true }).click();
+  await expect(page.getByRole('complementary', { name: '任务详情' }).getByRole('heading', { name: '汇总报告节点' })).toBeVisible();
+  await expect(page.locator('.scholar-task-node.selected')).toHaveCount(1);
+  await expect(page.locator('.scholar-task-node.selected')).toContainText('汇总报告节点');
+  await page.getByRole('button', { name: '关闭节点执行面板' }).click();
+  await expect(page.locator('.scholar-task-node.selected')).toHaveCount(0);
 });
 
 test('手机导航抽屉、流程和报告可达，输入区与设置没有水平溢出', async ({ page }, testInfo) => {
