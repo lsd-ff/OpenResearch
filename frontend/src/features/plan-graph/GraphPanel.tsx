@@ -1,8 +1,9 @@
 import { Background, Controls, ReactFlow } from '@xyflow/react';
 import type { Edge, Node, OnEdgesChange, OnNodesChange, ReactFlowInstance } from '@xyflow/react';
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, GitBranch, LoaderCircle, Play, RotateCcw, ShieldCheck, Square } from 'lucide-react';
+import { CheckCircle2, GitBranch, LoaderCircle, Maximize2, Minimize2, Play, RotateCcw, ShieldCheck, Square } from 'lucide-react';
 import type { IntentContext } from '../../contracts/api';
+import { ResearchArtifacts } from './ResearchArtifacts';
 
 interface GraphPanelProps {
   nodes: Node[];
@@ -20,21 +21,9 @@ interface GraphPanelProps {
 	onApproveAndRun: () => void;
 	onCancel: () => void;
 	onRetryFailed: () => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }
-
-const intentLabels: Record<string, string> = {
-  Paper_Reproduction: '论文复现',
-  Framework_Comparison: '框架对比',
-  Code_Execution: '代码执行',
-  General: '通用任务',
-  Data_Analysis: '数据分析',
-  Paper_Analysis: '论文阅读',
-  Benchmark: '数据评测',
-  Result_Review: '结果复核',
-  Knowledge_Research: '资料研究',
-  Result_Gap_Repair: '结果修复',
-  General_Response: '通用回答',
-};
 
 export function GraphPanel(props: GraphPanelProps) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -75,24 +64,18 @@ export function GraphPanel(props: GraphPanelProps) {
   const runningCount = nodes.filter((node) => node.data.status === 'in_progress').length;
 	const failedCount = nodes.filter((node) => node.data.status === 'failed').length;
   const pendingCount = nodes.filter((node) => node.data.task && node.data.status !== 'completed').length;
-  const intentLabel = intentContext ? intentLabels[intentContext.intent_type] ?? intentContext.intent_type : null;
   const subtitle = intentContext?.raw_intent || graphHint;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
+    <section className="graph-panel" aria-label="执行流程">
+      <div className="graph-panel-header">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800" title={subtitle}>
               <GitBranch className="h-4 w-4 text-blue-600" />
               {graphTitle}
             </h2>
-            <p className="mt-1.5 max-w-3xl truncate text-xs text-slate-500" title={subtitle}>
-              {subtitle}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-              {intentLabel && <span className="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">{intentLabel}</span>}
-              <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">{nodes.length} 个步骤</span>
+            <div className="graph-progress flex flex-wrap items-center gap-2 text-xs">
               <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {completedCount}/{nodes.length} 完成
@@ -107,6 +90,10 @@ export function GraphPanel(props: GraphPanelProps) {
             </div>
           </div>
 		  <div className="flex shrink-0 items-center gap-2">
+            <button className="icon-button" onClick={props.onToggleExpanded}
+              title={props.expanded ? '收起执行流程' : '展开执行流程'} aria-label={props.expanded ? '收起执行流程' : '展开执行流程'}>
+              {props.expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
 			{isExecuting ? (
 			  <button
 				type="button"
@@ -150,7 +137,7 @@ export function GraphPanel(props: GraphPanelProps) {
         </div>
       </div>
 
-      <div ref={viewport} className="relative min-h-0 flex-1">
+      <div ref={viewport} className="graph-viewport">
         <ReactFlow
           onInit={setFlow}
           nodes={nodes}
@@ -160,14 +147,16 @@ export function GraphPanel(props: GraphPanelProps) {
           onNodeClick={onNodeClick}
           nodesConnectable={false}
           nodesDraggable={false}
+          minZoom={0.1}
           fitView
           fitViewOptions={{ padding: 0.16, maxZoom: 1.08 }}
-          className="bg-slate-50"
+          className="research-flow-canvas"
         >
-          <Background color="#cbd5e1" gap={20} size={1} />
+          <Background color="#dce5e9" gap={24} size={0.7} />
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
-    </div>
+      <ResearchArtifacts nodes={nodes} />
+    </section>
   );
 }

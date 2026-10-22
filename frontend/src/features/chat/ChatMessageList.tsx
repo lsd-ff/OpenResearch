@@ -1,4 +1,4 @@
-import { Bot, FileText, Languages, Maximize2, X } from 'lucide-react';
+import { Bot, FileText, Languages, Maximize2, Network, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage, UploadedFile } from '../../contracts/api';
@@ -25,19 +25,19 @@ export function ChatMessageList(props: ChatMessageListProps) {
   const { chatHistory, loading, isLoggedIn, pdfActions, taskActions } = props;
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+    <div className="chat-thread" role="log" aria-label="研究对话">
       {!isLoggedIn && (
-        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-slate-600">
+        <div className="guest-session-note">
           当前浏览器保留游客会话；清除浏览器数据会丢失本地会话列表。实验状态由服务端保存。
         </div>
       )}
       {chatHistory.map((msg, i) => (
-        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-          <div className={`max-w-[85%] flex flex-col gap-2 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+        <div key={i} className={`chat-message ${msg.role === 'user' ? 'is-user' : 'is-assistant'}`}>
+          {msg.role !== 'user' && <div className="assistant-avatar" aria-hidden="true"><Network size={18} /></div>}
+          <div className="chat-message-body">
+            {msg.role !== 'user' && <div className="assistant-label">OpenResearch</div>}
             <div
-              className={`rounded-2xl px-4 py-3 shadow-sm ${
-                msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-100 text-gray-800 rounded-bl-none'
-              }`}
+              className="chat-message-bubble"
             >
               {msg.role === 'user' ? (
                 msg.text
@@ -49,7 +49,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
             </div>
 
             {msg.actions && (msg.actions.some(action => action !== 'open_pdf') || Boolean(msg.papers?.length)) && (
-              <div className="flex gap-2 mt-1 animate-in fade-in slide-in-from-top-1 duration-300">
+              <div className="chat-message-actions">
                 {msg.actions.includes('open_pdf') && msg.papers?.map(paper => (
                   <button
                     key={paper.id}
