@@ -20,7 +20,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-REPOSITORY = "https://github.com/lsd-ff/OpenResearch-Python.git"
+REPOSITORY = "https://github.com/lsd-ff/OpenResearch.git"
+LEGACY_REPOSITORY = "https://github.com/lsd-ff/OpenResearch-Python.git"
 BEGIN = "# BEGIN OPENRESEARCH IP DEPLOYMENT"
 END = "# END OPENRESEARCH IP DEPLOYMENT"
 MARKER = "openresearch-ip-v1"
@@ -218,7 +219,8 @@ def prepare_repository(root: Path, ref: str) -> None:
     if not (root / ".git").exists() or not (root / "compose.yaml").is_file():
         raise DeploymentError("部署目录已存在，但不是有效的项目仓库；不会覆盖该目录。")
     remote = run(["git", "-C", str(root), "remote", "get-url", "origin"], capture=True)
-    if remote.strip().removesuffix(".git") != REPOSITORY.removesuffix(".git"):
+    allowed = {url.removesuffix(".git") for url in (REPOSITORY, LEGACY_REPOSITORY)}
+    if remote.strip().removesuffix(".git") not in allowed:
         raise DeploymentError("已有目录的 Git origin 与目标仓库不一致；不会覆盖。")
     if run(["git", "-C", str(root), "diff", "HEAD", "--name-only"], capture=True).strip():
         raise DeploymentError("仓库存在未提交的代码改动，请先保存；不会自动重置。")

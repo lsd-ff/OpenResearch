@@ -78,6 +78,21 @@ def test_unmanaged_runtime_directory_is_not_overwritten(tmp_path: Path) -> None:
     assert existing.read_text(encoding="utf-8") == "important"
 
 
+@pytest.mark.parametrize("legacy", [False, True])
+def test_repository_rename_preserves_existing_checkouts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy: bool
+) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    remote = deploy.LEGACY_REPOSITORY if legacy else deploy.REPOSITORY
+
+    def execute(command, **kwargs):
+        return remote if "get-url" in command else ""
+
+    monkeypatch.setattr(deploy, "run", execute)
+    deploy.prepare_repository(tmp_path, "main")
+
+
 def test_original_env_is_unchanged_and_existing_runtime_is_reused(tmp_path: Path) -> None:
     original = tmp_path / ".env"
     original.write_text("CUSTOM=retained\n", encoding="utf-8")
