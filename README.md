@@ -371,6 +371,7 @@ OpenResearch-Python/
 
 ## Documentation
 
+- [Linux 一键部署与公网 IP 访问](docs/ip-deployment.md)
 - [项目架构](docs/architecture.md)
 - [框架对齐验收](docs/framework-parity.md)
 - [源码迁移复核](docs/go-migration-audit.md)
