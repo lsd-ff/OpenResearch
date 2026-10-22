@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import type { ChatMessage, UploadedFile } from '../../contracts/api';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageList } from './ChatMessageList';
@@ -51,11 +50,10 @@ interface ChatPanelProps {
   chatActions: ChatActions;
   pdfActions: PdfActions;
   taskActions: TaskActions;
-  workflow?: ReactNode;
 }
 
 export function ChatPanel(props: ChatPanelProps) {
-  const { state, chatActions, pdfActions, taskActions, workflow } = props;
+  const { state, chatActions, pdfActions, taskActions } = props;
 
   return (
     <div className="chat-panel">
@@ -66,7 +64,6 @@ export function ChatPanel(props: ChatPanelProps) {
         pdfActions={pdfActions}
         taskActions={taskActions}
       />
-      {workflow}
       <ChatComposer
         onReadPaper={pdfActions.onReadPaper}
         prompt={state.prompt}

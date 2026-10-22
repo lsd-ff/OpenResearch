@@ -55,7 +55,7 @@ export default function ScholarApp() {
   }), [runtime]);
   return <ScholarRuntimeProvider value={context}>
     <div className="scholar-workbench">
-      <WorkbenchHeader userId={chatFlow.userId} sessionsOpen={sessionsOpen} onToggleSessions={() => setSessionsOpen(!sessionsOpen)} onOpenResearch={() => setResearchOpen(true)} />
+      <WorkbenchHeader sessionsOpen={sessionsOpen} onToggleSessions={() => setSessionsOpen(!sessionsOpen)} onOpenResearch={() => setResearchOpen(true)} />
       {researchOpen && <ResearchWorkspace identity={chatFlow.requestIdentity} attachments={chatFlow.pendingAttachments}
         onReadPaper={attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`)}
         onPlanCreated={chatFlow.acceptResearchPlan} onClose={() => setResearchOpen(false)} />}

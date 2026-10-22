@@ -4,13 +4,12 @@ import { API_BASE_URL } from '../../config/env';
 import { ApiConnection } from '../../features/research/ApiConnection';
 
 interface Props {
-  userId: string | null;
   sessionsOpen: boolean;
   onToggleSessions: () => void;
   onOpenResearch: () => void;
 }
 
-export function WorkbenchHeader({ userId, sessionsOpen, onToggleSessions, onOpenResearch }: Props) {
+export function WorkbenchHeader({ sessionsOpen, onToggleSessions, onOpenResearch }: Props) {
   const [connection, setConnection] = useState('正在连接');
   useEffect(() => {
     const controller = new AbortController();
@@ -28,12 +27,10 @@ export function WorkbenchHeader({ userId, sessionsOpen, onToggleSessions, onOpen
     <a className="workbench-brand" href="#" aria-label="OpenResearch 科研工作台">
       <Network aria-hidden="true" /><span>OpenResearch</span>
     </a>
-    <span className="workbench-brand-caption">科研工作台</span>
     <div className="workbench-tools" role="toolbar" aria-label="工作台设置">
       <span className="connection-status" data-online={connection === '服务已连接'} role="status"><span />{connection}</span>
       <ApiConnection />
       <button className="research-launch" onClick={onOpenResearch}><SlidersHorizontal size={16} /><span>高级实验设置</span></button>
-      <span className="workspace-avatar" title={userId || '本地游客工作空间'}>{userId?.slice(0, 1).toUpperCase() || '研'}</span>
     </div>
   </header>;
 }

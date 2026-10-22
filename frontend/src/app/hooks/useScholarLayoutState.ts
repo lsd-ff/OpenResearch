@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-const clampWidth = (width: number) => Math.max(320, Math.min(width, window.innerWidth * 0.48, 640));
+const clampWidth = (width: number) => Math.max(304, Math.min(width, window.innerWidth * 0.36, 560));
 
 export function useScholarLayoutState() {
   const [sidebarWidth, setSidebarWidth] = useState(400);

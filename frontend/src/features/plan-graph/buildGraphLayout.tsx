@@ -6,8 +6,6 @@ import { createTaskNodeLabel } from './nodeLabelFactory';
 const NODE_WIDTH = 216;
 const NODE_HEIGHT = 92;
 
-const getCompactColumnCount = () => (typeof window !== 'undefined' && window.innerWidth < 640 ? 2 : 3);
-
 const pairKey = (from: string, to: string) => `${from}->${to}`;
 
 const selectVisibleEdges = (planGraph: PlanGraph) => {
@@ -92,17 +90,12 @@ export const buildGraphLayout = (planGraph: PlanGraph): { nodes: Node[]; edges: 
     return laneOrder.indexOf(a.assigned_to) - laneOrder.indexOf(b.assigned_to);
   });
 
-  const maxLevel = sortedTasks.reduce((max, task) => Math.max(max, resolveLevel(task)), 0);
   const tasksPerLevel = sortedTasks.reduce<Record<number, number>>((counts, task) => {
     const level = resolveLevel(task);
     counts[level] = (counts[level] || 0) + 1;
     return counts;
   }, {});
   const maxTasksInLevel = Math.max(...Object.values(tasksPerLevel), 1);
-  const useCompactLongChain = maxLevel >= 5 && maxTasksInLevel <= 2;
-  const compactColumns = getCompactColumnCount();
-  const compactStackGap = 112;
-  const compactRowHeight = maxTasksInLevel > 1 ? 260 : 148;
 
   const levelCounts: Record<number, number> = {};
   sortedTasks.forEach((task, taskIndex) => {
@@ -112,34 +105,17 @@ export const buildGraphLayout = (planGraph: PlanGraph): { nodes: Node[]; edges: 
     const legacyTask = graphTaskToTask(task);
     const styleState = getTaskStyleByStatus(task.status);
 
-    let position = {
-      x: 48 + level * 276,
-      y: 48 + (stackIndex + (maxTasksInLevel - tasksPerLevel[level]) / 2) * 132,
+    // 第三栏按依赖从上向下阅读，同层并行节点并排，保留真实 DAG 分支。
+    const position = {
+      x: 24 + (stackIndex + (maxTasksInLevel - tasksPerLevel[level]) / 2) * 252,
+      y: 24 + level * 148,
     };
-    let sourcePosition = Position.Right;
-    let targetPosition = Position.Left;
-
-    if (useCompactLongChain) {
-      const row = Math.floor(level / compactColumns);
-      const naturalColumn = level % compactColumns;
-      const column = row % 2 === 0 ? naturalColumn : compactColumns - naturalColumn - 1;
-      const startsNewRow = naturalColumn === 0 && row > 0;
-      const endsRow = naturalColumn === compactColumns - 1 && level < maxLevel;
-      const levelStackOffset = ((maxTasksInLevel - tasksPerLevel[level]) * compactStackGap) / 2;
-
-      position = {
-        x: 48 + column * 268,
-        y: 48 + row * compactRowHeight + levelStackOffset + stackIndex * compactStackGap,
-      };
-      targetPosition = startsNewRow ? Position.Top : row % 2 === 0 ? Position.Left : Position.Right;
-      sourcePosition = endsRow ? Position.Bottom : row % 2 === 0 ? Position.Right : Position.Left;
-    }
 
     newNodes.push({
       id: task.id,
       position,
-      sourcePosition,
-      targetPosition,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
       className: 'scholar-task-node',
       data: {
         task: legacyTask,

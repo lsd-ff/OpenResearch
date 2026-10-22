@@ -40,12 +40,7 @@ export function ScholarWorkspace(props: Props) {
     onAttachFiles: chatFlow.handleAttachFiles,
     onRemoveAttachment: chatFlow.handleRemoveAttachment,
   };
-  const workflow = props.nodes.length > 0 || mobilePane === 'graph'
-    ? <div className={`workspace-flow ${expandedGraph ? 'is-expanded' : ''}`}>
-        <GraphPanel {...viewModel.graphPanelProps} expanded={expandedGraph} onToggleExpanded={() => setExpandedGraph(!expandedGraph)} />
-      </div> : null;
-
-  return <div className="scholar-app-shell" data-mobile-pane={mobilePane} data-has-inspector={Boolean(viewModel.executionSidebarProps)}>
+  return <div className="scholar-app-shell" data-mobile-pane={pdfFlow.pdfUrl ? 'chat' : mobilePane} data-has-inspector={Boolean(viewModel.executionSidebarProps)}>
     <ChatSessionManager open={props.sessionsOpen} onClose={props.onCloseSessions}
       state={{ ...chatFlow, sessions: chatFlow.sessionSummaries, loading: chatFlow.loading }} actions={chatActions} />
     <div className="scholar-graph-workspace">
@@ -62,8 +57,11 @@ export function ScholarWorkspace(props: Props) {
         </section> : <ChatPanel
           state={{ ...chatFlow, showSuggestions: pdfFlow.showSuggestions, sessions: chatFlow.sessionSummaries }}
           chatActions={chatActions} pdfActions={{ onReadPaper: attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`), onClosePdf: closePdf, onFullTranslation: pdfFlow.handleFullTranslation }}
-          taskActions={{ onOpenTaskView: runtime.actions.handleOpenTaskView }} workflow={workflow} />}
+          taskActions={{ onOpenTaskView: runtime.actions.handleOpenTaskView }} />}
       </main>
+      <aside className={`workspace-flow ${expandedGraph ? 'is-expanded' : ''}`} aria-label="执行流程栏">
+        <GraphPanel {...viewModel.graphPanelProps} expanded={expandedGraph} onToggleExpanded={() => setExpandedGraph(!expandedGraph)} />
+      </aside>
       {viewModel.showExecutionResizeHandle && <div className="inspector-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整任务详情宽度"
         tabIndex={0} onMouseDown={layout.startResizingSidebar}
         onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); layout.resizeSidebar(event.key === 'ArrowLeft' ? 20 : -20); } }} />}
