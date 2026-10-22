@@ -25,6 +25,7 @@ LEGACY_REPOSITORY = "https://github.com/lsd-ff/OpenResearch-Python.git"
 BEGIN = "# BEGIN OPENRESEARCH IP DEPLOYMENT"
 END = "# END OPENRESEARCH IP DEPLOYMENT"
 MARKER = "openresearch-ip-v1"
+LLM_TIMEOUT_SECONDS = 300
 
 
 class DeploymentError(RuntimeError):
@@ -272,7 +273,7 @@ def deployment_values(args: argparse.Namespace, config: dict) -> dict[str, str]:
         "OPENRESEARCH_API_TOKEN": current.get("OPENRESEARCH_API_TOKEN") or secrets.token_hex(32),
         "OPENRESEARCH_SANDBOX_TOKEN": current.get("OPENRESEARCH_SANDBOX_TOKEN")
         or secrets.token_hex(32),
-        "OPENRESEARCH_LLM_TIMEOUT_SECONDS": "120",
+        "OPENRESEARCH_LLM_TIMEOUT_SECONDS": str(LLM_TIMEOUT_SECONDS),
         "OPENRESEARCH_SANDBOX_MEMORY": "1g",
         "OPENRESEARCH_SOURCE_DOWNLOAD_TIMEOUT_SECONDS": "180",
         "OPENRESEARCH_CORS_ORIGINS": json.dumps([f"http://{args.public_ip}:{args.port}"]),
@@ -344,14 +345,14 @@ from openresearch.config import Settings
 s = Settings()
 r = httpx.post('http://127.0.0.1:8080/api/chat',
     headers={'Authorization': 'Bearer ' + s.api_token.get_secret_value()},
-    json={'message': '请只回复：模型连接成功'}, timeout=150)
+    json={'message': '请只回复：模型连接成功'}, timeout=s.llm_timeout_seconds + 30)
 print(r.status_code)
 """
     status = run(
         [*command, "exec", "-T", "api", "/app/.venv/bin/python", "-"],
         capture=True,
         input=probe,
-        timeout=170,
+        timeout=LLM_TIMEOUT_SECONDS + 50,
     ).strip()
     if status != "200":
         raise DeploymentError("应用已启动，但模型调用未通过；请检查接口、模型、密钥和额度。")

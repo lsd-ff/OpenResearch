@@ -33,7 +33,9 @@ def test_environment_rejects_injected_lines(value: str) -> None:
         deploy.render_environment("", {"OPENRESEARCH_API_TOKEN": value})
 
 
-def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: Path) -> None:
+def test_docker_compose_preserves_credentials_and_only_publishes_web(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     if not shutil.which("docker"):
         pytest.skip("需要 Docker Compose CLI，配置解析不需要 Docker daemon")
     probe = subprocess.run(["docker", "compose", "version"], capture_output=True)
@@ -44,6 +46,7 @@ def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: P
     shutil.copy2(ROOT / "compose.yaml", root / "compose.yaml")
     runtime = deploy.runtime_directory(root)
     runtime.mkdir()
+    monkeypatch.delenv("OPENRESEARCH_DEPLOY_API_KEY", raising=False)
     # 引号、反斜杠、$ 和 ${...} 都不能被误展开，也不能泄漏到测试输出。
     credential = "test-only-$NOT_SET-${OTHER}-'\"-\\path-终"
     values = {
@@ -52,10 +55,26 @@ def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: P
         "OPENRESEARCH_SANDBOX_TOKEN": credential,
         "OPENRESEARCH_LLM_API_KEY": credential,
         "OPENRESEARCH_CORS_ORIGINS": '["http://127.0.0.1:18080"]',
-        "OPENRESEARCH_PIP_INDEX_URL": "https://pypi.tuna.tsinghua.edu.cn/simple",
     }
     env_file = runtime / "runtime.env"
-    deploy.write_private(env_file, deploy.render_environment("CUSTOM=preserved\n", values))
+    original = (
+        "CUSTOM=preserved\nOPENRESEARCH_LLM_TIMEOUT_SECONDS=120\n"
+        "OPENRESEARCH_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple\n"
+    )
+    deploy.write_private(env_file, deploy.render_environment(original, values))
+    # 重跑部署时覆盖旧的 120 秒配置，并通过真实 Compose 合并验证两个服务都生效。
+    args = argparse.Namespace(
+        model="test-model",
+        llm_base_url="https://example.invalid/v1",
+        non_interactive=True,
+        public_ip="127.0.0.1",
+        port=18080,
+    )
+    current = deploy.read_config(deploy.compose_command(root, env_file))
+    values = deploy.deployment_values(args, current)
+    deploy.write_private(
+        env_file, deploy.render_environment(env_file.read_text(encoding="utf-8"), values)
+    )
     deploy.write_private(runtime / "nginx.conf", deploy.render_nginx())
     deploy.write_private(
         runtime / "compose.ip.yaml", deploy.render_compose(runtime, runtime / "web", 18080)
@@ -70,6 +89,9 @@ def test_docker_compose_preserves_credentials_and_only_publishes_web(tmp_path: P
     assert not config["services"]["sandbox"].get("ports")
     assert config["services"]["web"]["ports"][0]["published"] == "18080"
     assert config["services"]["worker"]["environment"]["OPENRESEARCH_MAX_CONCURRENT_TASKS"] == "1"
+    for service in ("api", "worker"):
+        environment = config["services"][service]["environment"]
+        assert environment["OPENRESEARCH_LLM_TIMEOUT_SECONDS"] == "300"
 
 
 def test_unmanaged_runtime_directory_is_not_overwritten(tmp_path: Path) -> None:
