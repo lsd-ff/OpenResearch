@@ -120,6 +120,7 @@ export interface IntentContext {
 }
 
 export interface PlanEvent {
+  sequence?: number;
   plan_id: string;
   event_type: string;
   task_id?: string;

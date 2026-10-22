@@ -293,7 +293,6 @@ function ExecutionSidebarShell(props: ExecutionSidebarShellProps) {
           )}
         </button>
 
-        {(executionResult || executionCode || executionStructuredData) && (
           <div className="flex border-b border-gray-100 mt-2 items-center justify-between">
             <div className="flex flex-1">
               <button
@@ -377,7 +376,6 @@ function ExecutionSidebarShell(props: ExecutionSidebarShellProps) {
               </button>
             )}
           </div>
-        )}
 
         <div className="mt-1 flex-1 flex flex-col min-h-0">
           {activeMode === 'logs' ? (
@@ -387,7 +385,7 @@ function ExecutionSidebarShell(props: ExecutionSidebarShellProps) {
                 Pipeline Output
               </label>
               <div className="bg-gray-900 rounded-2xl p-5 flex-1 overflow-y-auto font-mono text-[11px] text-green-400 leading-relaxed shadow-2xl border border-gray-800 whitespace-pre-wrap selection:bg-green-800 selection:text-white scrollbar-thin scrollbar-thumb-gray-700">
-                {executionLogs || '>>> 准备就绪，等待响应...'}
+                {executionLogs || '暂无日志；任务记录同步后将在这里显示。'}
                 {executionResult && !reportAgents.has(selectedTask.AssignedTo) && (
                   <div className="mt-5 pt-5 border-t border-gray-800 text-blue-400 font-bold">
                     [Output]:<br />
