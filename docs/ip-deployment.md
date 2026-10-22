@@ -62,6 +62,18 @@ python3 /root/openresearch-deploy.py restart
 
 如果先前手动部署的宝塔 Nginx 已占用 18080，脚本会停止。可先保留旧站点，改用 `--port 18090`，并放行对应安全组端口；它不会自动关闭已有站点。
 
+## 下载 uv 超时后的续跑
+
+若构建停在 `pip install uv==0.11.16`，且日志出现 `files.pythonhosted.org` 读取超时，可在运行文件 `/opt/openresearch-deployment/runtime.env` 的工具标记块外新增：
+
+```dotenv
+OPENRESEARCH_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+先在源码目录执行 `git pull --ff-only`，获取支持该构建参数的 Dockerfile 与 Compose 配置，再重新运行部署命令，可追加 `--non-interactive` 复用已保存的模型密钥。已有完成的构建层会复用；不要修改 Dockerfile 后直接重跑，因为工具会保护存在未提交代码改动的仓库。
+
+该选项仅切换安装 uv 的 pip 索引，不会改写 `uv.lock` 中运行依赖的下载地址、版本或哈希。pip 下载读取超时设为 180 秒、连接重试 5 次；后续 uv 同步同样延长读取超时和重试。保持 HTTPS 证书校验。镜像可用性及服务器网络仍需以实际构建结果为准。
+
 ## 本地验收范围
 
 2026-10-22 在 WSL2 Linux 和真实 Docker 中完成应用构建、四服务启动、首页及 API 健康检查、未认证请求 401、重复部署、数据卷文件保留、访问令牌保留及 0700/0600 文件权限检查。沙箱实际执行了求和断言并成功清理。部署工具另有 15 项行为测试，覆盖配置保留、密钥中的特殊字符、端口占用、仓库改名兼容及失败判断。

@@ -11,7 +11,10 @@ x-model-environment: &model-environment
 
 services:
   api:
-    build: .
+    build:
+      context: .
+      args:
+        OPENRESEARCH_PIP_INDEX_URL: ${OPENRESEARCH_PIP_INDEX_URL:-https://pypi.org/simple}
     image: openresearch-python:local
     ports:
       - "127.0.0.1:${OPENRESEARCH_PORT:-8080}:8080"
