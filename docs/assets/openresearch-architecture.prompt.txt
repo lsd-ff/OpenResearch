@@ -1,0 +1,174 @@
+Tool: built-in image_gen.imagegen
+Requested model: image2.5
+Actual model: not exposed or selectable by the available tool; not verified as image2.5.
+Output: docs/assets/openresearch-architecture.png
+Reference: user's complete Sea-Mult-Agent architecture image, used for layout and style.
+
+=== Layout and naming revision ===
+
+Use case: infographic-diagram / reference-layout redesign.
+Create a polished Chinese technical architecture infographic for the actual OpenResearch system, using the attached image as a STRICT LAYOUT AND STYLE REFERENCE.
+
+The user explicitly requires matching the reference's full composition and typography, not just its colors. Follow the attached reference's relative group positions, sizes, internal card arrangement, title placement, bottom container strip, bottom process row, legend and artifact examples. In particular, DO NOT make six equal-height columns. Group 5 belongs in a HORIZONTAL STRIP BELOW the core, not a tall column. The sandbox is a narrow mid-right panel, separate from external services. Preserve the restrained thin blue/teal outlines, white graph-paper background, dark navy headings, teal backend headings, compact outline icons, small numbered blue/teal circles, technical orthogonal arrows and rounded cards.
+
+Naming requirements, absolute priority:
+- Upper-left brand text must be EXACTLY "OpenResearch". Do not append Python.
+- Main large centered headline must be EXACTLY "多智能体科研执行系统".
+- Do not write "Python 版", "Python版本", "Python 版本", "· Python 版", "OpenResearch Python" or "Sea-Mult-Agent" anywhere.
+- The implementation IS Python. Keep technical labels "Python + FastAPI", "Python Sandbox" and "Python 运行时" inside the appropriate modules. Removing the brand suffix must NOT turn the implementation back into Go.
+- No additional large subtitle beneath the main title. Match reference's compact masthead.
+
+Canvas: complete wide landscape diagram, approximately 16:9, maximum available legible resolution, preferably 3840×2160. Use crisp Chinese sans-serif typography, careful Chinese text, accurate English spelling, equal alignments, generous small gutters. All panels and bottom content fully visible; no screenshot border, black bar, clipped edge or watermark. Redraw text sharply instead of blurring upscaled screenshot text.
+
+REFERENCE COMPOSITION in normalized coordinates, approximately:
+Top masthead y=0–6%.
+Group 1 x=0–7%, y=7–77%.
+Group 2 x=11–26%, y=7–77%.
+Group 3 x=30–68%, y=7–76%.
+Group 4 x=71–82%, y=20–69%.
+Group 6 x=85–99%, y=7–69%.
+Group 5 horizontal container strip x=26–75%, y=77–86%.
+Legend x=80–99%, y=73–86%.
+End-to-end process x=0–78%, y=87–99%.
+Artifact examples x=79–99%, y=87–99%.
+
+Group 1: "1. 用户".
+Tall narrow panel; person icon in the middle; label "研究者 / 用户". Solid arrow "发送请求" to the frontend. Dashed blue SSE return towards user near lower middle.
+
+Group 2: "2. 前端 Web 应用", smaller subtitle "(React + TypeScript)".
+Stack FOUR numbered subcards just like reference:
+1 "对话工作区" with chat-bubble mini illustration.
+2 "PDF 阅读器" with document preview illustration.
+3 "DAG 执行面板" with a simple multicolor dependency graph.
+4 "执行侧边栏" with log rows and three small status chips "运行中", "成功", "失败".
+At bottom of frontend panel three compact utility bars:
+"会话与附件状态"
+"执行计划图渲染"
+"任务状态展示".
+Connect frontend to backend API with navy solid arrow labeled "REST API 调用". Blue dashed return labelled "SSE 实时事件".
+
+Group 3: "3. 后端编排核心（Python + FastAPI）".
+Use same internal arrangement as attached reference: API upper-left; intent upper-right; Planner immediately below intent; persistent store middle-left; Scheduler middle-right; event bar and routed-executor bar across lower width; FOUR Agent cards along the bottom.
+
+Functional cards numbered in teal:
+① "API 层"
+Use four short actual endpoint lines:
+"/api/messages"
+"/api/plan"
+"/api/uploads"
+"/api/plans/{id}/stream"
+
+② "意图与上下文"
+"LLM 意图识别"
+"持久会话 / 材料追问"
+
+③ "规划器 Planner"
+"构建并校验 DAG"
+"实验设计 / 规则冻结"
+
+④ "持久化 Plan Store"
+"SQLite WAL"
+"计划 / 事件 / 租约"
+"上传 / SHA-256 产物"
+IMPORTANT: this is persistent SQLite, NOT an in-memory-only graph. Do not use the reference's "内存中的计划图" label.
+
+⑤ "Worker / Scheduler"
+"依赖解析 / 持久队列"
+"租约 / 预算 / 并发"
+"取消 / 重试 / 恢复"
+
+Wide thin event bar below the cards:
+"事件持久化 + SSE 实时流"
+Wide thin routed executor bar below it:
+"路由任务执行器  Routed Task Executor"
+
+Four evenly spaced bottom Agent cards, in exactly this left-to-right order:
+"Chat Agent" — "对话与通用问答"
+"Librarian Agent" — "论文与仓库检索"
+"Data Agent" — "指标重算与证据"
+"Coder Agent" — "代码生成与执行"
+Use the reference's friendly small robot, book, bar-chart, code icons.
+
+Core topology: API → intent → Planner; Planner saves validated graph to persistent store; Worker ↔ persistent store; Worker → routed executor → four Agents. Events pass via persistent store and SSE bar back to frontend. Agents execute controlled tools via sandbox. Make connectors clear and avoid overlapping labels. Planner itself does not directly execute code or call Docker.
+
+Group 4: "4. 沙箱服务", subtitle "(Python Sandbox)".
+Stack a sandbox API card with cloud icon then these tool rows:
+"创建容器"
+"执行 Python"
+"执行命令"
+"回收容器".
+Below them a compact "原生 Docker 引擎" row with Docker icon.
+At bottom a dashed optional box:
+"可选 OpenSandbox"
+"显式启用回退".
+Connect Agent execution to sandbox service and sandbox service down to the group 5 isolated runtime strip. Only sandbox service manages Docker access.
+
+Group 5: "5. 隔离运行容器（Sandbox 运行环境）".
+IMPORTANT horizontal strip BELOW backend and sandbox, exactly like attached reference.
+Inside six small horizontally aligned cells with simple icons:
+"Python 运行时"
+"临时工作区"
+"固定源码 / 依赖"
+"执行日志"
+"图像结果"
+"执行产物".
+Execution stays in containers. Default non-networking and version/hash-pinned installation are the actual implementation; do not depict experimental code executing on the host.
+
+Group 6: "6. 外部依赖服务".
+Four stacked cards matching attached reference:
+Card A "兼容模型服务"
+"OpenAI / Anthropic"
+"意图识别 / Planner"
+"Agent 模型调用".
+Card B "HuggingFace Papers"
+"arXiv 论文来源"
+"发现论文与仓库线索".
+Card C "GitHub Search"
+"仓库检索 / 固定提交".
+Card D with grey optional styling:
+"可选独立意图服务"
+"Python · optional"
+"不可用时本地回退".
+Use appropriate simple model / document / repository / robot icons, matching reference. The optional intent service is a project service, not a fictitious third-party model.
+Dashed teal external-service connectors travel through whitespace and not through card text. External downloads and source lookups are performed by controlled service tools, not by offline experiment containers.
+
+Legend panel in lower right above bottom strip:
+"REST / 工具调用" solid teal arrow
+"SSE 实时流" dashed blue arrow
+"外部服务调用" dashed teal arrow
+"数据 / 产物流" solid purple arrow
+
+Bottom-left dashed rounded box titled "端到端典型流程", with 10 small numbered boxes linked horizontally, as reference:
+1 "用户发送请求"
+2 "前端 REST 调用"
+3 "意图与上下文"
+4 "Planner 构建 DAG"
+5 "Worker 依赖调度"
+6 "Agent 受控工具"
+7 "Sandbox 隔离执行"
+8 "指标重算与验收"
+9 "持久化结果产物"
+10 "SSE 推送前端"
+Use compact two-line text inside boxes to fit. Show readable numerals.
+
+Bottom-right dashed rounded box titled "典型产物（Artifacts）示例".
+Five small icons with short labels:
+"report", "code", "metrics", "image", "repo_url".
+
+Accuracy and visual constraints:
+- Use the ATTACHED REFERENCE LAYOUT, not the earlier six-column equal-height diagram.
+- Headline and brand must have NO Python suffix; Python technical stack labels are allowed only within system cards.
+- Backend must be FastAPI/Python; no Go, Gin, Go docker-sandbox, Redis, Celery, PostgreSQL, Kubernetes, imaginary package mirrors or public dataset sources.
+- No duplicate sections; six outer group numbers exactly 1 through 6.
+- Do not add dense prose, marketing slogans, a research-prototype warning or tiny unreadable filler.
+- Preserve the elegant cool white/blue/teal/violet technical style, matching the supplied reference.
+
+=== Localized correction ===
+
+Make a precise localized correction to this completed OpenResearch architecture image. Preserve the layout, exact brand "OpenResearch", exact main title "多智能体科研执行系统", all module positions, colors, typography, icons, and remaining arrows.
+
+Correction 1: Remove the SINGLE dashed teal horizontal double-ended arrow connecting the right edge of the central "③ 规划器 Planner" card to the left edge of the "sandbox API" subcard in panel "4. 沙箱服务". This arrow is around the upper-middle of the canvas, directly above the Worker / Scheduler card. Planner never directly executes sandbox tools. Leave that narrow gap clean. Keep the separate solid execution arrow from the lower execution path / Worker to the sandbox and all external-service dashed lines.
+
+Correction 2: In the bottom-left dashed process box, ensure its section title reads EXACTLY "端到端典型流程". Render all seven Chinese characters correctly. Keep the ten numbered steps unchanged.
+
+Change nothing else. Do not add Python to the top brand or headline. Technical Python labels within cards remain unchanged. Keep complete landscape canvas, no crop.
