@@ -34,7 +34,7 @@ export function ChatComposer(props: ChatComposerProps) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="border-t border-gray-200 bg-white p-4">
+    <div className="chat-composer">
       <div className="mb-2 flex items-center justify-between px-1">
         <button
           onClick={() => setShowSuggestions(!showSuggestions)}
@@ -47,12 +47,12 @@ export function ChatComposer(props: ChatComposerProps) {
       </div>
 
       {showSuggestions && (
-        <div className="mb-4 flex flex-wrap gap-2 animate-in slide-in-from-bottom-2 duration-300">
+        <div className="composer-suggestions">
           {suggestions.map((text) => (
             <button
               key={text}
               onClick={() => setPrompt(text)}
-              className="text-[11px] bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-all active:scale-95 shadow-sm hover:shadow-md"
+              className="suggestion-chip"
             >
               {text}
             </button>
@@ -92,7 +92,7 @@ export function ChatComposer(props: ChatComposerProps) {
 			}}
 		/>
 
-		<div className="flex gap-2 relative">
+		<div className="composer-input-area">
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -107,8 +107,9 @@ export function ChatComposer(props: ChatComposerProps) {
               ? '描述复现目标，或提供仓库链接、论文与评测数据...'
               : '直接描述实验目标，也可添加论文或数据...'
           }
-		  className="flex-1 resize-none rounded-lg border border-gray-300 p-3 pb-11 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-gray-50 focus:bg-white transition-all"
-          rows={3}
+		  className="composer-textarea"
+          aria-label="研究问题"
+          rows={2}
         />
 		<button
 			type="button"
@@ -130,7 +131,9 @@ export function ChatComposer(props: ChatComposerProps) {
         >
           <Send className="w-5 h-5" />
         </button>
+        <span className="composer-context">当前会话 <ChevronDown size={12} /></span>
       </div>
+      <p className="composer-help">支持论文阅读、代码执行与数据分析 <span>Enter 发送 · Shift + Enter 换行</span></p>
     </div>
   );
 }

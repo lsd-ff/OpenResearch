@@ -1,7 +1,7 @@
+import type { ReactNode } from 'react';
 import type { ChatMessage, UploadedFile } from '../../contracts/api';
 import { ChatComposer } from './ChatComposer';
 import { ChatMessageList } from './ChatMessageList';
-import { ChatSessionManager } from './ChatSessionManager';
 
 interface ChatPanelState {
   chatHistory: ChatMessage[];
@@ -51,29 +51,14 @@ interface ChatPanelProps {
   chatActions: ChatActions;
   pdfActions: PdfActions;
   taskActions: TaskActions;
+  workflow?: ReactNode;
 }
 
 export function ChatPanel(props: ChatPanelProps) {
-  const { state, chatActions, pdfActions, taskActions } = props;
+  const { state, chatActions, pdfActions, taskActions, workflow } = props;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ChatSessionManager
-        state={{
-          isLoggedIn: state.isLoggedIn,
-          userId: state.userId,
-          loginInput: state.loginInput,
-          activeSessionId: state.activeSessionId,
-          sessions: state.sessions,
-          loading: state.loading,
-        }}
-        actions={{
-          setLoginInput: chatActions.setLoginInput,
-          onLogin: chatActions.onLogin,
-          onCreateSession: chatActions.onCreateSession,
-          onSwitchSession: chatActions.onSwitchSession,
-        }}
-      />
+    <div className="chat-panel">
       <ChatMessageList
         chatHistory={state.chatHistory}
         loading={state.loading}
@@ -81,6 +66,7 @@ export function ChatPanel(props: ChatPanelProps) {
         pdfActions={pdfActions}
         taskActions={taskActions}
       />
+      {workflow}
       <ChatComposer
         onReadPaper={pdfActions.onReadPaper}
         prompt={state.prompt}

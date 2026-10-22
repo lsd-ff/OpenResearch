@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { RefObject } from 'react';
 import type { Edge, Node, OnEdgesChange, OnNodesChange } from '@xyflow/react';
-import type { IntentContext } from '../../contracts/api';
+import type { IntentContext, Task } from '../../contracts/api';
 import { useScholarRuntimeContext } from '../context/ScholarRuntimeContext';
 import { uiText } from '../constants/uiText';
 import type { useScholarLayoutState } from '../hooks/useScholarLayoutState';
@@ -47,9 +47,11 @@ export function useGraphExecutionViewModel(options: UseGraphExecutionViewModelOp
     const showExecutionResizeHandle =
       Boolean(runtime.state.executionState.selectedTask) && !isExpandedMode;
 
-    const executionSidebarProps = runtime.state.executionState.selectedTask
+    const selectedTask = (nodes.find(node => node.id === runtime.state.executionState.selectedTask?.ID)?.data.task as Task | undefined)
+      ?? runtime.state.executionState.selectedTask;
+    const executionSidebarProps = selectedTask
       ? {
-          selectedTask: runtime.state.executionState.selectedTask,
+          selectedTask,
           width: isExpandedMode ? '100%' : `${layout.sidebarWidth}px`,
           isExecuting,
           displayMode: runtime.state.executionState.displayMode,

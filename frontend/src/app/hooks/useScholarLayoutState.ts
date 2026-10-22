@@ -1,50 +1,23 @@
 import { useEffect, useState } from 'react';
 
+const clampWidth = (width: number) => Math.max(320, Math.min(width, window.innerWidth * 0.48, 640));
+
 export function useScholarLayoutState() {
-  const [leftPanelWidth, setLeftPanelWidth] = useState(35);
-  const [isResizing, setIsResizing] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(450);
+  const [sidebarWidth, setSidebarWidth] = useState(400);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isResizing) {
-        const newWidth = (e.clientX / window.innerWidth) * 100;
-        if (newWidth > 20 && newWidth < 80) {
-          setLeftPanelWidth(newWidth);
-        }
-      } else if (isResizingSidebar) {
-        const newSidebarWidth = window.innerWidth - e.clientX;
-        if (newSidebarWidth > 300 && newSidebarWidth < window.innerWidth * 0.6) {
-          setSidebarWidth(newSidebarWidth);
-        }
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      setIsResizingSidebar(false);
-      document.body.style.cursor = 'default';
-    };
-
-    if (isResizing || isResizingSidebar) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-    }
-
+    if (!isResizingSidebar) return;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = 'col-resize';
+    const move = (event: MouseEvent) => setSidebarWidth(clampWidth(window.innerWidth - event.clientX));
+    const stop = () => setIsResizingSidebar(false);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', stop);
+      document.body.style.cursor = previousCursor;
     };
-  }, [isResizing, isResizingSidebar]);
-
-  return {
-    leftPanelWidth,
-    isResizing,
-    sidebarWidth,
-    isResizingSidebar,
-    startResizingLeftPanel: () => setIsResizing(true),
-    startResizingSidebar: () => setIsResizingSidebar(true),
-  };
+  }, [isResizingSidebar]);
+  return { sidebarWidth, isResizingSidebar, startResizingSidebar: () => setIsResizingSidebar(true),
+    resizeSidebar: (delta: number) => setSidebarWidth(previous => clampWidth(previous + delta)) };
 }
