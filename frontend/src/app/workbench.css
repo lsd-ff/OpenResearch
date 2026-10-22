@@ -25,9 +25,9 @@
 .secondary-button:hover { color: var(--research-accent); border-color: #b5d6db; background: #f7fbfb; }
 .scholar-workbench button:disabled { cursor: not-allowed; }
 .scholar-workbench :focus-visible { outline: 2px solid var(--research-accent); outline-offset: 3px; }
-.scholar-app-shell { --workflow-width: clamp(264px, 27vw, 360px); position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.scholar-app-shell[data-has-inspector='true'] { --workflow-width: clamp(224px, 21vw, 320px); }
-.scholar-graph-workspace { display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: #fff; }
+.scholar-app-shell { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; }
+.scholar-graph-workspace { --workflow-default-width: clamp(264px, 27vw, 360px); --splitter-space: 4px; --inspector-reserved-width: 0px; --workflow-width: clamp(224px, var(--workflow-preferred-width, var(--workflow-default-width)), calc(100% - 320px - var(--splitter-space) - var(--inspector-reserved-width))); display: flex; position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; background: #fff; }
+.scholar-app-shell[data-has-inspector='true'] .scholar-graph-workspace { --workflow-default-width: clamp(224px, 21vw, 320px); --splitter-space: 8px; --inspector-reserved-width: 304px; }
 .scholar-left-workspace { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 .session-toggle, .session-sidebar-heading, .session-backdrop, .scholar-mobile-tabbar { display: none; }
 
@@ -151,10 +151,14 @@
 .research-artifacts summary { font-size: 10px; color: var(--research-accent); cursor: pointer; padding-top: 7px; }
 .research-artifacts details .artifact-list { margin-top: 7px; }
 
-.inspector-resize-handle { flex: 0 0 3px; background: #eef2f5; cursor: col-resize; z-index: 45; }
-.inspector-resize-handle:hover, .inspector-resize-handle:focus-visible { background: #71b3bc; }
-/* 给对话至少保留 320px，并计入 3px 分隔条，四列展开时仍可阅读和输入。 */
-.scholar-execution-sidebar { display: flex; flex-direction: column; position: relative; min-height: 0; max-width: calc(100% - var(--workflow-width) - 323px); flex-shrink: 0; border-left: 1px solid var(--research-line); background: #fff; z-index: 40; }
+.column-resize-handle { position: relative; flex: 0 0 4px; background: #eef2f5; cursor: col-resize; touch-action: none; z-index: 45; }
+.column-resize-handle::before { content: ''; position: absolute; inset: 0 -4px; }
+.column-resize-handle::after { content: ''; position: absolute; left: 1px; top: calc(50% - 18px); width: 2px; height: 36px; border-radius: 2px; background: #bacbd3; pointer-events: none; }
+.column-resize-handle:hover, .column-resize-handle:focus-visible, .column-resize-handle[data-resizing='true'] { background: #71b3bc; }
+.scholar-app-shell:has(.column-resize-handle[data-resizing='true']) { user-select: none; }
+.scholar-app-shell:has(.column-resize-handle[data-resizing='true']) * { cursor: col-resize !important; }
+/* 为对话预留 320px，详情预留 304px，并计入两条分隔线，拖动后也不能挤没其他栏。 */
+.scholar-execution-sidebar { display: flex; flex-direction: column; position: relative; min-height: 0; max-width: calc(100% - var(--workflow-width) - 328px); flex-shrink: 0; border-left: 1px solid var(--research-line); background: #fff; z-index: 40; }
 .scholar-execution-sidebar.is-expanded { position: absolute; inset: 0; max-width: none; z-index: 55; }
 .inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 20px; border-bottom: 1px solid var(--research-line); min-height: 55px; flex-shrink: 0; }
 .inspector-heading h2 { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -245,8 +249,9 @@
   .workbench-header { gap: 12px; }
 }
 @media (min-width: 768px) and (max-width: 1023px) {
+  .scholar-app-shell[data-has-inspector='true'] .scholar-graph-workspace { --workflow-default-width: clamp(264px, 27vw, 360px); --inspector-reserved-width: 0px; --splitter-space: 4px; }
   .scholar-execution-sidebar:not(.is-expanded) { position: absolute; right: 0; inset-block: 0; width: min(420px, 80%) !important; max-width: none; box-shadow: -10px 0 40px #2940511a; }
-  .inspector-resize-handle { display: none; }
+  .column-resize-handle[aria-controls='task-details-pane'] { display: none; }
 }
 @media (max-width: 767px) {
   .workbench-header { flex-basis: 58px; gap: 6px; padding-inline: 10px; }
@@ -292,7 +297,7 @@
   .workspace-flow.is-expanded { width: auto; }
   .scholar-app-shell[data-mobile-pane='chat'] .workspace-flow { display: none; }
   .scholar-app-shell[data-mobile-pane='graph'] .chat-panel { display: none; }
-  .inspector-resize-handle { display: none; }
+  .column-resize-handle { display: none; }
   .scholar-execution-sidebar { position: absolute !important; inset: 0; width: 100% !important; max-width: none; }
   .inspector-content { padding: 18px; }
   .inspector-tabs { padding-inline: 12px; }

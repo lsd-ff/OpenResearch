@@ -1,23 +1,27 @@
 import { useEffect, useState } from 'react';
 
 const clampWidth = (width: number) => Math.max(304, Math.min(width, window.innerWidth * 0.36, 560));
+const WORKFLOW_WIDTH_KEY = 'openresearch-python.workflow-width.v1';
+
+function savedWorkflowWidth(): number | null {
+  try {
+    const raw = localStorage.getItem(WORKFLOW_WIDTH_KEY);
+    const width = raw ? Number(raw) : NaN;
+    return Number.isFinite(width) && width >= 224 ? width : null;
+  } catch { return null; }
+}
 
 export function useScholarLayoutState() {
   const [sidebarWidth, setSidebarWidth] = useState(400);
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [workflowWidth, setWorkflowWidth] = useState<number | null>(savedWorkflowWidth);
   useEffect(() => {
-    if (!isResizingSidebar) return;
-    const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = 'col-resize';
-    const move = (event: MouseEvent) => setSidebarWidth(clampWidth(window.innerWidth - event.clientX));
-    const stop = () => setIsResizingSidebar(false);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-    return () => {
-      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = previousCursor;
-    };
-  }, [isResizingSidebar]);
-  return { sidebarWidth, isResizingSidebar, startResizingSidebar: () => setIsResizingSidebar(true),
-    resizeSidebar: (delta: number) => setSidebarWidth(previous => clampWidth(previous + delta)) };
+    try {
+      if (workflowWidth === null) localStorage.removeItem(WORKFLOW_WIDTH_KEY);
+      else localStorage.setItem(WORKFLOW_WIDTH_KEY, String(workflowWidth));
+    } catch { /* 禁用浏览器存储时仍允许本次页面调整宽度。 */ }
+  }, [workflowWidth]);
+  return { sidebarWidth, workflowWidth,
+    resizeSidebar: (width: number) => setSidebarWidth(clampWidth(width)), resetSidebar: () => setSidebarWidth(400),
+    resizeWorkflow: (width: number) => setWorkflowWidth(Math.max(224, Math.min(width, window.innerWidth))),
+    resetWorkflow: () => setWorkflowWidth(null) };
 }

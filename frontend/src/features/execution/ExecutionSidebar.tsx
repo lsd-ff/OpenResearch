@@ -41,7 +41,7 @@ export function ExecutionSidebar(props: Props) {
   const completed = task.Status === 'completed';
   const running = task.Status === 'in_progress';
   const canRun = !props.isExecuting && ['pending', 'ready'].includes(task.Status || '');
-  return <aside className={`scholar-execution-sidebar ${expanded ? 'is-expanded' : ''}`} style={{ width: props.width }} aria-label="任务详情">
+  return <aside id="task-details-pane" className={`scholar-execution-sidebar ${expanded ? 'is-expanded' : ''}`} style={{ width: props.width }} aria-label="任务详情">
     <div className="inspector-heading"><h2>{expanded ? task.Name : '任务详情'}</h2>
       <button className="icon-button" onClick={expanded ? () => onChangeDisplayMode(mode) : props.onClose}
         title={expanded ? `退出全屏${mode === 'report' ? '报告' : mode === 'plot' ? '图表' : '证据图'}` : '关闭节点执行面板'}

@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react';
+import { useState, type CSSProperties, type RefObject } from 'react';
 import type { Edge, Node, OnEdgesChange, OnNodesChange } from '@xyflow/react';
 import { BookOpen, GitBranch, MessageSquareText, X } from 'lucide-react';
 import { useScholarRuntimeContext } from '../context/ScholarRuntimeContext';
@@ -13,6 +13,7 @@ import { GraphPanel } from '../../features/plan-graph/GraphPanel';
 import { ExecutionSidebar } from '../../features/execution/ExecutionSidebar';
 import { API_BASE_URL } from '../../config/env';
 import { WorkspaceOverview } from './WorkspaceOverview';
+import { ColumnResizeHandle } from './ColumnResizeHandle';
 
 interface Props {
   nodes: Node[]; edges: Edge[]; onNodesChange: OnNodesChange<Node>; onEdgesChange: OnEdgesChange<Edge>;
@@ -43,7 +44,7 @@ export function ScholarWorkspace(props: Props) {
   return <div className="scholar-app-shell" data-mobile-pane={pdfFlow.pdfUrl ? 'chat' : mobilePane} data-has-inspector={Boolean(viewModel.executionSidebarProps)}>
     <ChatSessionManager open={props.sessionsOpen} onClose={props.onCloseSessions}
       state={{ ...chatFlow, sessions: chatFlow.sessionSummaries, loading: chatFlow.loading }} actions={chatActions} />
-    <div className="scholar-graph-workspace">
+    <div className="scholar-graph-workspace" style={layout.workflowWidth === null ? undefined : { '--workflow-preferred-width': `${layout.workflowWidth}px` } as CSSProperties}>
       <main className="scholar-left-workspace" aria-label="研究工作区">
         <WorkspaceOverview title={chatFlow.intentContext?.raw_intent || session?.title || '开始新的研究'} intentType={chatFlow.intentContext?.intent_type}
           status={chatFlow.activePlanStatus} nodes={props.nodes} onOpenTask={runtime.actions.handleOpenTaskView} />
@@ -59,12 +60,13 @@ export function ScholarWorkspace(props: Props) {
           chatActions={chatActions} pdfActions={{ onReadPaper: attachment => pdfFlow.setPdfUrl(`${API_BASE_URL}${attachment.content_url}`), onClosePdf: closePdf, onFullTranslation: pdfFlow.handleFullTranslation }}
           taskActions={{ onOpenTaskView: runtime.actions.handleOpenTaskView }} />}
       </main>
-      <aside className={`workspace-flow ${expandedGraph ? 'is-expanded' : ''}`} aria-label="执行流程栏">
+      {!expandedGraph && <ColumnResizeHandle label="调整执行流程宽度" targetId="workflow-pane" minimum={224}
+        onResize={layout.resizeWorkflow} onReset={layout.resetWorkflow} />}
+      <aside id="workflow-pane" className={`workspace-flow ${expandedGraph ? 'is-expanded' : ''}`} aria-label="执行流程栏">
         <GraphPanel {...viewModel.graphPanelProps} expanded={expandedGraph} onToggleExpanded={() => setExpandedGraph(!expandedGraph)} />
       </aside>
-      {viewModel.showExecutionResizeHandle && <div className="inspector-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整任务详情宽度"
-        tabIndex={0} onMouseDown={layout.startResizingSidebar}
-        onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); layout.resizeSidebar(event.key === 'ArrowLeft' ? 20 : -20); } }} />}
+      {viewModel.showExecutionResizeHandle && <ColumnResizeHandle label="调整任务详情宽度" targetId="task-details-pane" minimum={304}
+        onResize={layout.resizeSidebar} onReset={layout.resetSidebar} />}
       {viewModel.executionSidebarProps && <ExecutionSidebar {...viewModel.executionSidebarProps} />}
     </div>
   </div>;

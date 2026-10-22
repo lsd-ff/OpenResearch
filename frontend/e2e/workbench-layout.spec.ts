@@ -190,6 +190,66 @@ test('调整第四栏宽度保留对话和流程空间，关闭后对话恢复�
   expect((await main.boundingBox())!.width).toBeCloseTo(initial!.width, 0);
 });
 
+test('执行流程可左右拖宽、键盘调整、刷新保留，双击恢复默认', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1183, height: 900 });
+  await prepare(page);
+  const flow = page.getByRole('complementary', { name: '执行流程栏' });
+  const divider = page.getByRole('separator', { name: '调整执行流程宽度' });
+  const initial = (await flow.boundingBox())!.width;
+  const handle = (await divider.boundingBox())!;
+  await page.mouse.move(handle.x + 2, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(handle.x - 180, handle.y + 200, { steps: 10 });
+  await page.mouse.up();
+  expect((await flow.boundingBox())!.width).toBeCloseTo(initial + 182, 0);
+  await expect(page.getByRole('textbox', { name: '研究问题' })).toBeInViewport();
+  await expect(divider).toHaveAttribute('data-resizing', 'false');
+  await divider.press('ArrowRight');
+  const resized = (await flow.boundingBox())!.width;
+  expect(resized).toBeCloseTo(initial + 162, 0);
+  await page.reload();
+  expect((await flow.boundingBox())!.width).toBeCloseTo(resized, 0);
+  await page.screenshot({ path: testInfo.outputPath('workflow-resized.png'), fullPage: true });
+  await divider.dblclick();
+  expect((await flow.boundingBox())!.width).toBeCloseTo(initial, 0);
+  await page.reload();
+  expect((await flow.boundingBox())!.width).toBeCloseTo(initial, 0);
+});
+
+test('拖到极限并展开详情或缩窄窗口时，各栏仍可阅读，关闭后恢复用户宽度', async ({ page }) => {
+  await page.setViewportSize({ width: 1183, height: 900 });
+  await prepare(page);
+  const flow = page.getByRole('complementary', { name: '执行流程栏' });
+  const divider = page.getByRole('separator', { name: '调整执行流程宽度' });
+  const handle = (await divider.boundingBox())!;
+  await page.mouse.move(handle.x + 2, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(50, handle.y + 200, { steps: 12 });
+  await page.mouse.up();
+  const enlarged = (await flow.boundingBox())!.width;
+  expect(enlarged).toBeGreaterThan(600);
+  await page.locator('.scholar-task-node').filter({ hasText: '界面验收节点' }).click();
+  for (const width of [1183, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    const panel = (await page.getByRole('complementary', { name: '任务详情' }).boundingBox())!;
+    const main = (await page.getByRole('main', { name: '研究工作区' }).boundingBox())!;
+    const workflow = (await flow.boundingBox())!;
+    expect(main.width).toBeGreaterThanOrEqual(319);
+    expect(panel.width).toBeGreaterThanOrEqual(303);
+    expect(workflow.width).toBeGreaterThanOrEqual(223);
+    expect(workflow.x + workflow.width).toBeLessThanOrEqual(panel.x + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
+  await page.setViewportSize({ width: 1183, height: 900 });
+  await page.getByRole('button', { name: '关闭节点执行面板' }).click();
+  expect((await flow.boundingBox())!.width).toBeCloseTo(enlarged, 0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(divider).not.toBeVisible();
+  await page.getByRole('button', { name: /^流程/ }).click();
+  await expect(flow).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
 test('第三栏保留 DAG 并行分支和汇合，展开后仍可选中步骤', async ({ page }, testInfo) => {
   await prepare(page, { steps: 4, parallel: true });
   const nodes = page.locator('.scholar-task-node');
