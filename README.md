@@ -24,7 +24,7 @@ OpenResearch 是 [AGI-OpenResearch](https://github.com/AGI-Core/AGI-OpenResearch
 
 ![OpenResearch workbench](docs/assets/openresearch-workbench.png)
 
-*Python 工程的网页回归截图，展示材料上传与 DAG 规划；图中的计划尚未执行。*
+*新版科研工作台，展示会话导航、科研对话、执行流程与任务详情；示例为 Transformer 复现任务的执行进度和分析报告。*
 
 ## Why OpenResearch
 
